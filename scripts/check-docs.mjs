@@ -300,7 +300,7 @@ function isValidCalendarDate(str) {
 // ---------------------------------------------------------------------------
 
 function extractPathCandidate(raw) {
-  if (/^(https?:\/\/|mailto:|#)/.test(raw)) return null;
+  if (/^(https?:\/\/|mailto:|#|~\/)/.test(raw)) return null;
   let s = raw;
   const hashIdx = s.indexOf('#');
   if (hashIdx !== -1) s = s.slice(0, hashIdx);
