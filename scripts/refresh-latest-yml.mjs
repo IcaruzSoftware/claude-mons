@@ -2,7 +2,6 @@
 // latest.yml carries the installer's sha512 + size, and the .blockmap (differential updates) is
 // derived from the file contents. Usage: node scripts/refresh-latest-yml.mjs <release-dir>
 import { createHash } from 'node:crypto';
-import { execFileSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { readFileSync, readdirSync, statSync, writeFileSync, existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
@@ -31,22 +30,22 @@ for (const name of installers) {
   if (new RegExp(`^path: ${escape(name)}$`, 'm').test(yml)) {
     yml = yml.replace(/^sha512: .+$/m, `sha512: ${sha512}`);
   }
-  regenerateBlockmap(file);
+  await regenerateBlockmap(file);
   console.info(`refresh-latest-yml: ${name} sha512 updated (${size} bytes)`);
 }
 writeFileSync(ymlPath, yml);
 
-function regenerateBlockmap(file) {
+async function regenerateBlockmap(file) {
   try {
-    // app-builder-bin is a transitive dependency (desktop -> electron-builder -> app-builder-lib);
-    // with pnpm's strict layout it must be resolved along that chain.
+    // electron-builder 26 ships the blockmap builder in app-builder-lib (a transitive dependency:
+    // desktop -> electron-builder -> app-builder-lib); resolve it along that chain for pnpm.
     const fromDesktop = createRequire(join(resolve(dir, '..'), 'package.json'));
     const fromBuilder = createRequire(fromDesktop.resolve('electron-builder/package.json'));
-    const fromLib = createRequire(fromBuilder.resolve('app-builder-lib/package.json'));
-    const { appBuilderPath } = fromLib('app-builder-bin');
-    execFileSync(appBuilderPath, ['blockmap', '--input', file, '--output', `${file}.blockmap`], {
-      stdio: 'inherit',
-    });
+    const { buildBlockMap } = fromBuilder('app-builder-lib/out/targets/blockmap/blockmap');
+    const info = await buildBlockMap(file, 'gzip', `${file}.blockmap`);
+    console.info(
+      `refresh-latest-yml: blockmap regenerated (${info.size} bytes, ${info.blockMapSize} map)`,
+    );
   } catch (err) {
     console.warn(`refresh-latest-yml: could not regenerate blockmap for ${file}: ${err.message}`);
   }
