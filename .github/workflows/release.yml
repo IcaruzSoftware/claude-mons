@@ -99,7 +99,7 @@ jobs:
           SIGNPATH_API_TOKEN: ${{ secrets.SIGNPATH_API_TOKEN }}
           SIGNPATH_ORGANIZATION_ID: ${{ secrets.SIGNPATH_ORGANIZATION_ID }}
           SIGNPATH_PROJECT_SLUG: ${{ vars.SIGNPATH_PROJECT_SLUG }}
-          SIGNING_POLICY: ${{ startsWith(github.ref, 'refs/tags/v') && 'release-signing' || 'test-certificate' }}
+          SIGNING_POLICY: ${{ startsWith(github.ref, 'refs/tags/v') && 'release-signing' || 'test-signing' }}
         run: |
           New-Item -ItemType Directory -Force sign/pass1 | Out-Null
           Copy-Item apps/desktop/release/win-unpacked/claude-mons.exe sign/pass1/
@@ -122,7 +122,7 @@ jobs:
           SIGNPATH_API_TOKEN: ${{ secrets.SIGNPATH_API_TOKEN }}
           SIGNPATH_ORGANIZATION_ID: ${{ secrets.SIGNPATH_ORGANIZATION_ID }}
           SIGNPATH_PROJECT_SLUG: ${{ vars.SIGNPATH_PROJECT_SLUG }}
-          SIGNING_POLICY: ${{ startsWith(github.ref, 'refs/tags/v') && 'release-signing' || 'test-certificate' }}
+          SIGNING_POLICY: ${{ startsWith(github.ref, 'refs/tags/v') && 'release-signing' || 'test-signing' }}
         run: |
           New-Item -ItemType Directory -Force sign/pass2 | Out-Null
           Copy-Item apps/desktop/release/*.exe sign/pass2/

@@ -13,7 +13,7 @@ a developer machine. Nothing in this document is needed for Linux builds.
 2. In the SignPath dashboard, create the project **`claude-mons`** and:
    - (Foundation/enterprise plans only) connect GitHub Actions as trusted build system and require it
      on the policies;
-   - create two **signing policies**: `test-certificate` (self-signed test certificate, used for
+   - create two **signing policies**: `test-signing` (self-signed test certificate, used for
      `workflow_dispatch` runs) and `release-signing` (the Foundation's public certificate, used for
      `v*` tags; Foundation policies usually require a manual approval click per release);
    - create two **artifact configurations** with the slugs `executables` and `installer`, using the
@@ -22,7 +22,7 @@ a developer machine. Nothing in this document is needed for Linux builds.
    - secret `SIGNPATH_API_TOKEN` (a SignPath API token with submitter rights),
    - secret `SIGNPATH_ORGANIZATION_ID` (from the SignPath organization page),
    - variable `SIGNPATH_PROJECT_SLUG` = `claude-mons`.
-4. Run the release workflow once via **workflow_dispatch**: it uses `test-certificate` and proves the
+4. Run the release workflow once via **workflow_dispatch**: it uses `test-signing` and proves the
    round trip. Then push a tag `v0.x.y` for a real signed release.
 
 The workflow skips every signing step while the secrets are absent, so unsigned releases keep working
@@ -74,7 +74,7 @@ requires the *GitHub.com* trusted build system, which only exists on enterprise 
    signed bytes; otherwise electron-updater would reject the download.
 5. Publish installer, blockmap and `latest.yml` to the GitHub Release.
 
-Manual runs (`workflow_dispatch`) use the `test-certificate` policy, tags use `release-signing`. The CI user
+Manual runs (`workflow_dispatch`) use the `test-signing` policy, tags use `release-signing`. The CI user
 that owns `SIGNPATH_API_TOKEN` must be listed as a submitter on both policies.
 
 ## After the first signed release
