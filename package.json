@@ -19,7 +19,7 @@
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "deno:check": "pnpm sync:shared && deno check supabase/functions/**/index.ts",
+    "deno:check": "pnpm sync:shared && deno check --config supabase/functions/deno.json supabase/functions/**/index.ts",
     "sync:shared": "node scripts/sync-shared.mjs",
     "hook:build": "pnpm --filter @claude-mons/hook-cli build",
     "sim": "pnpm --filter @claude-mons/shared sim",

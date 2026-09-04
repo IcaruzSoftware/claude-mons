@@ -5,9 +5,12 @@ import { app } from 'electron';
 
 const BIN_NAME = process.platform === 'win32' ? 'claude-mons-hook.exe' : 'claude-mons-hook';
 
+/** Matches electron-builder's ${os}-${arch} naming used by the Go build script (win-x64, linux-x64, ...). */
 function platformDir(): string {
+  const os =
+    process.platform === 'win32' ? 'win' : process.platform === 'darwin' ? 'mac' : process.platform;
   const arch = process.arch === 'x64' ? 'x64' : process.arch;
-  return `${process.platform}-${arch}`;
+  return `${os}-${arch}`;
 }
 
 /** Where the packaged app ships the binary (electron-builder extraResources) or, in dev, the Go build output. */

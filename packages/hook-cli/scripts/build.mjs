@@ -11,7 +11,7 @@ const pkgDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const args = new Set(process.argv.slice(2));
 
 const TARGETS = [
-  { os: 'windows', arch: 'amd64', dir: 'win32-x64', bin: 'claude-mons-hook.exe' },
+  { os: 'windows', arch: 'amd64', dir: 'win-x64', bin: 'claude-mons-hook.exe' },
   { os: 'linux', arch: 'amd64', dir: 'linux-x64', bin: 'claude-mons-hook' },
   { os: 'linux', arch: 'arm64', dir: 'linux-arm64', bin: 'claude-mons-hook' },
 ];

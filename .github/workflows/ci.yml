@@ -21,8 +21,6 @@ jobs:
       - uses: actions/checkout@v4
 
       - uses: pnpm/action-setup@v4
-        with:
-          version: 10
 
       - uses: actions/setup-node@v4
         with:
@@ -32,6 +30,11 @@ jobs:
       - uses: denoland/setup-deno@v2
         with:
           deno-version: v2.x
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          cache: false
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -47,6 +50,12 @@ jobs:
 
       - name: Deno check (shared + edge functions)
         run: pnpm deno:check
+
+      - name: Hook binary tests
+        run: pnpm --filter @claude-mons/hook-cli test
+
+      - name: Hook binary build (host)
+        run: pnpm --filter @claude-mons/hook-cli build:host
 
       - name: Build desktop (unpackaged)
         run: pnpm --filter @claude-mons/desktop build
