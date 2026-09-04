@@ -51,6 +51,9 @@ export interface LocalState {
     /** set after a successful install so we can re-verify on start */
     installedAt: number | null;
   };
+  ui: {
+    panel: { x: number; y: number } | null;
+  };
 }
 
 export function defaultState(): LocalState {
@@ -67,6 +70,7 @@ export function defaultState(): LocalState {
     behavior: { anchor: null },
     settings: { spriteScale: 3, autostart: false, focusable: null, disableGpu: false },
     hooks: { installedAt: null },
+    ui: { panel: null },
   };
 }
 

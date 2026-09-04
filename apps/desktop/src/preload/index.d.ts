@@ -1,8 +1,9 @@
-import type { PetApi } from './pet.ts';
+import type { PetApi, UiApi } from './index.ts';
 
 declare global {
   interface Window {
     mons: PetApi;
+    monsUi: UiApi;
   }
 }
 

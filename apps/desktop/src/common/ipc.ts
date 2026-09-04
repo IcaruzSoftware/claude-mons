@@ -6,7 +6,7 @@
  * - "world" = Electron screen DIP coordinates (what `screen.*` and `BrowserWindow.getBounds()` use).
  * - "window-local" = CSS pixels inside a renderer window (== DIPs, origin at the window's top-left).
  */
-import type { PetState, Stimulus, World, Stage } from '@claude-mons/shared';
+import type { LevelProgress, Nation, PetState, Stimulus, World, Stage } from '@claude-mons/shared';
 
 export const IPC = {
   // renderer(pet) -> main
@@ -22,6 +22,18 @@ export const IPC = {
   petWindowMoved: 'pet:window-moved',
   petStimulus: 'pet:stimulus',
   petWorld: 'pet:world',
+
+  // renderer(panel / hovercard) -> main (invoke)
+  uiGetSnapshot: 'ui:get-snapshot',
+  uiChooseNation: 'ui:choose-nation',
+  uiToggleHooks: 'ui:toggle-hooks',
+  uiSetSpriteScale: 'ui:set-sprite-scale',
+  uiOpenExternal: 'ui:open-external',
+  uiQuit: 'ui:quit',
+  uiDevGrantXp: 'ui:dev-grant-xp',
+
+  // main -> renderer(panel / hovercard)
+  uiSnapshot: 'ui:snapshot',
 } as const;
 
 export interface PetConfig {
@@ -30,7 +42,7 @@ export interface PetConfig {
   version: string;
   stage: Stage;
   speciesId: string | null;
-  nation: 'water' | 'fire' | 'earth' | 'air' | null;
+  nation: Nation | null;
   /** Initial world bounds and anchor position. */
   world: World;
   x: number;
@@ -68,3 +80,18 @@ export interface StateMessage {
 }
 
 export type StimulusMessage = Stimulus;
+
+export type HookStatusValue =
+  'installed' | 'partial' | 'not-installed' | 'unreadable' | 'no-binary';
+
+/** Everything the panel and hover card need to render. Pushed on every change. */
+export interface UiSnapshot {
+  version: string;
+  isDev: boolean;
+  profile: { nickname: string | null; nation: Nation | null; userId: string | null };
+  pet: { speciesId: string | null; stage: Stage; state: PetState };
+  progress: LevelProgress & { serverXp: number | null; streakDays: number };
+  hooks: { status: HookStatusValue };
+  settings: { spriteScale: number };
+  online: { connected: boolean; lastSyncAt: number | null };
+}

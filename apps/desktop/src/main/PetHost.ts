@@ -40,9 +40,18 @@ export interface PetHostState {
 export interface PetHostCallbacks {
   onSpriteScale: (scale: number) => void;
   onAnchor: (display: Display, anchorX: number) => void;
+  /** Cursor entered/left the sprite. `spriteTop` is the top of the sprite in world DIPs. */
+  onHover: (hovering: boolean, anchor: { x: number; y: number; spriteTop: number }) => void;
+  /** A press + release without dragging. */
+  onClick: () => void;
+  onPanel: () => void;
   hooks: { status: () => HookStatus; toggle: () => void };
   progressLine: () => string;
 }
+
+/** A press shorter than this and moving less than CLICK_MAX_DIST counts as a click, not a drag. */
+const CLICK_MAX_MS = 300;
+const CLICK_MAX_DIST = 6;
 
 /**
  * Owns the pet window and everything around it in the main process: click-through tracking,
@@ -58,7 +67,10 @@ export class PetHost {
   private drag: {
     anchorAtGrab: { x: number; y: number };
     cursorAtGrab: { x: number; y: number };
+    startedAt: number;
+    maxDist: number;
   } | null = null;
+  private lastHitbox: Hitbox = null;
   private shake: ShakeDetectorState = createShakeState();
   private petVisible = true;
   private readonly onStimulusHooks: Array<(s: Stimulus) => void> = [];
@@ -82,6 +94,7 @@ export class PetHost {
         onDragMove: (cursor, t) => this.onDragMove(cursor, t),
         onHoverChange: (hovering) => {
           if (DEBUG) console.info('[pet] hover', hovering);
+          this.callbacks.onHover(hovering, this.spriteAnchorInfo());
         },
       },
     );
@@ -90,6 +103,7 @@ export class PetHost {
       getSpriteScale: () => this.state.spriteScale,
       togglePetVisible: () => this.togglePetVisible(),
       isPetVisible: () => this.petVisible,
+      openPanel: () => this.callbacks.onPanel(),
       hookStatus: () => this.callbacks.hooks.status(),
       toggleHooks: () => this.callbacks.hooks.toggle(),
       progressLine: () => this.callbacks.progressLine(),
@@ -142,7 +156,25 @@ export class PetHost {
     this.state.speciesId = speciesId;
     this.stimulate({ type: 'stage:set', stage });
     this.sendConfig();
+    this.pushWorld();
     this.tray.updateIcon(speciesId, stage);
+  }
+
+  setNation(nation: PetConfig['nation']): void {
+    this.state.nation = nation;
+    this.sendConfig();
+  }
+
+  currentState(): StateMessage | null {
+    return this.lastState;
+  }
+
+  /** Anchor plus the sprite's top edge (world DIPs), for positioning UI next to the pet. */
+  spriteAnchorInfo(): { x: number; y: number; spriteTop: number } {
+    const anchor = this.currentAnchor();
+    const g = this.window.win.getBounds();
+    const spriteTop = this.lastHitbox ? g.y + this.lastHitbox.y : anchor.y - this.spriteWidth();
+    return { ...anchor, spriteTop };
   }
 
   private togglePetVisible(): void {
@@ -203,6 +235,7 @@ export class PetHost {
           'window',
           JSON.stringify(this.window.win.getBounds()),
         );
+      this.lastHitbox = hitbox;
       this.tracker.setHitbox(hitbox);
     });
 
@@ -268,8 +301,9 @@ export class PetHost {
 
   private beginDrag(cursor: { x: number; y: number }): void {
     const anchor = this.currentAnchor();
-    this.drag = { anchorAtGrab: anchor, cursorAtGrab: cursor };
+    this.drag = { anchorAtGrab: anchor, cursorAtGrab: cursor, startedAt: Date.now(), maxDist: 0 };
     this.shake = createShakeState();
+    this.callbacks.onHover(false, this.spriteAnchorInfo());
     this.window.enterFollow(anchor);
     this.tracker.beginDrag();
     this.stimulate({ type: 'input:grab', x: cursor.x, y: cursor.y });
@@ -281,6 +315,10 @@ export class PetHost {
       x: cursor.x + (this.drag.anchorAtGrab.x - this.drag.cursorAtGrab.x),
       y: cursor.y + (this.drag.anchorAtGrab.y - this.drag.cursorAtGrab.y),
     };
+    this.drag.maxDist = Math.max(
+      this.drag.maxDist,
+      Math.hypot(cursor.x - this.drag.cursorAtGrab.x, cursor.y - this.drag.cursorAtGrab.y),
+    );
     this.window.followTo(anchor);
     this.stimulate({ type: 'input:drag', x: cursor.x, y: cursor.y });
 
@@ -293,8 +331,11 @@ export class PetHost {
 
   private endDrag(cursor: { x: number; y: number }): void {
     if (!this.drag) return;
+    const wasClick =
+      Date.now() - this.drag.startedAt < CLICK_MAX_MS && this.drag.maxDist < CLICK_MAX_DIST;
     this.drag = null;
     this.tracker.endDrag();
+    if (wasClick) this.callbacks.onClick();
     // The pet falls to the ground of whichever display it was dropped over.
     const target = displayContaining(screen.getAllDisplays(), cursor, this.display);
     if (target.id !== this.display.id) {

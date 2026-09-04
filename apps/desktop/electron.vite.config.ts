@@ -16,7 +16,7 @@ export default defineConfig({
     build: {
       rollupOptions: {
         input: {
-          pet: resolve(__dirname, 'src/preload/pet.ts'),
+          index: resolve(__dirname, 'src/preload/index.ts'),
         },
         // Sandboxed renderers only accept CommonJS preload scripts.
         output: { format: 'cjs', entryFileNames: '[name].js' },
@@ -29,6 +29,8 @@ export default defineConfig({
       rollupOptions: {
         input: {
           pet: resolve(__dirname, 'src/renderer/pet/index.html'),
+          panel: resolve(__dirname, 'src/renderer/panel/index.html'),
+          hovercard: resolve(__dirname, 'src/renderer/hovercard/index.html'),
         },
       },
     },

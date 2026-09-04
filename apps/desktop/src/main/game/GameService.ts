@@ -157,14 +157,19 @@ export class GameService extends EventEmitter<GameEvents> {
   }
 
   addBattleXp(amount: number): void {
+    this.grantXp(amount, 'battle');
+  }
+
+  /** Adds XP outside the hook pipeline (battles, dev tools). */
+  grantXp(amount: number, source: 'battle' | 'server'): void {
     if (amount <= 0) return;
     const before = this.totalXp();
     const beforeLevel = levelFromXp(before);
     this.state.update((s) => {
       s.progress.localXp += amount;
-      s.battleXp += amount;
+      if (source === 'battle') s.battleXp += amount;
     });
-    this.emit('xp', { amount, source: 'battle' });
+    this.emit('xp', { amount, source });
     this.afterXpChange(before, beforeLevel);
   }
 

@@ -54,7 +54,7 @@ export class PetWindow {
       title: 'claude-mons pet',
       ...(process.platform === 'linux' ? { type: 'toolbar' as const } : {}),
       webPreferences: {
-        preload: join(__dirname, '../preload/pet.js'),
+        preload: join(__dirname, '../preload/index.js'),
         contextIsolation: true,
         sandbox: true,
         nodeIntegration: false,

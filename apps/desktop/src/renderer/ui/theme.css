@@ -1,0 +1,99 @@
+:root {
+  --bg: #14161c;
+  --bg-2: #1c1f27;
+  --bg-3: #252932;
+  --fg: #e8e9ee;
+  --fg-dim: #9aa0ad;
+  --line: #2f3440;
+  --accent: #ffd740;
+  --water: #2ec4b6;
+  --fire: #ff5252;
+  --earth: #7cb342;
+  --air: #4fc3f7;
+  --radius: 6px;
+  --font-pixel: 'Courier New', ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font);
+  font-size: 13px;
+  line-height: 1.4;
+  user-select: none;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  background: var(--bg-3);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 6px 10px;
+  cursor: pointer;
+}
+button:hover {
+  border-color: var(--fg-dim);
+}
+button.primary {
+  background: var(--accent);
+  color: #1a1a1a;
+  border-color: var(--accent);
+  font-weight: 600;
+}
+button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.pixel {
+  font-family: var(--font-pixel);
+  letter-spacing: 0.02em;
+}
+
+.bar {
+  height: 10px;
+  background: var(--bg-3);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.bar > i {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  transition: width 300ms ease-out;
+}
+
+.badge {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #111;
+}
+.badge.water {
+  background: var(--water);
+}
+.badge.fire {
+  background: var(--fire);
+}
+.badge.earth {
+  background: var(--earth);
+}
+.badge.air {
+  background: var(--air);
+}
+
+canvas.sprite {
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+}

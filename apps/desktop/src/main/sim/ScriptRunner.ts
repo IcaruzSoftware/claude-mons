@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-import type { Stimulus } from '@claude-mons/shared';
+import { isNation, type Nation, type Stimulus } from '@claude-mons/shared';
 
 export interface SimScript {
   timeline: Array<{ at: number; stimulus: Stimulus }>;
@@ -63,6 +63,12 @@ export function parseSimulateArg(argv: readonly string[]): string | null {
 /** `--capture <path>`: save a PNG of the pet window a few seconds after start (dev/CI aid). */
 export function parseCaptureArg(argv: readonly string[]): string | null {
   return parseArg(argv, '--capture');
+}
+
+/** `--dev-nation <water|fire|earth|air>`: pick a nation on start (development only). */
+export function parseDevNationArg(argv: readonly string[]): Nation | null {
+  const v = parseArg(argv, '--dev-nation');
+  return isNation(v) ? v : null;
 }
 
 function parseArg(argv: readonly string[], flag: string): string | null {

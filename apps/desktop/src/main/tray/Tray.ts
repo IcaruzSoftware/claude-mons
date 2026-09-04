@@ -8,6 +8,7 @@ export interface TrayActions {
   getSpriteScale(): number;
   togglePetVisible(): void;
   isPetVisible(): boolean;
+  openPanel(): void;
   hookStatus(): HookStatus;
   toggleHooks(): void;
   progressLine(): string;
@@ -27,7 +28,7 @@ export class AppTray {
       this.tray = new Tray(iconFromSprite(speciesId, stage, size));
       this.tray.setToolTip(this.tooltip);
       this.tray.setContextMenu(this.buildMenu());
-      this.tray.on('click', () => this.actions.togglePetVisible());
+      this.tray.on('click', () => this.actions.openPanel());
     } catch (err) {
       // Linux without a StatusNotifier host: the right-click menu on the pet remains available.
       console.warn('tray unavailable:', err);
@@ -76,6 +77,7 @@ export class AppTray {
     return [
       { label: this.actions.progressLine(), enabled: false },
       { type: 'separator' },
+      { label: 'Open claude-mons', click: () => this.actions.openPanel() },
       {
         label: hookLabel,
         click: () => this.actions.toggleHooks(),
