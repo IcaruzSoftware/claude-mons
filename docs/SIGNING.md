@@ -11,8 +11,8 @@ a developer machine. Nothing in this document is needed for Linux builds.
    they check: OSI license (MIT, yes), public repo, a real maintainer identity, builds produced by
    GitHub Actions. Approval typically takes a few days.
 2. In the SignPath dashboard, create the project **`claude-mons`** and:
-   - connect the GitHub repository as the trusted build system (they walk you through installing
-     the SignPath GitHub App);
+   - (Foundation/enterprise plans only) connect GitHub Actions as trusted build system and require it
+     on the policies;
    - create two **signing policies**: `test-signing` (self-signed test certificate, used for
      `workflow_dispatch` runs) and `release-signing` (the Foundation's public certificate, used for
      `v*` tags; Foundation policies usually require a manual approval click per release);
@@ -61,16 +61,21 @@ in the meantime.
 
 ## How the workflow signs
 
-`.github/workflows/release.yml`, job `windows`:
+`.github/workflows/release.yml`, job `windows`, uses SignPath's REST API through the official
+PowerShell module (`scripts/signpath-sign.ps1`). The connector-based GitHub Action is not used because it
+requires the *GitHub.com* trusted build system, which only exists on enterprise and Foundation plans.
 
 1. Build the hook binary and the Electron app; `electron-builder --dir` produces `win-unpacked`.
-2. Upload `claude-mons.exe` + `claude-mons-hook.exe`, submit to SignPath (`executables`), wait, copy the
+2. Zip `claude-mons.exe` + `claude-mons-hook.exe`, submit with configuration `executables`, wait, unzip the
    signed files back into `win-unpacked` (`resources/bin/` for the hook).
 3. Build the NSIS installer from the pre-packaged directory.
-4. Upload the installer, submit to SignPath (`installer`), wait, replace it, then run
+4. Zip the installer, submit with configuration `installer`, wait, replace it, then run
    `scripts/refresh-latest-yml.mjs` so `latest.yml` (sha512, size) and the `.blockmap` match the
    signed bytes; otherwise electron-updater would reject the download.
 5. Publish installer, blockmap and `latest.yml` to the GitHub Release.
+
+Manual runs (`workflow_dispatch`) use the `test-signing` policy, tags use `release-signing`. The CI user
+that owns `SIGNPATH_API_TOKEN` must be listed as a submitter on both policies.
 
 ## After the first signed release
 
