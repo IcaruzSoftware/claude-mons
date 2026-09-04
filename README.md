@@ -50,7 +50,15 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for conventions and [supabase/README.md](
 
 ## Privacy
 
-The hook forwarder sends only event metadata (event type, tool name, session id, a hash of the project path) to the local app. Prompt text, tool inputs and outputs never leave your machine. The server receives aggregated event counts per minute, nothing else. Players are anonymous; the only identity is a generated nickname you can change.
+Full details in [PRIVACY.md](PRIVACY.md), including how to uninstall and delete your data. In short: the hook forwarder sends only event metadata (event type, tool name, session id, a hash of the project path) to the local app. Prompt text, tool inputs and outputs never leave your machine. The server receives aggregated event counts per minute, nothing else. Players are anonymous; the only identity is a generated nickname you can change.
+
+## Uninstall
+
+Windows: Settings → Apps → claude-mons → Uninstall. Linux: delete the AppImage or `sudo apt remove claude-mons`. Click **Disconnect Claude Code** in the app first so the hooks are removed from `~/.claude/settings.json`; local data lives in `%APPDATA%claude-mons` (Windows) or `~/.config/claude-mons` (Linux).
+
+## Code signing
+
+Windows builds are signed in CI; see [docs/CODE_SIGNING_POLICY.md](docs/CODE_SIGNING_POLICY.md). Free code signing provided by [SignPath.io](https://signpath.io), certificate by [SignPath Foundation](https://signpath.org).
 
 ## License
 
