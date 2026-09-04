@@ -62,5 +62,5 @@ want a clean board.
 1. Run `pnpm dev`, connect Claude Code from the panel, start a new Claude Code session, watch the egg.
 2. Push tag `v0.1.0` to exercise the release workflow and auto-update (needs no secrets).
 3. Fix the DB password in `.env.local` so `npx supabase db push` works for the next migration.
-4. Apply for SignPath Foundation signing and add the secrets (docs/SIGNING.md); the release workflow is ready.
+4. SignPath signing is wired and verified with the self-signed test certificate (release run 33924912575 signed app, hook binary and installer). Apply for the SignPath Foundation certificate and attach it to the `release-signing` policy; until then tagged releases are signed with the self-signed certificate, which Windows does not trust.
 5. Test on a Linux machine.
