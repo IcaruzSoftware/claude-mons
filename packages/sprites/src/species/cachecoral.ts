@@ -92,7 +92,7 @@ const FACE_ATTACK: Record<number, string> = {
   13: '...DPPPPPDDPPPDDPPD...',
   14: '...DPPPPPDhPPPDhPPD...',
   16: '...DPPPPPPPPDDPPPPD...',
-  17: '...DtPPPPPPPDDPPPPtD..'.slice(0, 22),
+  17: '...DtPPPPPPPDDPPPtD...',
 };
 
 function body(pattern: string, ...faces: Array<Record<number, string>>): string[] {

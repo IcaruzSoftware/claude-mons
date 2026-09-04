@@ -64,10 +64,9 @@ export class GameService extends EventEmitter<GameEvents> {
     return this.opts.now ? this.opts.now() : Date.now();
   }
 
-  /** Total XP shown to the player: server truth when known, else local. */
+  /** Total XP shown to the player: local (== server truth + provisional since last sync). */
   totalXp(): number {
-    const s = this.state.get();
-    return s.progress.serverXp ?? s.progress.localXp;
+    return this.state.get().progress.localXp;
   }
 
   snapshot(): ProgressSnapshot {
@@ -139,13 +138,19 @@ export class GameService extends EventEmitter<GameEvents> {
   }
 
   /** Server acknowledged XP / stage (Phase 4). */
-  applyServerState(server: { totalXp: number; speciesId: string | null; stage: Stage }): void {
+  applyServerState(
+    server: { totalXp: number; speciesId: string | null; stage: Stage },
+    /** local XP at the moment the acknowledged batch was sent; events since then stay provisional */
+    localXpAtSend?: number,
+  ): void {
     const before = this.totalXp();
     const beforeLevel = levelFromXp(before);
     this.state.update((s) => {
+      const provisionalSince =
+        localXpAtSend === undefined ? 0 : Math.max(0, s.progress.localXp - localXpAtSend);
       s.progress.serverXp = server.totalXp;
-      // local provisional restarts from the server's number
-      s.progress.localXp = server.totalXp;
+      // local = server truth + whatever was earned after the batch left
+      s.progress.localXp = server.totalXp + provisionalSince;
       if (server.speciesId && !s.pet.speciesId) {
         s.pet.speciesId = server.speciesId;
         s.progress.hatchedAt = this.now();

@@ -1,10 +1,23 @@
 import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { app, dialog, ipcMain, shell } from 'electron';
-import { isNation, type HookEnvelope, type Nation, type Stage } from '@claude-mons/shared';
-import { IPC, type HookStatusValue, type UiSnapshot } from '../common/ipc.ts';
+import {
+  isNation,
+  type BattleNotification,
+  type HookEnvelope,
+  type Nation,
+  type Stage,
+} from '@claude-mons/shared';
+import {
+  IPC,
+  type HookStatusValue,
+  type LeaderboardPayload,
+  type UiSnapshot,
+} from '../common/ipc.ts';
 import { PetHost } from './PetHost.ts';
+import { Autostart } from './autostart/Autostart.ts';
 import { rememberAnchor } from './display.ts';
+import { BattleService } from './game/BattleService.ts';
 import { GameService } from './game/GameService.ts';
 import { rollSpeciesForNation } from './game/species.ts';
 import { ActivityTracker } from './hooks/ActivityTracker.ts';
@@ -12,19 +25,23 @@ import { HookInstaller, claudeSettingsPath, type HookStatus } from './hooks/Hook
 import { HookServer } from './hooks/HookServer.ts';
 import { SpoolDrainer } from './hooks/SpoolDrainer.ts';
 import { ensureHookBinary } from './hooks/binary.ts';
+import { RemoteBattleBackend, fetchLeaderboard, type LeaderboardData } from './net/Backend.ts';
+import { ApiCallError, SupabaseClient } from './net/SupabaseClient.ts';
+import { SyncQueue } from './net/SyncQueue.ts';
+import { backendConfig } from './net/config.ts';
 import { JsonStore } from './persistence/JsonStore.ts';
 import { MIGRATIONS, defaultState, type LocalState } from './persistence/state.ts';
 import {
   ScriptRunner,
   parseCaptureArg,
   parseDevNationArg,
+  parseDevXpArg,
   parseSimulateArg,
 } from './sim/ScriptRunner.ts';
+import { Updater } from './updater/Updater.ts';
 import { HoverCardWindow } from './windows/HoverCardWindow.ts';
 import { PanelWindow } from './windows/PanelWindow.ts';
 
-/** Until the Supabase backend (Phase 4) is wired in, hatching/evolution are decided locally. */
-const LOCAL_GAME = true;
 const HOVER_DELAY_MS = 1000;
 
 /** Wires all main-process services together. One instance per app. */
@@ -37,11 +54,19 @@ export class App {
   });
   host!: PetHost;
   game!: GameService;
+  battles!: BattleService;
   readonly panel = new PanelWindow(
     () => this.store.get().ui.panel,
     (m) => this.store.update((s) => (s.ui.panel = m)),
   );
   readonly hoverCard = new HoverCardWindow();
+  readonly updater = new Updater();
+  readonly autostart = new Autostart();
+  private autostartEnabled = false;
+  private api: SupabaseClient | null = null;
+  private sync: SyncQueue | null = null;
+  private notifications: BattleNotification[] = [];
+  private leaderboardCache: LeaderboardData | null = null;
   private readonly activity = new ActivityTracker();
   private hookServer!: HookServer;
   private spool!: SpoolDrainer;
@@ -52,9 +77,24 @@ export class App {
   async start(): Promise<void> {
     const state = await this.store.load();
 
+    const cfg = backendConfig();
+    if (cfg) {
+      this.api = new SupabaseClient(cfg, {
+        load: () => this.store.get().auth.session,
+        save: (v) => this.store.update((s) => (s.auth.session = v)),
+      });
+    }
+
     this.game = new GameService(this.store, {
-      localGame: LOCAL_GAME,
+      // with a backend the server rolls species and decides stages; offline builds do it locally
+      localGame: !this.api,
       rollSpecies: (nation, seed) => rollSpeciesForNation(nation as Nation | null, seed),
+    });
+
+    this.battles = new BattleService({
+      state: this.store,
+      totalXp: () => this.game.totalXp(),
+      backend: this.api ? new RemoteBattleBackend(this.api) : null,
     });
 
     this.host = new PetHost(
@@ -82,6 +122,7 @@ export class App {
         },
         onClick: () => this.panel.toggle(),
         onPanel: () => this.panel.show(),
+        onBattleRequest: () => void this.onBattleRequest(),
         hooks: {
           status: () => (this.hookStatus === 'no-binary' ? 'not-installed' : this.hookStatus),
           toggle: () => void this.toggleHooks(),
@@ -89,7 +130,9 @@ export class App {
         progressLine: () => this.progressLine(),
       },
     );
+    if (this.api) this.startSync(this.api);
     this.registerUiIpc();
+    this.host.onBattleDone((id) => this.onBattleDone(id));
     this.host.start();
     this.wireGameEvents();
 
@@ -112,6 +155,10 @@ export class App {
       this.host.tray.refreshMenu();
     }
 
+    this.autostartEnabled = await this.autostart.isEnabled().catch(() => false);
+    this.updater.onStatus(() => this.pushSnapshot());
+    void this.updater.start();
+
     // First launch: open the panel so the player can pick a nation.
     if (!state.profile.nation) this.panel.show();
 
@@ -120,9 +167,15 @@ export class App {
       this.sim = ScriptRunner.fromFile(simPath)?.withSender((s) => this.host.stimulate(s)) ?? null;
       setTimeout(() => this.sim?.start(), 1500);
     }
-    const devNation = parseDevNationArg(process.argv);
-    if (devNation && !app.isPackaged) setTimeout(() => this.chooseNation(devNation), 1000);
-
+    if (!app.isPackaged) {
+      const devNation = parseDevNationArg(process.argv);
+      if (devNation) setTimeout(() => this.chooseNation(devNation), 1000);
+      if (process.argv.includes('--dev-battle')) {
+        setTimeout(() => void this.onBattleRequest(), 2500);
+      }
+      const devXp = parseDevXpArg(process.argv);
+      if (devXp) setTimeout(() => this.game.grantXp(devXp, 'server'), 2000);
+    }
     const capturePath = parseCaptureArg(process.argv);
     if (capturePath) {
       setTimeout(async () => {
@@ -135,7 +188,7 @@ export class App {
           const panelWin = this.panel.browserWindow;
           if (panelWin && panelWin.isVisible()) {
             const pimg = await panelWin.webContents.capturePage();
-            await writeFile(capturePath.replace(/.png$/, '.panel.png'), pimg.toPNG());
+            await writeFile(capturePath.replace(/\.png$/, '.panel.png'), pimg.toPNG());
             console.info('--capture: wrote panel capture');
           }
         } catch (err) {
@@ -158,6 +211,7 @@ export class App {
     const s = this.store.get();
     const p = this.game.snapshot();
     const petState = this.host.currentState();
+    const sync = this.sync?.getStatus();
     return {
       version: app.getVersion(),
       isDev: !app.isPackaged,
@@ -178,8 +232,20 @@ export class App {
         streakDays: p.streakDays,
       },
       hooks: { status: this.hookStatus as HookStatusValue },
-      settings: { spriteScale: s.settings.spriteScale },
-      online: { connected: false, lastSyncAt: s.ledger.lastSyncAt },
+      settings: { spriteScale: s.settings.spriteScale, autostart: this.autostartEnabled },
+      online: {
+        connected: sync?.connected ?? false,
+        lastSyncAt: s.ledger.lastSyncAt,
+        lastError: sync?.lastError ?? null,
+        configured: this.api !== null,
+      },
+      update: this.updater.getStatus(),
+      notifications: this.notifications,
+      battles: {
+        history: s.battles.history,
+        cooldownUntil: this.battles.cooldownUntil(),
+        remainingToday: this.battles.remainingToday(),
+      },
     };
   }
 
@@ -215,6 +281,38 @@ export class App {
       if (!app.isPackaged && typeof amount === 'number') this.game.grantXp(amount, 'server');
       return this.snapshot();
     });
+    ipcMain.handle(IPC.uiSetAutostart, async (_e, enabled: unknown) => {
+      if (typeof enabled === 'boolean') {
+        await this.autostart.setEnabled(enabled).catch((err) => console.warn('autostart:', err));
+        this.autostartEnabled = await this.autostart.isEnabled().catch(() => false);
+        this.store.update((s) => (s.settings.autostart = this.autostartEnabled));
+      }
+      return this.snapshot();
+    });
+    ipcMain.handle(IPC.uiCheckUpdates, async () => {
+      await this.updater.checkNow();
+      return this.snapshot();
+    });
+    ipcMain.handle(IPC.uiInstallUpdate, () => this.updater.quitAndInstall());
+    ipcMain.handle(IPC.uiGetLeaderboard, () => this.leaderboard());
+    ipcMain.handle(IPC.uiSyncNow, async () => {
+      await this.sync?.flush();
+      return this.snapshot();
+    });
+    ipcMain.handle(IPC.uiSetNickname, async (_e, nickname: unknown) => {
+      if (typeof nickname !== 'string') return { ok: false, error: 'invalid' };
+      if (!this.sync) return { ok: false, error: 'offline build' };
+      try {
+        const res = await this.sync.ensureProfile({ nickname: nickname.trim() });
+        this.pushSnapshot();
+        return res
+          ? { ok: true, error: null }
+          : { ok: false, error: this.sync.getStatus().lastError };
+      } catch (err) {
+        const msg = err instanceof ApiCallError ? `${err.code}: ${err.message}` : String(err);
+        return { ok: false, error: msg };
+      }
+    });
   }
 
   /** Nation choice is permanent in v1; later calls are ignored. */
@@ -224,6 +322,82 @@ export class App {
     this.host.setNation(nation);
     this.host.stimulate({ type: 'game:levelup', level: 1 }); // little celebration
     this.pushSnapshot();
+    if (this.sync) {
+      void this.sync
+        .ensureProfile({ nation })
+        .then(() => this.sync?.flush())
+        .then(() => this.pushSnapshot())
+        .catch((err) => console.warn('create-profile failed:', err));
+    }
+  }
+
+  // --- backend sync ----------------------------------------------------------------------------
+
+  private startSync(api: SupabaseClient): void {
+    this.sync = new SyncQueue({
+      api,
+      state: this.store,
+      clientVersion: app.getVersion(),
+      localXp: () => this.game.totalXp(),
+    });
+    this.sync.on('synced', ({ mon, notifications, localXpAtSend }) => {
+      this.game.applyServerState(
+        { totalXp: mon.totalXp, speciesId: mon.speciesId, stage: mon.stage },
+        localXpAtSend,
+      );
+      if (notifications.length > 0) {
+        const seen = new Set(this.notifications.map((n) => n.id));
+        this.notifications = [
+          ...notifications.filter((n) => !seen.has(n.id)),
+          ...this.notifications,
+        ].slice(0, 20);
+      }
+      this.pushSnapshot();
+    });
+    this.sync.on('profile', () => this.pushSnapshot());
+    this.sync.on('status', () => this.pushSnapshot());
+    this.sync.start();
+  }
+
+  private async leaderboard(): Promise<LeaderboardPayload> {
+    const empty = { nations: [], alltime: [], weekly: [], myRank: null, fetchedAt: 0 };
+    if (!this.api) return { ...empty, error: 'offline build' };
+    if (this.leaderboardCache && Date.now() - this.leaderboardCache.fetchedAt < 30_000) {
+      return { ...this.leaderboardCache, error: null };
+    }
+    try {
+      this.leaderboardCache = await fetchLeaderboard(this.api);
+      return { ...this.leaderboardCache, error: null };
+    } catch (err) {
+      return {
+        ...(this.leaderboardCache ?? empty),
+        error: err instanceof Error ? err.message : String(err),
+      };
+    }
+  }
+
+  // --- battles ---------------------------------------------------------------------------------
+
+  private async onBattleRequest(): Promise<void> {
+    const outcome = await this.battles.request();
+    if (!outcome.ok) {
+      // a short "hurt" pose tells the player the shake was understood but refused
+      this.host.stimulate({ type: 'hook:notification' });
+      this.pushSnapshot();
+      return;
+    }
+    this.host.playBattle(outcome.play);
+    this.pushSnapshot();
+  }
+
+  private onBattleDone(id: string): void {
+    const summary = this.battles.finish(id);
+    if (!summary) return;
+    // With a backend the server already credited the XP and the next sync reconciles it.
+    // Offline, the local ledger is the only truth.
+    if (!this.api || summary.isBot) this.game.addBattleXp(summary.xp);
+    else this.sync?.scheduleSoon();
+    this.pushSnapshot();
   }
 
   // --- hooks & game ----------------------------------------------------------------------------
@@ -232,6 +406,7 @@ export class App {
     const stimuli = this.activity.ingest(env);
     if (!env.spooled) for (const s of stimuli) this.host.stimulate(s);
     this.game.ingest(env);
+    if (env.event === 'Stop') this.sync?.scheduleSoon();
   }
 
   private wireGameEvents(): void {
@@ -293,6 +468,8 @@ export class App {
 
   private async shutdown(): Promise<void> {
     this.sim?.stop();
+    this.updater.stop();
+    this.sync?.stop();
     this.spool?.stop();
     this.hoverCard.hide();
     await this.hookServer?.stop().catch(() => {});

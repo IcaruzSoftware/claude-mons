@@ -71,6 +71,12 @@ export function parseDevNationArg(argv: readonly string[]): Nation | null {
   return isNation(v) ? v : null;
 }
 
+/** `--dev-xp <n>`: grant XP shortly after start (development only). */
+export function parseDevXpArg(argv: readonly string[]): number | null {
+  const v = Number(parseArg(argv, '--dev-xp'));
+  return Number.isFinite(v) && v > 0 ? v : null;
+}
+
 function parseArg(argv: readonly string[], flag: string): string | null {
   const i = argv.indexOf(flag);
   if (i >= 0 && argv[i + 1]) return argv[i + 1]!;

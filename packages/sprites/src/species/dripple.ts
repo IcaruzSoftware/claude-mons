@@ -104,7 +104,6 @@ function pose({
 // Wobble: the tip sways while the feet stay planted (pivot on the foot row).
 const upright = pose({});
 const idle = [
-  upright,
   lean(upright, 29, 6, 1),
   pose({ body: squashTop(BODY, 3) }),
   lean(upright, 29, 6, -1),

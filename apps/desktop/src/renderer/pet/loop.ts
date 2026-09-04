@@ -1,5 +1,6 @@
 import { createModel, stepBehavior, type BehaviorModel, type Stimulus } from '@claude-mons/shared';
-import type { Hitbox, PetConfig, WindowGeometry } from '../../common/ipc.ts';
+import type { BattlePlayMessage, Hitbox, PetConfig, WindowGeometry } from '../../common/ipc.ts';
+import { BattlePlayer } from './BattlePlayer.ts';
 import { PetRenderer } from './PetRenderer.ts';
 
 /**
@@ -13,12 +14,13 @@ export class PetLoop {
   private lastHitbox: Hitbox = null;
   private lastStateSentAt = -Infinity;
   private lastRenderKey = '';
+  private battle: BattlePlayer | null = null;
   private raf = 0;
   private running = false;
 
   constructor(
     canvas: HTMLCanvasElement,
-    private readonly config: PetConfig,
+    private config: PetConfig,
   ) {
     this.renderer = new PetRenderer(canvas, {
       spriteScale: config.spriteScale,
@@ -36,6 +38,7 @@ export class PetLoop {
   }
 
   applyConfig(config: PetConfig): void {
+    this.config = config;
     this.renderer.setOptions({
       spriteScale: config.spriteScale,
       speciesId: config.speciesId,
@@ -56,6 +59,26 @@ export class PetLoop {
 
   push(s: Stimulus): void {
     this.queue.push(s);
+  }
+
+  /** Start playing a resolved battle (ignored while another one is running). */
+  playBattle(msg: BattlePlayMessage): void {
+    if (this.battle) return;
+    const m = this.model;
+    this.battle = new BattlePlayer(
+      msg,
+      {
+        x: m.pos.x,
+        groundY: m.world.groundY,
+        facing: m.facing,
+        spriteScale: this.config.spriteScale,
+        worldMinX: m.world.minX,
+        worldMaxX: m.world.maxX,
+      },
+      (s) => this.queue.push(s),
+      () => window.mons.battleDone(msg.id),
+    );
+    this.renderer.setBattle(this.battle);
   }
 
   start(): void {
@@ -88,6 +111,16 @@ export class PetLoop {
     for (const effect of result.effects) {
       if (effect.type === 'request-battle') window.mons.requestBattle();
       else if (effect.type === 'landed') window.mons.landed();
+    }
+
+    if (this.battle) {
+      // face the opponent for the whole battle
+      if (this.model.facing !== this.battle.facing())
+        this.model = { ...this.model, facing: this.battle.facing() };
+      if (!this.battle.tick(now)) {
+        this.renderer.setBattle(null);
+        this.battle = null;
+      }
     }
 
     const key = this.renderer.renderKey(this.model, now);

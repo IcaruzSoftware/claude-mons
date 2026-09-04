@@ -1,7 +1,46 @@
-import { NATION_INFO } from '@claude-mons/shared';
-import type { UiSnapshot } from '../../../common/ipc.ts';
+import { useState } from 'preact/hooks';
+import { NATION_INFO, validateNickname } from '@claude-mons/shared';
+import type { UiSnapshot, UpdateStatusValue } from '../../../common/ipc.ts';
+
+function updateLabel(u: UpdateStatusValue): string {
+  switch (u.kind) {
+    case 'idle':
+      return 'Not checked yet.';
+    case 'checking':
+      return 'Checking…';
+    case 'available':
+      return `Version ${u.version} is downloading.`;
+    case 'downloaded':
+      return `Version ${u.version} is ready to install.`;
+    case 'up-to-date':
+      return 'You are on the latest version.';
+    case 'unsupported':
+      return `Automatic updates unavailable (${u.reason}).`;
+    case 'error':
+      return `Update check failed: ${u.message}`;
+  }
+}
 
 export function SettingsView({ s }: { s: UiSnapshot }) {
+  const [nick, setNick] = useState('');
+  const [nickMsg, setNickMsg] = useState<string | null>(null);
+  const saveNick = async () => {
+    const v = validateNickname(nick.trim());
+    if (!v.ok) {
+      setNickMsg(
+        v.reason === 'format'
+          ? '3-16 letters, digits or underscores'
+          : v.reason === 'reserved'
+            ? 'That name is reserved'
+            : 'That name is not allowed',
+      );
+      return;
+    }
+    setNickMsg('Saving…');
+    const r = await window.monsUi.setNickname(nick.trim());
+    setNickMsg(r.ok ? 'Saved' : (r.error ?? 'Failed'));
+    if (r.ok) setNick('');
+  };
   const hooks = s.hooks.status;
   const hookLabel: Record<typeof hooks, string> = {
     installed: 'Connected',
@@ -58,13 +97,79 @@ export function SettingsView({ s }: { s: UiSnapshot }) {
       </div>
 
       <div class="section">
+        <h3>System</h3>
+        <div class="row">
+          <div>
+            Start on login
+            <div class="hint">Launch claude-mons when you sign in to your computer.</div>
+          </div>
+          <button
+            class={s.settings.autostart ? 'active' : ''}
+            onClick={() => void window.monsUi.setAutostart(!s.settings.autostart)}
+          >
+            {s.settings.autostart ? 'On' : 'Off'}
+          </button>
+        </div>
+        <div class="row">
+          <div>
+            Updates
+            <div class="hint">{updateLabel(s.update)}</div>
+          </div>
+          {s.update.kind === 'downloaded' ? (
+            <button class="primary" onClick={() => void window.monsUi.installUpdate()}>
+              Restart to update
+            </button>
+          ) : (
+            <button
+              disabled={s.update.kind === 'checking' || s.update.kind === 'unsupported'}
+              onClick={() => void window.monsUi.checkUpdates()}
+            >
+              Check now
+            </button>
+          )}
+        </div>
+      </div>
+
+      <div class="section">
         <h3>Profile</h3>
         <div class="kv">
           <span>Nation</span>
           <span>{s.profile.nation ? NATION_INFO[s.profile.nation].name : '–'}</span>
           <span>Nickname</span>
-          <span>{s.profile.nickname ?? 'assigned when online'}</span>
+          <span>
+            {s.profile.nickname ?? (s.online.configured ? 'assigned when online' : 'offline build')}
+          </span>
+          <span>Server</span>
+          <span>
+            {!s.online.configured
+              ? 'offline build'
+              : s.online.connected
+                ? `synced ${s.online.lastSyncAt ? new Date(s.online.lastSyncAt).toLocaleTimeString() : ''}`
+                : (s.online.lastError ?? 'not connected yet')}
+          </span>
         </div>
+        {s.online.configured && (
+          <div class="row" style={{ marginTop: 8 }}>
+            <div>
+              Change nickname
+              <div class="hint">Once every 7 days. Shown on the leaderboard and to opponents.</div>
+              {nickMsg && <div class="hint">{nickMsg}</div>}
+            </div>
+            <div style={{ display: 'flex', gap: 6 }}>
+              <input
+                class="nick"
+                value={nick}
+                placeholder={s.profile.nickname ?? 'new nickname'}
+                onInput={(e) => setNick((e.target as HTMLInputElement).value)}
+                maxLength={16}
+              />
+              <button onClick={() => void saveNick()} disabled={nick.trim().length < 3}>
+                Save
+              </button>
+              <button onClick={() => void window.monsUi.syncNow()}>Sync</button>
+            </div>
+          </div>
+        )}
       </div>
 
       <div class="section">

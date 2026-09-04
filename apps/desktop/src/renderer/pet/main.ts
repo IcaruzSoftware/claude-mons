@@ -43,6 +43,7 @@ window.mons.onConfig((config: PetConfig) => {
 window.mons.onWindowMoved((g) => loop?.setGeometry(g));
 window.mons.onStimulus((s) => loop?.push(s));
 window.mons.onWorld((w) => loop?.push({ type: 'world:bounds', ...w }));
+window.mons.onBattlePlay((b) => loop?.playBattle(b));
 window.addEventListener('resize', () => loop?.resize());
 
 bindPointer();

@@ -6,7 +6,9 @@ import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron';
 import type { World } from '@claude-mons/shared';
 import {
   IPC,
+  type BattlePlayMessage,
   type Hitbox,
+  type LeaderboardPayload,
   type PetConfig,
   type PointerMessage,
   type StateMessage,
@@ -44,6 +46,11 @@ const petApi = {
   landed(): void {
     ipcRenderer.send(IPC.petLanded);
   },
+  onBattlePlay: (cb: (b: BattlePlayMessage) => void) =>
+    on<BattlePlayMessage>(IPC.petBattlePlay, cb),
+  battleDone(id: string): void {
+    ipcRenderer.send(IPC.petBattleDone, id);
+  },
 };
 
 const uiApi = {
@@ -57,6 +64,14 @@ const uiApi = {
   openExternal: (url: string): Promise<void> => ipcRenderer.invoke(IPC.uiOpenExternal, url),
   quit: (): Promise<void> => ipcRenderer.invoke(IPC.uiQuit),
   devGrantXp: (amount: number): Promise<UiSnapshot> => ipcRenderer.invoke(IPC.uiDevGrantXp, amount),
+  setAutostart: (enabled: boolean): Promise<UiSnapshot> =>
+    ipcRenderer.invoke(IPC.uiSetAutostart, enabled),
+  checkUpdates: (): Promise<UiSnapshot> => ipcRenderer.invoke(IPC.uiCheckUpdates),
+  installUpdate: (): Promise<void> => ipcRenderer.invoke(IPC.uiInstallUpdate),
+  getLeaderboard: (): Promise<LeaderboardPayload> => ipcRenderer.invoke(IPC.uiGetLeaderboard),
+  setNickname: (nickname: string): Promise<{ ok: boolean; error: string | null }> =>
+    ipcRenderer.invoke(IPC.uiSetNickname, nickname),
+  syncNow: (): Promise<UiSnapshot> => ipcRenderer.invoke(IPC.uiSyncNow),
 };
 
 export type PetApi = typeof petApi;

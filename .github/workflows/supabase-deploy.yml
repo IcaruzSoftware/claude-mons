@@ -1,0 +1,45 @@
+name: Supabase deploy
+
+# Manual only. Requires the repository secrets SUPABASE_ACCESS_TOKEN (a personal access token)
+# and SUPABASE_DB_PASSWORD; SUPABASE_PROJECT_REF is the project id from the dashboard URL.
+on:
+  workflow_dispatch:
+    inputs:
+      functions:
+        description: 'Deploy Edge Functions'
+        type: boolean
+        default: true
+      migrations:
+        description: 'Push database migrations'
+        type: boolean
+        default: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+      SUPABASE_PROJECT_REF: dbeotjfprckdrymmpexv
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+      - run: pnpm install --frozen-lockfile
+      - run: supabase link --project-ref "$SUPABASE_PROJECT_REF"
+      - name: Push migrations
+        if: ${{ inputs.migrations }}
+        run: supabase db push
+      - name: Deploy functions
+        if: ${{ inputs.functions }}
+        run: |
+          pnpm sync:shared
+          supabase functions deploy --project-ref "$SUPABASE_PROJECT_REF"

@@ -14,19 +14,25 @@
     "preview": "electron-vite preview",
     "start": "electron-vite preview",
     "typecheck": "tsc -p tsconfig.node.json && tsc -p tsconfig.web.json",
-    "test": "vitest run"
+    "test": "vitest run",
+    "package": "electron-vite build && electron-builder",
+    "package:win": "electron-vite build && electron-builder --win",
+    "package:linux": "electron-vite build && electron-builder --linux"
   },
   "dependencies": {
     "@claude-mons/shared": "workspace:*",
     "@preact/signals": "^2.0.0",
     "preact": "^10.26.0",
-    "@claude-mons/sprites": "workspace:*"
+    "@claude-mons/sprites": "workspace:*",
+    "electron-updater": "^6.6.0",
+    "@supabase/supabase-js": "^2.90.0"
   },
   "devDependencies": {
     "@preact/preset-vite": "^2.10.0",
     "@types/node": "^22.15.0",
     "electron": "^44.0.0",
     "electron-vite": "^5.0.0",
-    "vite": "^7.0.0"
+    "vite": "^7.0.0",
+    "electron-builder": "^26.0.0"
   }
 }

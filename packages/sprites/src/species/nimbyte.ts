@@ -56,10 +56,10 @@ const CLOUD = [
 
 const NO_BROWS: Record<number, string> = {
   12: '.....DbSSSSSSSSSSSSSSSSSSSSSSSSSSSSbD...',
-  13: '.....DbSSSSSSSSSSSSSSSSSSSSSSSSSSSSSbD...'.slice(0, 40),
+  13: '.....DbSSSSSSSSSSSSSSSSSSSSSSSSSSSSbD...',
 };
 const EYES_CLOSED: Record<number, string> = {
-  14: '....DbSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSbD..',
+  14: '....DbSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSbD..',
   15: '....DbSSSSSSSDDDSSSSSSSSDDDSSSSSSSSSbD..',
 };
 const EYES_NARROW: Record<number, string> = {
@@ -79,8 +79,8 @@ function cloud(...overrides: Array<Record<number, string>>): string[] {
   return withRows(CLOUD, Object.assign({}, ...overrides));
 }
 
-// Tiny lightning bolt, 4 x 5, yellow with a lavender edge.
-const BOLT = ['..yA', '.yA.', 'yyyA', '.yA.', 'yA..'];
+// Tiny lightning bolt, 5 x 6, yellow with a lavender edge.
+const BOLT = ['..yyA', '.yyA.', 'yyyyA', '.yyA.', 'yyA..', 'yA...'];
 const BOLT_B = flipH(BOLT);
 const BOLT_DIM = recolor(BOLT, { y: 'A', A: 'v' });
 // Default bolt positions under the three base lumps.

@@ -37,7 +37,7 @@ const HEAD = [
   '..DDPPPPPPDD....',
   '....DDDDDD......',
 ];
-const HEAD_X = 14;
+const HEAD_X = 13;
 const HEAD_Y = 11;
 
 const HEAD_SLEEP = withRows(HEAD, {
@@ -78,15 +78,15 @@ const BODY = [
   '.DPSSSSSSSSSSSPD.',
   '..DDDDDDDDDDDDD..',
 ];
-const BODY_X = 5;
+const BODY_X = 4;
 const BODY_Y = 19;
 
-// Floppy ear, 5 x 9, hangs off the back of the head; the tip glows.
-const EAR = ['.DDD.', 'DPPPD', 'DPrPD', 'DPrPD', 'DPrPD', 'DSrPD', 'DSSPD', 'DASSD', '.DAD.'];
-const EAR_BRIGHT = withRows(EAR, { 6: 'DASPD', 7: 'DAASD', 8: '.DAD.' });
+// Floppy ear, 5 x 9: a flap hanging over the back edge of the head; the tip glows.
+const EAR = ['.DDDD', 'DPPPD', 'DPrPD', 'DPrPD', 'DPrPD', 'DSrPD', 'DSSPD', 'DASSD', '.DAD.'];
+const EAR_BRIGHT = withRows(EAR, { 6: 'DASPD', 7: 'DAASD' });
 // Ear flapping up during a hop, 7 x 5: sticks out behind the head.
 const EAR_UP = ['DDDD...', 'DASPDD.', 'DAASPPD', '.DSSPPD', '..DDDD.'];
-const EAR_X = 12;
+const EAR_X = 10;
 const EAR_Y = 12;
 
 // Flame tail, 6 x 6; the base sits on the body's top-left corner.
@@ -94,7 +94,8 @@ const TAIL_UP = ['..DD..', '.DAAD.', 'DAASSD', 'DSSSPD', '.DPPD.', '..DDD.'];
 const TAIL_FLICK = ['.DD...', 'DAAD..', 'DASSD.', 'DSSSPD', '.DPPD.', '..DDD.'];
 const TAIL_BACK = ['......', 'DDD...', 'DAADD.', 'DASSPD', '.DSPPD', '..DDD.'];
 const TAIL_EMBER = ['......', '......', '..DD..', '.DSSD.', '.DPPD.', '..DDD.'];
-const TAIL_X = 4;
+const TAIL_EMBER_B = ['......', '......', '......', '..DDD.', '.DSSD.', '..DDD.'];
+const TAIL_X = 3;
 const TAIL_Y = 15;
 
 // One stubby leg, 4 x 5; the top row overwrites the belly outline so the leg grows out of it.
@@ -102,7 +103,8 @@ const LEG = ['.DPD', '.DPD', '.DPD', 'DooD', 'DDDD'];
 const LEG_FAR = recolor(LEG, { P: 'r', o: 'r' });
 const LEG_FOLDED = ['DooPD', 'DDDDD'];
 const LEG_Y = 27;
-const LEGS = { backFar: 7, backNear: 10, frontFar: 15, frontNear: 18 };
+// Far legs sit 2 px behind the near ones, so a sliver of each shows in the standing pose.
+const LEGS = { backFar: 6, backNear: 8, frontFar: 13, frontNear: 15 };
 
 // Laptop for the `work` anim, 10 x 6.
 const LAPTOP = ['.DDDDDDDD.', '.DllllllD.', '.DllllllD.', '.DDDDDDDD.', 'DggggggggD', 'DDDDDDDDDD'];
@@ -122,6 +124,8 @@ interface Pose {
   far?: number;
   /** Extra offset for the front-near leg only (paw on the laptop). */
   frontNear?: [number, number];
+  /** Layers drawn between the body and the near legs (the laptop the paw rests on). */
+  props?: Layer[];
   extra?: Layer[];
 }
 
@@ -135,6 +139,7 @@ function pose({
   near = 0,
   far = 0,
   frontNear = [0, 0],
+  props = [],
   extra = [],
 }: Pose): string[] {
   const legY = LEG_Y + dy;
@@ -143,6 +148,7 @@ function pose({
     { art: LEG_FAR, x: LEGS.backFar + far + dx, y: legY },
     { art: LEG_FAR, x: LEGS.frontFar + far + dx, y: legY },
     { art: BODY, x: BODY_X + dx, y: BODY_Y + dy },
+    ...props,
     { art: LEG, x: LEGS.backNear + near + dx, y: legY },
     { art: LEG, x: LEGS.frontNear + near + frontNear[0] + dx, y: legY + frontNear[1] },
     { art: head, x: HEAD_X + dx, y: HEAD_Y + dy + headDy },
@@ -165,35 +171,28 @@ const walk = [
   pose({ dy: -1, headDy: 1, ear: EAR_BRIGHT }),
 ];
 
-// Sleeping: belly on the ground, legs folded, head resting low, tail down to an ember.
-function sleepPose(tail: string[], ear: string[]): string[] {
+// Sleeping: belly on the ground, head resting on the ground in front, one folded paw showing,
+// ear draped over the back, tail down to an ember.
+function sleepPose(tail: string[]): string[] {
   return compose(SIZE, [
     { art: tail, x: TAIL_X, y: TAIL_Y + 4 },
     { art: BODY, x: BODY_X, y: BODY_Y + 4 },
-    { art: LEG_FOLDED, x: LEGS.backNear - 1, y: LEG_Y + 3 },
-    { art: LEG_FOLDED, x: LEGS.frontNear - 1, y: LEG_Y + 3 },
-    { art: HEAD_SLEEP, x: HEAD_X, y: HEAD_Y + 7 },
-    { art: ear, x: EAR_X, y: EAR_Y + 7 },
+    { art: LEG_FOLDED, x: LEGS.backNear - 2, y: LEG_Y + 3 },
+    { art: HEAD_SLEEP, x: HEAD_X + 2, y: HEAD_Y + 8 },
+    { art: recolor(EAR, { A: 'S' }), x: EAR_X + 2, y: EAR_Y + 8 },
   ]);
 }
-const sleep = [
-  sleepPose(TAIL_EMBER, recolor(EAR, { A: 'S' })),
-  sleepPose(['......', '......', '......', '..DDD.', '.DSSD.', '..DDD.'], recolor(EAR, { A: 'S' })),
-];
+const sleep = [sleepPose(TAIL_EMBER), sleepPose(TAIL_EMBER_B)];
 
-// Working: paws on a laptop in front of the chest; the near front paw taps the keys.
-const laptop = (art: string[]): Layer => ({ art, x: 21, y: 26 });
+// Working: a laptop in front of the chest; the near front paw lifts and taps the keys.
+const laptop = (art: string[]): Layer => ({ art, x: 19, y: 26 });
 const work = [
-  pose({ dx: -2, frontNear: [2, -2], extra: [laptop(LAPTOP)] }),
-  pose({ dx: -2, tail: TAIL_FLICK, frontNear: [2, 0], extra: [laptop(LAPTOP_TYPING)] }),
-  dots(
-    pose({ dx: -2, tail: TAIL_UP, ear: EAR_BRIGHT, frontNear: [2, -2], extra: [laptop(LAPTOP)] }),
-    'y',
-    [
-      [3, 12],
-      [7, 10],
-    ],
-  ),
+  pose({ dx: -1, frontNear: [5, -1], props: [laptop(LAPTOP)] }),
+  pose({ dx: -1, tail: TAIL_FLICK, frontNear: [5, 0], props: [laptop(LAPTOP_TYPING)] }),
+  dots(pose({ dx: -1, ear: EAR_BRIGHT, frontNear: [5, -1], props: [laptop(LAPTOP)] }), 'y', [
+    [3, 12],
+    [7, 10],
+  ]),
 ];
 
 // Happy: tail wag plus a hop with the ear flapping up.
@@ -209,12 +208,12 @@ const hurt = [hurtRecoil, recolor(hurtRecoil, { P: 'h', S: 'h', A: 'h', r: 'h', 
 // Attack: crouch, then a pounce forward with the mouth open and sparks at the snout.
 const attack = [
   pose({ dx: -2, headDy: 2, tail: TAIL_BACK, near: -1, far: 1 }),
-  pose({ head: HEAD_BITE, dx: 3, tail: TAIL_BACK, near: 1, far: -1 }),
-  dots(pose({ head: HEAD_BITE, dx: 4, tail: TAIL_FLICK, near: 1, far: -1, dy: -1 }), 'A', [
-    [31, 15],
-    [30, 19],
-    [31, 22],
-    [29, 25],
+  pose({ head: HEAD_BITE, dx: 2, tail: TAIL_BACK, near: 1, far: -1 }),
+  dots(pose({ head: HEAD_BITE, dx: 3, tail: TAIL_FLICK, near: 1, far: -1, dy: -1 }), 'A', [
+    [31, 14],
+    [30, 17],
+    [31, 21],
+    [30, 24],
   ]),
 ];
 

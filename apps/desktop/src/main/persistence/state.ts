@@ -1,5 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import type { CreditedMinute, MinuteBucket, Nation, Stage, StreakState } from '@claude-mons/shared';
+import type { BattleSummary } from '../../common/ipc.ts';
 import type { AnchorMemory } from '../display.ts';
 import type { Migration } from './JsonStore.ts';
 
@@ -54,6 +55,16 @@ export interface LocalState {
   ui: {
     panel: { x: number; y: number } | null;
   };
+  auth: {
+    /** supabase-js session (access + refresh token) persisted by the custom storage adapter */
+    session: string | null;
+  };
+  battles: {
+    history: BattleSummary[];
+    lastBattleAt: number | null;
+    /** UTC day key and count, for the local daily cap while offline */
+    today: { day: string; count: number };
+  };
 }
 
 export function defaultState(): LocalState {
@@ -71,6 +82,8 @@ export function defaultState(): LocalState {
     settings: { spriteScale: 3, autostart: false, focusable: null, disableGpu: false },
     hooks: { installedAt: null },
     ui: { panel: null },
+    auth: { session: null },
+    battles: { history: [], lastBattleAt: null, today: { day: '', count: 0 } },
   };
 }
 

@@ -10,6 +10,7 @@ import {
 import { getSprite, spriteIdFor } from '@claude-mons/sprites';
 import {
   IPC,
+  type BattlePlayMessage,
   type Hitbox,
   type PetConfig,
   type PointerMessage,
@@ -45,6 +46,7 @@ export interface PetHostCallbacks {
   /** A press + release without dragging. */
   onClick: () => void;
   onPanel: () => void;
+  onBattleRequest: () => void;
   hooks: { status: () => HookStatus; toggle: () => void };
   progressLine: () => string;
 }
@@ -74,6 +76,7 @@ export class PetHost {
   private shake: ShakeDetectorState = createShakeState();
   private petVisible = true;
   private readonly onStimulusHooks: Array<(s: Stimulus) => void> = [];
+  private readonly onBattleDoneHooks: Array<(id: string) => void> = [];
 
   constructor(
     private readonly state: PetHostState,
@@ -130,6 +133,15 @@ export class PetHost {
 
   onStimulus(hook: (s: Stimulus) => void): void {
     this.onStimulusHooks.push(hook);
+  }
+
+  onBattleDone(hook: (id: string) => void): void {
+    this.onBattleDoneHooks.push(hook);
+  }
+
+  /** Hand a resolved battle to the renderer for playback. */
+  playBattle(msg: BattlePlayMessage): void {
+    this.window.send(IPC.petBattlePlay, msg);
   }
 
   currentAnchor(): { x: number; y: number } {
@@ -259,7 +271,12 @@ export class PetHost {
 
     ipcMain.on(IPC.petRequestBattle, (e) => {
       if (!own(e)) return;
-      console.info('battle requested (Phase 5 wires this up)');
+      this.callbacks.onBattleRequest();
+    });
+
+    ipcMain.on(IPC.petBattleDone, (e, id: unknown) => {
+      if (!own(e)) return;
+      if (typeof id === 'string') for (const hook of this.onBattleDoneHooks) hook(id);
     });
   }
 

@@ -1,0 +1,65 @@
+appId: dev.claude-mons.desktop
+productName: claude-mons
+copyright: Copyright © 2026 Gerrit Visser and claude-mons contributors
+directories:
+  output: release
+  buildResources: resources
+files:
+  - out/**
+  - package.json
+  - '!**/*.map'
+extraResources:
+  - from: ../../packages/hook-cli/dist/${os}-${arch}/
+    to: bin/
+    filter:
+      - '**/*'
+asar: true
+compression: normal
+npmRebuild: false
+publish:
+  provider: github
+  owner: IcaruzSoftware
+  repo: claude-mons
+  releaseType: release
+
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+  icon: resources/icon.ico
+  artifactName: ${productName}-${version}-win-${arch}.${ext}
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  deleteAppDataOnUninstall: false
+  shortcutName: claude-mons
+
+linux:
+  target:
+    - target: AppImage
+      arch: [x64]
+    - target: deb
+      arch: [x64]
+  icon: resources/icons
+  category: Utility
+  synopsis: Pokémon, but for Claude Code. Train a desktop pet by prompting Claude.
+  desktop:
+    entry:
+      Name: claude-mons
+      Comment: Train your desktop mon by using Claude Code
+      StartupWMClass: claude-mons
+  artifactName: ${productName}-${version}-linux-${arch}.${ext}
+appImage:
+  artifactName: ${productName}-${version}-linux-${arch}.${ext}
+deb:
+  depends:
+    - libgtk-3-0
+    - libnotify4
+    - libnss3
+    - libxss1
+    - libxtst6
+    - xdg-utils
+    - libatspi2.0-0
+    - libuuid1
+    - libsecret-1-0

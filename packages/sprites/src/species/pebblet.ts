@@ -74,7 +74,8 @@ const TX = 13; // tuft x: cols 13..19, centred on the head
 const BLOCK = ['DDDDDDD', 'DlSSSsD', 'DSSSssD', 'DDDDDDD'];
 const NAIL_UP = ['A', 'l', 'l'];
 const NAIL_DOWN = ['A'];
-const HAMMER = ['.DA..', '.DA..', '.DA..', 'DDDDD', 'DlSsD', 'DDDDD'];
+// Hammer, 6 x 5: amber handle on the left (held by the arm), stone head on the right.
+const HAMMER = ['..DDDD', '..DlSD', 'AADSSD', '..DssD', '..DDDD'];
 const ARM = ['DssD', 'DDDD'];
 
 interface Pose {
@@ -123,28 +124,29 @@ const sleep = [
   pose({ body: squashTop(BODY_SLEEP, 3), tuft: TUFT_FLAT }),
 ];
 
-// Hammering: the block sits in front of the pebble; the hammer rises, strikes, and rises again.
-const block: Layer = { art: BLOCK, x: 23, y: 28 };
+// Hammering: the block sits in front of the pebble; the stub arm grips the handle, and the
+// hammer head rises, strikes the nail (driving it in), and rises again.
+const block: Layer = { art: BLOCK, x: 24, y: 28 };
 const arm = (y: number): Layer => ({ art: ARM, x: 20, y });
-const hammer = (y: number): Layer => ({ art: HAMMER, x: 24, y });
-const nail = (art: string[], y: number): Layer => ({ art, x: 26, y });
+const hammer = (y: number): Layer => ({ art: HAMMER, x: 24, y: y - 2 });
+const nail = (art: string[], y: number): Layer => ({ art, x: 27, y });
 const work = [
-  pose({ dx: -1, extra: [block, nail(NAIL_UP, 25), arm(20), hammer(17)] }),
+  pose({ dx: -1, extra: [block, nail(NAIL_UP, 25), arm(18), hammer(18)] }),
   dots(
     pose({
       dx: -1,
       body: squashTop(BODY, 3),
       tuft: TUFT_FLAT,
-      extra: [block, nail(NAIL_DOWN, 27), arm(23), hammer(22)],
+      extra: [block, nail(NAIL_DOWN, 27), arm(24), hammer(24)],
     }),
     'y',
     [
-      [24, 26],
-      [30, 25],
-      [29, 23],
+      [25, 26],
+      [31, 25],
+      [30, 23],
     ],
   ),
-  pose({ dx: -1, tuft: TUFT_LEFT, extra: [block, nail(NAIL_DOWN, 27), arm(21), hammer(19)] }),
+  pose({ dx: -1, tuft: TUFT_LEFT, extra: [block, nail(NAIL_DOWN, 27), arm(21), hammer(21)] }),
 ];
 
 const happy = [

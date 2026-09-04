@@ -4,7 +4,8 @@ import { defineConfig, externalizeDepsPlugin } from 'electron-vite';
 
 export default defineConfig({
   main: {
-    plugins: [externalizeDepsPlugin()],
+    // Bundle the workspace packages into main so the build is self-contained (they are TS source).
+    plugins: [externalizeDepsPlugin({ exclude: ['@claude-mons/shared', '@claude-mons/sprites'] })],
     build: {
       rollupOptions: {
         input: { index: resolve(__dirname, 'src/main/index.ts') },
@@ -12,7 +13,7 @@ export default defineConfig({
     },
   },
   preload: {
-    plugins: [externalizeDepsPlugin()],
+    plugins: [externalizeDepsPlugin({ exclude: ['@claude-mons/shared'] })],
     build: {
       rollupOptions: {
         input: {
