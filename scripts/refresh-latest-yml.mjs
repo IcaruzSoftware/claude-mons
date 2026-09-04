@@ -43,9 +43,7 @@ async function regenerateBlockmap(file) {
     const fromBuilder = createRequire(fromDesktop.resolve('electron-builder/package.json'));
     const { buildBlockMap } = fromBuilder('app-builder-lib/out/targets/blockmap/blockmap');
     const info = await buildBlockMap(file, 'gzip', `${file}.blockmap`);
-    console.info(
-      `refresh-latest-yml: blockmap regenerated (${info.size} bytes, ${info.blockMapSize} map)`,
-    );
+    console.info(`refresh-latest-yml: blockmap regenerated for ${file} (${JSON.stringify(info)})`);
   } catch (err) {
     console.warn(`refresh-latest-yml: could not regenerate blockmap for ${file}: ${err.message}`);
   }
