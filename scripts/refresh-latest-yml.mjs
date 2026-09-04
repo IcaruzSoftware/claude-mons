@@ -38,9 +38,12 @@ writeFileSync(ymlPath, yml);
 
 function regenerateBlockmap(file) {
   try {
-    // app-builder-bin is a dependency of electron-builder, installed in the desktop app package
-    const require = createRequire(join(resolve(dir, '..'), 'package.json'));
-    const { appBuilderPath } = require('app-builder-bin');
+    // app-builder-bin is a transitive dependency (desktop -> electron-builder -> app-builder-lib);
+    // with pnpm's strict layout it must be resolved along that chain.
+    const fromDesktop = createRequire(join(resolve(dir, '..'), 'package.json'));
+    const fromBuilder = createRequire(fromDesktop.resolve('electron-builder/package.json'));
+    const fromLib = createRequire(fromBuilder.resolve('app-builder-lib/package.json'));
+    const { appBuilderPath } = fromLib('app-builder-bin');
     execFileSync(appBuilderPath, ['blockmap', '--input', file, '--output', `${file}.blockmap`], {
       stdio: 'inherit',
     });
