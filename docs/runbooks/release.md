@@ -3,10 +3,9 @@ doc_type: runbook
 purpose: "Create a new release of claude-mons with signed Windows binaries."
 audience: both
 last_verified: 2026-09-05
-last_verified_commit: d7db9c0
+last_verified_commit: f198a9d
 related_files:
   - .github/workflows/release.yml
-  - docs/SIGNING.md
   - scripts/signpath-sign.ps1
   - scripts/refresh-latest-yml.mjs
   - apps/desktop/electron-builder.yml
@@ -71,13 +70,46 @@ SignPath code signing requires one-time setup by a project owner; see the "Setup
 
    Set `win.publisherName` in `apps/desktop/electron-builder.yml` to the exact certificate subject (typically `SignPath Foundation`). electron-updater will then reject any future unsigned or differently-signed updates, protecting users from tampering.
 
+## SignPath artifact configurations
+
+Two artifact configurations with XML are needed to sign the executables (pass 1) and installer (pass 2). Use these exactly as written in the SignPath dashboard.
+
+`executables` (pass 1: the app exe and the hook binary, uploaded as a GitHub artifact zip):
+
+```xml
+<?xml version="1.0" encoding="utf-8"?>
+<artifact-configuration xmlns="http://signpath.io/artifact-configuration/v1">
+  <zip-file>
+    <pe-file path="claude-mons.exe">
+      <authenticode-sign />
+    </pe-file>
+    <pe-file path="claude-mons-hook.exe">
+      <authenticode-sign />
+    </pe-file>
+  </zip-file>
+</artifact-configuration>
+```
+
+`installer` (pass 2: the NSIS installer):
+
+```xml
+<?xml version="1.0" encoding="utf-8"?>
+<artifact-configuration xmlns="http://signpath.io/artifact-configuration/v1">
+  <zip-file>
+    <pe-file path="*.exe">
+      <authenticode-sign />
+    </pe-file>
+  </zip-file>
+</artifact-configuration>
+```
+
 ## Setup SignPath (one-time, project owner)
 
 1. Apply to [SignPath Foundation](https://about.signpath.io/product/open-source) with the repository URL. Requirements: public repo, OSI license (MIT ✓), real maintainer identity, GitHub Actions builds. Approval takes a few days.
 
 2. In the SignPath dashboard, create project `claude-mons` and:
    - Create two signing policies: `test-signing` (self-signed, for `workflow_dispatch`) and `release-signing` (Foundation certificate, for `v*` tags)
-   - Create artifact configurations `executables` and `installer` with the XML from `docs/SIGNING.md`
+   - Create artifact configurations `executables` and `installer` with the XML from the "SignPath artifact configurations" section above
    - Mark CI user as submitter on both policies
 
 3. In GitHub repository settings, add:
