@@ -6,7 +6,10 @@
   "description": "claude-mons desktop overlay (Electron)",
   "type": "module",
   "main": "./out/main/index.js",
-  "author": "Gerrit Visser",
+  "author": {
+    "name": "IcaruzSoftware",
+    "email": "106014197+IcaruzSoftware@users.noreply.github.com"
+  },
   "license": "MIT",
   "scripts": {
     "dev": "electron-vite dev",
@@ -35,5 +38,6 @@
     "vite": "^7.0.0",
     "electron-builder": "^26.0.0"
   },
-  "desktopName": "claude-mons.desktop"
+  "desktopName": "claude-mons.desktop",
+  "homepage": "https://github.com/IcaruzSoftware/claude-mons"
 }
