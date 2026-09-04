@@ -37,16 +37,15 @@ Alternatives considered:
 ## Decision
 
 Three changes together, all in `packages/shared/src/battle/battle.ts` and
-`packages/shared/src/game/levels.ts`, moved the balance harness's level-advantage assertion from
-~90 % to the target window: turn order became probabilistic by speed rather than strictly
-speed-ordered, damage variance widened, and per-level stat growth was roughly halved. The exact
-formulas and constants are `docs/design/battle.md`'s to state (see its Damage formula, Turn order
-and History sections); this decision records why they changed, not the resulting numbers. The
-target the retune was tuned against: a +3-level advantage should win about 70–80 % of the time
-(`packages/shared/test/balance.test.ts`, "a 3-level advantage wins roughly 70-80 % of the time"),
-and every species should stay within a 35–65 % win rate against its cross-nation matchups at level
-10 (same file, first test). Both thresholds are asserted directly in
-`packages/shared/test/balance.test.ts` and must keep passing for any future stat or formula change.
+`packages/shared/src/game/levels.ts`, moved the balance harness's level-advantage assertion away
+from ~90 %: turn order became probabilistic by speed rather than strictly speed-ordered, damage
+variance widened, and per-level stat growth was roughly halved. The exact formulas and constants
+are `docs/design/battle.md`'s to state (see its Damage formula, Turn order and History sections);
+this decision records why they changed, not the resulting numbers. The acceptance thresholds the
+retune was tuned against — the per-species win-rate band and the +3-level advantage band — are
+asserted in `packages/shared/test/balance.test.ts` and documented in the Balance harness section of
+[`../design/battle.md`](../design/battle.md); both must keep passing for any future stat or formula
+change.
 
 ## Consequences
 

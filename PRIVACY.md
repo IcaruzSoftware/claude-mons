@@ -5,7 +5,6 @@ audience: both
 last_verified: 2026-09-05
 last_verified_commit: f198a9d
 related_files:
-  - PRIVACY.md
   - packages/hook-cli/README.md
   - packages/hook-cli/main.go
   - apps/desktop/src/main/hooks/binary.ts

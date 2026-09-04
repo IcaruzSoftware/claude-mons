@@ -78,7 +78,8 @@ flowchart TD
 | Battle simulator and rewards | `docs/design/battle.md` |
 | Species, nations, sprites | `docs/design/species-and-nations.md` |
 | Pet behavior state machine | `docs/design/behavior-engine.md` |
-| Database schema, RLS, RPCs | `docs/design/backend-rules.md` |
+| Database schema, RLS, RPCs | `supabase/README.md` |
+| Server-side rules and trust model | `docs/design/backend-rules.md` |
 | Desktop app internals | `apps/desktop/README.md` |
 | IPC channel contract | `apps/desktop/IPC.md` |
 | Shared package details | `packages/shared/README.md` |

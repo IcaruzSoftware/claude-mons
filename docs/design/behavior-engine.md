@@ -39,7 +39,7 @@ and drains the queue once per `requestAnimationFrame` tick.
 
 ## States
 
-`PetState` (`packages/shared/src/behavior/states.ts`) has 20 values, grouped by the exported
+`PetState` (`packages/shared/src/behavior/states.ts`) has 21 values, grouped by the exported
 group arrays:
 
 | Group | States | Notes |

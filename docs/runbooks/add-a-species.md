@@ -17,7 +17,7 @@ When you need to design a new species and register it across the sprite, shared,
 
 ## 1. Plan the species
 
-Choose a nation, rarity (common or rare), and stat budget. Refer to [species-and-nations.md](../design/species-and-nations.md) for the type cycle, rarity weights (common: 75, rare: 25), base stat ranges per nation, and the current table of all species.
+Choose a nation, rarity (common or rare), and stat budget. Refer to [species-and-nations.md](../design/species-and-nations.md) for the type cycle, rarity weights, base stat ranges per nation, and the current table of all species.
 
 ```bash
 # Example: new rare Water species

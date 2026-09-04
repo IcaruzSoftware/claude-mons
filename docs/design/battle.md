@@ -172,8 +172,6 @@ If a rebalance is needed, the test's own comment says to adjust base stats in
 
 ## History
 
-> Unverified: exact figures below are as recorded in the frozen historical doc, not re-derived here.
-
 The original plan (`docs/history/v1-design-2026-09-04.md`, §5.5) specified strict "faster acts first" turn
 order, damage variance of `0.85`–`1.0`, and a `4 %`-per-level stat growth curve. Simulation showed the strict
 turn order plus that steeper growth made a one-level edge win about 90 % of mirror matches, so the shipped

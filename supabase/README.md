@@ -63,7 +63,7 @@ supabase/
 |---|---|---|
 | `players` | `id` (PK, auth.users FK) | One per user; nickname citext; suspicion tracks XP drops (≥10 excludes from leaderboards) |
 | `species_base_stats` | `species_id` (PK) | 8 species (1 per rarity per nation); hp/atk/def/spd base stats; seeded order for rarity rolls |
-| `mons` | `id` (PK), `player_id` (UQ FK) | One per player; egg until 100 XP, then rolls species; stage/level derived from total_xp |
+| `mons` | `id` (PK), `player_id` (UQ FK) | One per player; egg until `HATCH_XP`, then rolls species; stage/level derived from total_xp |
 | `xp_daily` | `player_id`, `day` (PK) | Per-UTC-day counters: work/bonus/battle XP, prompts, stops, battles_started/_defended |
 | `xp_minutes` | `player_id`, `minute` (PK) | Per-minute credited XP for rolling caps; pruned after 48 h |
 | `ingest_batches` | `batch_id` (PK) | Idempotency keys for ingest-xp; pruned after 48 h |

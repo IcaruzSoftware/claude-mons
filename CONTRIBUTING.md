@@ -91,7 +91,7 @@ After editing a doc, run:
 
 ```bash
 pnpm docs:check       # Check frontmatter and link integrity (runs scripts/check-docs.mjs)
-pnpm docs:index       # Regenerate docs/README.md (auto-run by CI)
+pnpm docs:index       # Regenerate docs/README.md
 ```
 
-CI runs `scripts/check-docs.test.mjs` to verify all documentation files.
+CI does not regenerate the index; it runs `pnpm docs:check` (which fails if `docs/README.md` is stale) and `scripts/check-docs.test.mjs` to verify all documentation files.

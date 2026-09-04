@@ -24,9 +24,9 @@ related_files:
 
 1. Pick a nation: **Water**, **Fire**, **Earth** or **Air**. Each has a personality and two species.
 2. An egg appears on your taskbar edge. Connect Claude Code with one click (adds hooks to `~/.claude/settings.json`; start a new Claude Code session afterwards).
-3. Work with Claude Code as usual. Prompts, tool calls and finished turns earn [XP](docs/design/economy.md). At the [hatch threshold](docs/design/species-and-nations.md), the egg hatches into one of your nation's species (75% common, 25% rare), rolled by the server.
+3. Work with Claude Code as usual. Prompts, tool calls and finished turns earn [XP](docs/design/economy.md). At the [hatch threshold](docs/design/species-and-nations.md), the egg hatches into one of your nation's species, rarity-weighted and rolled by the server.
 4. Level up through Baby → Teen → Adult. Your nation's weekly XP is its power on the leaderboard.
-5. Grab your mon and shake it to [challenge a mon from another nation](docs/design/battle.md). Battles are automatic, deterministic and replayed as an animation. Ten challenges a day, five minutes apart.
+5. Grab your mon and shake it to [challenge a mon from another nation](docs/design/battle.md). Battles are automatic, deterministic and replayed as an animation, subject to a [daily cap and cooldown](docs/design/battle.md).
 
 The pet is a minimal overlay: it idles, walks along the taskbar, sleeps when you're away, and reacts while Claude thinks, edits and runs commands. Hover for a stats card, click for the panel, right-click for the menu.
 

@@ -29,7 +29,7 @@ v1 is feature-complete and end-to-end tested on Windows 11. Below are the blocke
 
 - **Account linking.** Email or GitHub OAuth so players can keep their pet and stats across device reinstalls; replaces anonymous-only session.
 - **Changing nation.** UI + server-side support for a one-time or cooldown nation swap (ties to leaderboard changes for nation stats).
-- **More species.** Add 2–3 per nation (8 → 12–16 total) with new sprite sets and balancing.
+- **More species.** Add 2–3 per nation on top of the [current roster](design/species-and-nations.md) with new sprite sets and balancing.
 - **Seasonal nation events.** Nation-wide challenges with special battle mechanics, bonus XP, limited-time cosmetics.
 - **Public web leaderboard.** Standalone site showing nation standings and top trainers (read-only view of the Supabase data).
 

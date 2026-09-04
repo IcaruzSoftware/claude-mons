@@ -8,7 +8,7 @@ related_files:
   - .github/workflows/release.yml
   - .github/workflows/supabase-deploy.yml
   - .github/workflows/keepalive.yml
-  - docs/SIGNING.md
+  - docs/CODE_SIGNING_POLICY.md
   - supabase/README.md
 ---
 
@@ -20,7 +20,7 @@ Use this when you need to refresh a signing token before it expires, rotate pass
 
 ## SIGNPATH_API_TOKEN
 
-Code signing for Windows builds (see [`docs/SIGNING.md`](../SIGNING.md)).
+Code signing for Windows builds (see [`docs/CODE_SIGNING_POLICY.md`](../CODE_SIGNING_POLICY.md)).
 
 1. **Sign in** to the SignPath dashboard at https://signpath.org/. Navigate to **Users** > the **CI** user account > **API Tokens**.
 2. **Create a new token** with submitter rights and copy it.

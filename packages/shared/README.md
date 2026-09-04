@@ -79,6 +79,6 @@ Prints the state timeline and exits 1 on expectation mismatch. See `packages/sha
 | `packages/shared/test/battle.test.ts` | RNG determinism, nation cycle, stat budgets, rewards; golden snapshot |
 | `packages/shared/test/behavior.test.ts` | Priority gating, decay chain, physics, egg restrictions, determinism; JSON round-trip |
 | `packages/shared/test/shake.test.ts` | Shake detection (sliding window, sign reversals) |
-| `packages/shared/test/balance.test.ts` | Cross-nation round-robin (35–65 % win rates, level scaling) |
+| `packages/shared/test/balance.test.ts` | Cross-nation round-robin balance harness (win-rate and level-advantage bands, see `docs/design/battle.md`) |
 
 Run with `pnpm test` (vitest) or `deno test` (Deno). Tests inject time, RNG, and world parameters; logic is pure and deterministic.
