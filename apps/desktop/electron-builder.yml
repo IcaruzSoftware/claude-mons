@@ -36,6 +36,7 @@ nsis:
   shortcutName: claude-mons
 
 linux:
+  executableName: claude-mons
   target:
     - target: AppImage
       arch: [x64]
