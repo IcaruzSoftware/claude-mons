@@ -1,0 +1,97 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`simulateBattle > golden log: pins the protocol so client and server cannot drift 1`] = `
+{
+  "finalHp": {
+    "a": 43,
+    "b": 0,
+  },
+  "maxHp": {
+    "a": 82,
+    "b": 76,
+  },
+  "reason": "ko",
+  "seed": "golden-1",
+  "turns": [
+    {
+      "actions": [
+        {
+          "actor": "b",
+          "crit": true,
+          "damage": 13,
+          "dodged": false,
+          "effectiveness": 0.5,
+          "kind": "typed",
+          "move": "Gust Draft",
+          "targetHpAfter": 69,
+        },
+        {
+          "actor": "a",
+          "crit": false,
+          "damage": 41,
+          "dodged": false,
+          "effectiveness": 2,
+          "kind": "typed",
+          "move": "Hot Reload",
+          "targetHpAfter": 35,
+        },
+      ],
+      "first": "b",
+      "turn": 1,
+    },
+    {
+      "actions": [
+        {
+          "actor": "b",
+          "crit": false,
+          "damage": 9,
+          "dodged": false,
+          "effectiveness": 0.5,
+          "kind": "special",
+          "move": "Thunderclap",
+          "targetHpAfter": 60,
+        },
+        {
+          "actor": "a",
+          "crit": false,
+          "damage": 25,
+          "dodged": false,
+          "effectiveness": 2,
+          "kind": "typed",
+          "move": "Hot Reload",
+          "targetHpAfter": 10,
+        },
+      ],
+      "first": "b",
+      "turn": 2,
+    },
+    {
+      "actions": [
+        {
+          "actor": "b",
+          "crit": false,
+          "damage": 17,
+          "dodged": false,
+          "effectiveness": 1,
+          "kind": "normal",
+          "move": "Puff",
+          "targetHpAfter": 43,
+        },
+        {
+          "actor": "a",
+          "crit": false,
+          "damage": 14,
+          "dodged": false,
+          "effectiveness": 1,
+          "kind": "normal",
+          "move": "Spark Nip",
+          "targetHpAfter": 0,
+        },
+      ],
+      "first": "b",
+      "turn": 3,
+    },
+  ],
+  "winner": "a",
+}
+`;

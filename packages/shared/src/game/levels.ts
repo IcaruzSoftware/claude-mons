@@ -73,9 +73,9 @@ export function levelProgress(totalXp: number): LevelProgress {
   };
 }
 
-/** Linear stat growth: 4 % of base per level. L1 = base, L26 = 2x, L50 ~ 3x. */
+/** Linear stat growth: 2 % of base per level. L1 = base, L50 ~ 2x. */
 export function statAtLevel(base: number, level: number): number {
-  return Math.floor((base * (clampLevel(level) + 24)) / 25);
+  return Math.floor((base * (clampLevel(level) + 49)) / 50);
 }
 
 function clampLevel(level: number): number {

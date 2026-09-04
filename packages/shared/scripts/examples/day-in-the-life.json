@@ -1,0 +1,29 @@
+{
+  "stage": "baby",
+  "seed": 1,
+  "world": { "minX": 0, "maxX": 1000, "groundY": 500 },
+  "durationMs": 40000,
+  "stepMs": 16,
+  "timeline": [
+    { "at": 0, "stimulus": { "type": "hook:session_start" } },
+    { "at": 500, "stimulus": { "type": "hook:prompt" } },
+    { "at": 1500, "stimulus": { "type": "hook:tool_start" } },
+    { "at": 3000, "stimulus": { "type": "hook:tool_end" } },
+    { "at": 3500, "stimulus": { "type": "hook:tool_start" } },
+    { "at": 5000, "stimulus": { "type": "hook:tool_end" } },
+    { "at": 6000, "stimulus": { "type": "hook:stop" } }
+  ],
+  "expect": [
+    { "at": 1000, "state": "thinking" },
+    { "at": 2000, "state": "working" },
+    { "at": 3200, "state": "thinking" },
+    { "at": 4000, "state": "working" },
+    { "at": 6500, "state": "success" },
+    { "at": 8100, "state": "idle" },
+    { "at": 12000, "state": "walk" },
+    { "at": 15500, "state": "idle" },
+    { "at": 20000, "state": "sit" },
+    { "at": 29000, "state": "walk" },
+    { "at": 39000, "state": ["idle", "walk", "sit"] }
+  ]
+}

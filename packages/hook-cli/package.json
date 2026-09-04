@@ -1,0 +1,13 @@
+{
+  "name": "@claude-mons/hook-cli",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Tiny Go binary that forwards Claude Code hook events to the claude-mons desktop app.",
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "build:host": "node scripts/build.mjs --host",
+    "test": "node scripts/build.mjs --test",
+    "typecheck": "echo \"hook-cli: Go package, no TypeScript\""
+  }
+}

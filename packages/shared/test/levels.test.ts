@@ -84,9 +84,9 @@ describe('levelProgress', () => {
 });
 
 describe('statAtLevel', () => {
-  it('doubles at level 26 and roughly triples at 50', () => {
+  it('grows 2 % per level: ~1.5x at 26, ~2x at 50', () => {
     expect(statAtLevel(100, 1)).toBe(100);
-    expect(statAtLevel(100, 26)).toBe(200);
-    expect(statAtLevel(100, 50)).toBe(296);
+    expect(statAtLevel(100, 26)).toBe(150);
+    expect(statAtLevel(100, 50)).toBe(198);
   });
 });

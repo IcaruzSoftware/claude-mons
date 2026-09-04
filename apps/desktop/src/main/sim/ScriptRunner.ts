@@ -1,0 +1,73 @@
+import { readFileSync } from 'node:fs';
+import type { Stimulus } from '@claude-mons/shared';
+
+export interface SimScript {
+  timeline: Array<{ at: number; stimulus: Stimulus }>;
+  /** Repeat the timeline every N ms (optional). */
+  loopMs?: number;
+}
+
+/**
+ * Drives the pet through a scripted timeline of stimuli, so animations can be reviewed without
+ * running Claude Code. Started with `claude-mons --simulate <script.json>`.
+ * The script format is shared with `pnpm sim` (packages/shared/scripts/sim.ts); only `timeline`
+ * and `loopMs` are used here.
+ */
+export class ScriptRunner {
+  private timers: NodeJS.Timeout[] = [];
+
+  constructor(
+    private readonly script: SimScript,
+    private readonly send: (s: Stimulus) => void,
+  ) {}
+
+  static fromFile(path: string): ScriptRunner | null {
+    try {
+      const parsed = JSON.parse(readFileSync(path, 'utf8')) as SimScript;
+      if (!Array.isArray(parsed.timeline)) throw new Error('script has no timeline');
+      return new ScriptRunner(parsed, () => {});
+    } catch (err) {
+      console.error(`--simulate: cannot load ${path}:`, err);
+      return null;
+    }
+  }
+
+  withSender(send: (s: Stimulus) => void): ScriptRunner {
+    return new ScriptRunner(this.script, send);
+  }
+
+  start(): void {
+    const run = () => {
+      for (const entry of this.script.timeline) {
+        this.timers.push(setTimeout(() => this.send(entry.stimulus), entry.at));
+      }
+    };
+    run();
+    if (this.script.loopMs && this.script.loopMs > 0) {
+      const loop = setInterval(run, this.script.loopMs);
+      this.timers.push(loop as unknown as NodeJS.Timeout);
+    }
+    console.info(`--simulate: scheduled ${this.script.timeline.length} stimuli`);
+  }
+
+  stop(): void {
+    for (const t of this.timers) clearTimeout(t);
+    this.timers = [];
+  }
+}
+
+export function parseSimulateArg(argv: readonly string[]): string | null {
+  return parseArg(argv, '--simulate');
+}
+
+/** `--capture <path>`: save a PNG of the pet window a few seconds after start (dev/CI aid). */
+export function parseCaptureArg(argv: readonly string[]): string | null {
+  return parseArg(argv, '--capture');
+}
+
+function parseArg(argv: readonly string[], flag: string): string | null {
+  const i = argv.indexOf(flag);
+  if (i >= 0 && argv[i + 1]) return argv[i + 1]!;
+  const eq = argv.find((a) => a.startsWith(`${flag}=`));
+  return eq ? eq.slice(flag.length + 1) : null;
+}

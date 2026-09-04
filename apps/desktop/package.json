@@ -1,5 +1,6 @@
 {
   "name": "@claude-mons/desktop",
+  "productName": "claude-mons",
   "version": "0.1.0",
   "private": true,
   "description": "claude-mons desktop overlay (Electron)",
@@ -18,7 +19,8 @@
   "dependencies": {
     "@claude-mons/shared": "workspace:*",
     "@preact/signals": "^2.0.0",
-    "preact": "^10.26.0"
+    "preact": "^10.26.0",
+    "@claude-mons/sprites": "workspace:*"
   },
   "devDependencies": {
     "@preact/preset-vite": "^2.10.0",

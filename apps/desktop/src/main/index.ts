@@ -1,49 +1,31 @@
-import { join } from 'node:path';
-import { BrowserWindow, app, ipcMain } from 'electron';
-import { IPC, type PetConfig } from '../common/ipc.ts';
+import { app } from 'electron';
+import { App } from './App.ts';
 
-// Phase 0: a plain window proving the toolchain works end to end.
-// Phase 1 replaces this with the transparent always-on-top pet window.
-
-const gotLock = app.requestSingleInstanceLock();
-if (!gotLock) {
+// Single instance: a second launch just exits (later: focuses the panel).
+if (!app.requestSingleInstanceLock()) {
   app.quit();
 }
 
-function createWindow(): BrowserWindow {
-  const win = new BrowserWindow({
-    width: 480,
-    height: 320,
-    show: false,
-    title: 'claude-mons',
-    webPreferences: {
-      preload: join(__dirname, '../preload/pet.js'),
-      contextIsolation: true,
-      sandbox: true,
-      nodeIntegration: false,
-    },
-  });
-
-  win.once('ready-to-show', () => win.show());
-
-  if (process.env.ELECTRON_RENDERER_URL) {
-    void win.loadURL(`${process.env.ELECTRON_RENDERER_URL}/pet/index.html`);
-  } else {
-    void win.loadFile(join(__dirname, '../renderer/pet/index.html'));
-  }
-  return win;
+if (process.platform === 'linux') {
+  // Transparent windows need this before `ready` on Linux (X11/XWayland).
+  app.commandLine.appendSwitch('enable-transparent-visuals');
+}
+if (process.env.CLAUDE_MONS_DISABLE_GPU === '1') {
+  app.disableHardwareAcceleration();
 }
 
-ipcMain.on(IPC.petReady, (event) => {
-  const config: PetConfig = { spriteScale: 3, version: app.getVersion() };
-  event.sender.send(IPC.petConfig, config);
-});
+async function boot(): Promise<void> {
+  await app.whenReady();
+  // Known Electron/Linux race: creating a transparent window immediately after `ready` can yield
+  // an opaque black square. A short delay avoids it.
+  if (process.platform === 'linux') await new Promise((r) => setTimeout(r, 300));
+  const application = new App();
+  await application.start();
+}
 
-app.whenReady().then(() => {
-  createWindow();
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
-  });
+boot().catch((err) => {
+  console.error('fatal during boot:', err);
+  app.quit();
 });
 
 app.on('window-all-closed', () => {

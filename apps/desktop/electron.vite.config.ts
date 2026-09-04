@@ -18,6 +18,8 @@ export default defineConfig({
         input: {
           pet: resolve(__dirname, 'src/preload/pet.ts'),
         },
+        // Sandboxed renderers only accept CommonJS preload scripts.
+        output: { format: 'cjs', entryFileNames: '[name].js' },
       },
     },
   },

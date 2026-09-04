@@ -1,0 +1,17 @@
+{
+  "name": "@claude-mons/sprites",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Pixel-art sprites authored as string-row matrices plus palettes, rasterized to RGBA buffers. Dependency-free, web-standard globals only.",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./*": "./src/*"
+  },
+  "scripts": {
+    "build": "echo \"sprites is consumed as TypeScript source; nothing to build\"",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "preview": "node --experimental-strip-types scripts/preview.ts"
+  }
+}

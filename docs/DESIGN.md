@@ -156,7 +156,7 @@ Typical engaged day ≈ 750 work XP + ~50 bonus + ~150 battle ≈ 950 XP.
 
 Projection at 750 XP/day: hatch day 1, Teen day 6, Adult day 40. Single tuning knob: the slope (100 → 120 if too fast).
 
-Stats: `statAtLevel(base, L) = floor(base · (L + 24) / 25)` (L26 = 2×, L50 ≈ 3×).
+Stats: `statAtLevel(base, L) = floor(base · (L + 49) / 50)` (L26 ≈ 1.5×, L50 ≈ 2×). Halved from the first draft after simulation showed +1 level winning 90 % of mirror matches.
 
 ### 5.3 Nations = types
 
