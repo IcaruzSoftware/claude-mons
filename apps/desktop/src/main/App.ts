@@ -395,7 +395,7 @@ export class App {
     if (!summary) return;
     // With a backend the server already credited the XP and the next sync reconciles it.
     // Offline, the local ledger is the only truth.
-    if (!this.api || summary.isBot) this.game.addBattleXp(summary.xp);
+    if (!this.api) this.game.addBattleXp(summary.xp);
     else this.sync?.scheduleSoon();
     this.pushSnapshot();
   }

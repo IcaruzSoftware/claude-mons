@@ -326,3 +326,12 @@ Accept: tagged build yields installers for both OSes with working auto-update; c
 ## Open items for later (not v1)
 
 Native Wayland support; email/GitHub account linking; changing nation; more species per nation; usage-profile-influenced stats ("nature"); nation-wide events/seasons; code signing; public web leaderboard page; sounds.
+
+---
+
+## Implementation notes (added after the v1 build, 2026-09-04)
+
+The build followed this document with the deviations listed in [HANDOFF.md](HANDOFF.md): battle balance
+(probabilistic turn order, damage variance 0.7–1.3, 2 %/level stat growth), auto-generated nicknames,
+server-credited battle XP, `npm:` specifiers in Edge Functions, and the migration having been applied
+through the Management API. Verification status per area is tracked there as well.
