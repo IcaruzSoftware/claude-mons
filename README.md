@@ -24,7 +24,7 @@ pnpm hook:build                      # Go 1.22+ required; cross-compiles the hoo
 pnpm --filter @claude-mons/desktop package:win    # or package:linux
 ```
 
-The installer lands in `apps/desktop/release/`. Windows Smart App Control may block the unsigned hook binary; see the hand-off notes.
+The installer lands in `apps/desktop/release/`. Release builds are code-signed through SignPath once the repository secrets exist; see [docs/SIGNING.md](docs/SIGNING.md). Unsigned local builds may be blocked by Windows Smart App Control.
 
 ## Development
 

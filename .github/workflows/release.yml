@@ -1,5 +1,11 @@
 name: Release
 
+# Builds installers for a tag (or manually) and publishes them to GitHub Releases.
+# Windows binaries are code-signed through SignPath (https://signpath.org, free for open source)
+# when the repository has the secrets SIGNPATH_API_TOKEN and SIGNPATH_ORGANIZATION_ID and the
+# variable SIGNPATH_PROJECT_SLUG. Without them the workflow still runs and produces unsigned builds.
+# See docs/SIGNING.md.
+
 on:
   push:
     tags: ['v*']
@@ -7,59 +13,171 @@ on:
 
 permissions:
   contents: write
+  id-token: write
+
+env:
+  PUBLISH: ${{ startsWith(github.ref, 'refs/tags/v') && 'always' || 'never' }}
 
 jobs:
-  build:
-    name: build (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest]
+  linux:
+    name: build (linux)
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
       - uses: pnpm/action-setup@v4
-
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: pnpm
-
       - uses: actions/setup-go@v5
         with:
           go-version: '1.22'
-          cache-dependency-path: packages/hook-cli/go.sum
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Build hook binaries (all targets)
-        run: pnpm hook:build
-
-      - name: Build desktop
-        run: pnpm --filter @claude-mons/desktop build
-
-      - name: Package + publish (Windows)
-        if: runner.os == 'Windows'
+          cache: false
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm hook:build
+      - run: pnpm --filter @claude-mons/desktop build
+      - name: Package (AppImage, deb)
         working-directory: apps/desktop
-        run: pnpm exec electron-builder --win --publish ${{ startsWith(github.ref, 'refs/tags/v') && 'always' || 'never' }}
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: pnpm exec electron-builder --linux --publish never
+      - name: Publish to GitHub Releases
+        if: env.PUBLISH == 'always'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            apps/desktop/release/*.AppImage
+            apps/desktop/release/*.deb
+            apps/desktop/release/latest-linux.yml
+      - uses: actions/upload-artifact@v4
+        with:
+          name: claude-mons-linux
+          path: |
+            apps/desktop/release/*.AppImage
+            apps/desktop/release/*.deb
+            apps/desktop/release/latest-linux.yml
+          if-no-files-found: error
 
-      - name: Package + publish (Linux)
-        if: runner.os == 'Linux'
+  windows:
+    name: build + sign (windows)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          cache: false
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm hook:build
+      - run: pnpm --filter @claude-mons/desktop build
+
+      - name: Decide whether signing is configured
+        id: sign
+        shell: bash
+        run: |
+          if [ -n "${{ secrets.SIGNPATH_API_TOKEN }}" ] && [ -n "${{ secrets.SIGNPATH_ORGANIZATION_ID }}" ] && [ -n "${{ vars.SIGNPATH_PROJECT_SLUG }}" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::SignPath secrets not configured; producing unsigned Windows build"
+          fi
+
+      # --- pass 1: sign the executables that go inside the installer ------------------------------
+      - name: Stage unpacked app
         working-directory: apps/desktop
-        run: pnpm exec electron-builder --linux --publish ${{ startsWith(github.ref, 'refs/tags/v') && 'always' || 'never' }}
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: pnpm exec electron-builder --win --dir --publish never
+
+      - name: Collect PE files for signing
+        if: steps.sign.outputs.enabled == 'true'
+        shell: bash
+        run: |
+          mkdir -p sign/pass1
+          cp apps/desktop/release/win-unpacked/claude-mons.exe sign/pass1/
+          cp packages/hook-cli/dist/win-x64/claude-mons-hook.exe sign/pass1/
+      - uses: actions/upload-artifact@v4
+        if: steps.sign.outputs.enabled == 'true'
+        id: pass1
+        with:
+          name: sign-pass1
+          path: sign/pass1/*.exe
+          if-no-files-found: error
+      - name: Sign executables (SignPath)
+        if: steps.sign.outputs.enabled == 'true'
+        id: signed1
+        uses: signpath/github-action-submit-signing-request@v1
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ secrets.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          signing-policy-slug: ${{ startsWith(github.ref, 'refs/tags/v') && 'release-signing' || 'test-signing' }}
+          artifact-configuration-slug: executables
+          github-artifact-id: ${{ steps.pass1.outputs.artifact-id }}
+          wait-for-completion: true
+          output-artifact-directory: sign/pass1-signed
+      - name: Put signed executables back
+        if: steps.sign.outputs.enabled == 'true'
+        shell: bash
+        run: |
+          cp sign/pass1-signed/claude-mons.exe apps/desktop/release/win-unpacked/claude-mons.exe
+          cp sign/pass1-signed/claude-mons-hook.exe apps/desktop/release/win-unpacked/resources/bin/claude-mons-hook.exe
+
+      # --- installer ---------------------------------------------------------------------------
+      - name: Build NSIS installer from the (signed) unpacked app
+        working-directory: apps/desktop
+        run: pnpm exec electron-builder --win --prepackaged release/win-unpacked --publish never
+
+      # --- pass 2: sign the installer -----------------------------------------------------------
+      - name: Collect installer for signing
+        if: steps.sign.outputs.enabled == 'true'
+        shell: bash
+        run: |
+          mkdir -p sign/pass2
+          cp apps/desktop/release/*.exe sign/pass2/
+      - uses: actions/upload-artifact@v4
+        if: steps.sign.outputs.enabled == 'true'
+        id: pass2
+        with:
+          name: sign-pass2
+          path: sign/pass2/*.exe
+          if-no-files-found: error
+      - name: Sign installer (SignPath)
+        if: steps.sign.outputs.enabled == 'true'
+        uses: signpath/github-action-submit-signing-request@v1
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ secrets.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          signing-policy-slug: ${{ startsWith(github.ref, 'refs/tags/v') && 'release-signing' || 'test-signing' }}
+          artifact-configuration-slug: installer
+          github-artifact-id: ${{ steps.pass2.outputs.artifact-id }}
+          wait-for-completion: true
+          output-artifact-directory: sign/pass2-signed
+      - name: Replace installer with the signed one and refresh the update metadata
+        if: steps.sign.outputs.enabled == 'true'
+        shell: bash
+        working-directory: apps/desktop
+        run: |
+          cp ../../sign/pass2-signed/*.exe release/
+          # latest.yml carries the installer's sha512; recompute it after signing changed the bytes
+          node ../../scripts/refresh-latest-yml.mjs release
+
+      - name: Publish to GitHub Releases
+        if: env.PUBLISH == 'always'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            apps/desktop/release/*.exe
+            apps/desktop/release/*.blockmap
+            apps/desktop/release/latest.yml
 
       - uses: actions/upload-artifact@v4
         with:
-          name: claude-mons-${{ matrix.os }}
+          name: claude-mons-windows
           path: |
             apps/desktop/release/*.exe
-            apps/desktop/release/*.AppImage
-            apps/desktop/release/*.deb
-            apps/desktop/release/latest*.yml
+            apps/desktop/release/*.blockmap
+            apps/desktop/release/latest.yml
           if-no-files-found: error
