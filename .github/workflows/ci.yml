@@ -59,3 +59,21 @@ jobs:
 
       - name: Build desktop (unpackaged)
         run: pnpm --filter @claude-mons/desktop build
+
+  docs:
+    name: docs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: check-docs tests
+        run: node --test scripts/check-docs.test.mjs
+
+      - name: check-docs
+        run: node scripts/check-docs.mjs

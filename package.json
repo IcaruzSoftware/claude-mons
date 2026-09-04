@@ -23,7 +23,10 @@
     "sync:shared": "node scripts/sync-shared.mjs",
     "hook:build": "pnpm --filter @claude-mons/hook-cli build",
     "sim": "pnpm --filter @claude-mons/shared sim",
-    "check": "pnpm lint && pnpm typecheck && pnpm test"
+    "docs:check": "node scripts/check-docs.mjs",
+    "docs:index": "node scripts/check-docs.mjs --write",
+    "test:scripts": "node --test scripts/*.test.mjs",
+    "check": "pnpm lint && pnpm typecheck && pnpm test && pnpm test:scripts && pnpm docs:check"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.0",
