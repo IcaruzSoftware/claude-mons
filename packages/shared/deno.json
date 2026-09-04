@@ -1,0 +1,12 @@
+{
+  "name": "@claude-mons/shared",
+  "exports": "./src/index.ts",
+  "compilerOptions": {
+    "strict": true,
+    "lib": ["deno.window"]
+  },
+  "tasks": {
+    "check": "deno check src/index.ts",
+    "test": "deno test test/"
+  }
+}

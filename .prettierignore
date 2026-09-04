@@ -1,0 +1,9 @@
+node_modules
+dist
+out
+release
+coverage
+pnpm-lock.yaml
+supabase/functions/_shared/game
+packages/hook-cli
+*.md
