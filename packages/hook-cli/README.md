@@ -84,9 +84,9 @@ If delivery fails (app not running, stale endpoint, network error), the envelope
 
 | Target | GOOS | GOARCH | Output |
 |---|---|---|---|
-| Windows | windows | amd64 | `dist/win-x64/claude-mons-hook.exe` |
-| Linux x86 | linux | amd64 | `dist/linux-x64/claude-mons-hook` |
-| Linux ARM | linux | arm64 | `dist/linux-arm64/claude-mons-hook` |
+| Windows | windows | amd64 | `packages/hook-cli/dist/win-x64/claude-mons-hook.exe` |
+| Linux x86 | linux | amd64 | `packages/hook-cli/dist/linux-x64/claude-mons-hook` |
+| Linux ARM | linux | arm64 | `packages/hook-cli/dist/linux-arm64/claude-mons-hook` |
 
 Build flags: `-trimpath -ldflags "-s -w"`, `CGO_ENABLED=0`. Go not found exits 0 (build) / 1 (test).
 
