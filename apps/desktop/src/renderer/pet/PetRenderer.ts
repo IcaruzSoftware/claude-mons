@@ -11,6 +11,7 @@ import {
 import type { BehaviorModel, FxName } from '@claude-mons/shared';
 import { animationFor } from '@claude-mons/shared';
 import type { Hitbox, WindowGeometry } from '../../common/ipc.ts';
+import { clamp, clampCenter, fitBanner, type MeasureText } from './bannerFit.ts';
 import { BattlePlayer } from './BattlePlayer.ts';
 import { SpriteCache } from './SpriteCache.ts';
 
@@ -52,10 +53,16 @@ export class PetRenderer {
   constructor(
     private readonly canvas: HTMLCanvasElement,
     private opts: RenderOptions,
+    initialGeometry?: WindowGeometry,
   ) {
     const ctx = canvas.getContext('2d', { alpha: true });
     if (!ctx) throw new Error('2d context unavailable');
     this.ctx = ctx;
+    // Seeded from `PetConfig.windowGeometry` when the caller has it, instead of the `{0,0,0,0}`
+    // placeholder — see that field's doc comment (apps/desktop/src/common/ipc.ts) for the boot-race
+    // this avoids: the render loop starts as soon as `petConfig` arrives, which could otherwise be
+    // before the separately-sent `IPC.petWindowMoved` had been handled.
+    if (initialGeometry) this.geometry = initialGeometry;
     this.resize();
   }
 
@@ -243,22 +250,32 @@ export class PetRenderer {
     }
     ctx.restore();
 
+    // Canvas rect in the same window-local units as ax/ay/oLeft/etc — every HUD element below
+    // clamps into this so a mon standing near the edge of the (now generously-sized, but still
+    // finite, see apps/desktop/src/main/display.ts:battleBounds) arena window never draws its hp
+    // bar, popups or the banner partly outside the window itself.
+    const canvasW = this.geometry.width;
+    const canvasH = this.geometry.height;
+    const margin = 4 * s;
+
     // hp bars above both sprites
     const barW = 14 * s;
     const barH = Math.max(3, s);
-    const drawBar = (cx: number, top: number, hp: number, max: number, label: string) => {
+    const drawBar = (cx0: number, top: number, hp: number, max: number, label: string) => {
+      ctx.font = `${Math.max(9, 4 * s)}px system-ui, sans-serif`;
+      const labelW = ctx.measureText(label).width;
+      const cx = clampCenter(cx0, Math.max(barW, labelW), canvasW, margin);
       const x = Math.round(cx - barW / 2);
-      const y = Math.round(top - barH - 3 * s);
+      const y = Math.round(clamp(top - barH - 3 * s, margin, canvasH - barH - margin));
       ctx.fillStyle = 'rgba(20,22,28,0.85)';
       ctx.fillRect(x - 1, y - 1, barW + 2, barH + 2);
       const f = max > 0 ? Math.max(0, Math.min(1, hp / max)) : 0;
       ctx.fillStyle = f > 0.5 ? '#7cb342' : f > 0.25 ? '#ffd740' : '#ff5252';
       ctx.fillRect(x, y, Math.round(barW * f), barH);
       ctx.fillStyle = '#e8e9ee';
-      ctx.font = `${Math.max(9, 4 * s)}px system-ui, sans-serif`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'bottom';
-      ctx.fillText(label, cx, y - 2);
+      ctx.fillText(label, cx, Math.max(y - 2, margin + 8 * s));
     };
     const myBBox = frameBBox(this.currentSprite(model), 'idle', 0);
     const myVisualTop = myBBox ? myTop + myBBox.y * s : myTop;
@@ -277,29 +294,49 @@ export class PetRenderer {
     // popups
     for (const p of v.popups) {
       const age = battle.popupAge(p, now) / BattlePlayer.popupMs();
-      const cx = p.side === 'a' ? ax : ox;
       const baseTop = p.side === 'a' ? myVisualTop : oppVisualTop;
+      ctx.font = `bold ${Math.max(10, 5 * s)}px system-ui, sans-serif`;
+      const textW = ctx.measureText(p.text).width;
+      const cx = clampCenter(p.side === 'a' ? ax : ox, textW, canvasW, margin);
+      const cy = clamp(baseTop - 8 * s - age * 14 * s, margin + 10 * s, canvasH - margin);
       ctx.globalAlpha = Math.max(0, 1 - age * age);
       ctx.fillStyle = p.color;
-      ctx.font = `bold ${Math.max(10, 5 * s)}px system-ui, sans-serif`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'bottom';
-      ctx.fillText(p.text, cx, baseTop - 8 * s - age * 14 * s);
+      ctx.fillText(p.text, cx, cy);
       ctx.globalAlpha = 1;
     }
 
-    // banner
+    // banner: wraps/shrinks to fit the canvas width instead of ever drawing past its right edge
+    // (bug: "Pebblet used Bedrock Sla…" cut off) — see apps/desktop/src/renderer/pet/bannerFit.ts.
     if (v.banner) {
-      ctx.font = `${Math.max(10, 4.5 * s)}px system-ui, sans-serif`;
+      const baseFontPx = Math.max(10, 4.5 * s);
+      const minFontPx = Math.max(8, baseFontPx * 0.6);
+      const maxTextWidth = Math.max(40, canvasW - margin * 2 - 12);
+      const measure: MeasureText = (text, fontPx) => {
+        ctx.font = `${fontPx}px system-ui, sans-serif`;
+        return ctx.measureText(text).width;
+      };
+      const layout = fitBanner(v.banner, maxTextWidth, { baseFontPx, minFontPx }, measure);
+      ctx.font = `${layout.fontPx}px system-ui, sans-serif`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'top';
-      const cx = (ax + ox) / 2;
-      const w = ctx.measureText(v.banner).width + 12;
-      const y = Math.min(myTop, oTop) - 20 * s;
+      const lineW = Math.max(...layout.lines.map((l) => ctx.measureText(l).width));
+      const w = lineW + 12;
+      const lineH = layout.fontPx + 3 * s;
+      const boxH = lineH * layout.lines.length + 3 * s;
+      const cx = clampCenter((ax + ox) / 2, w, canvasW, margin);
+      const y = clamp(
+        Math.min(myTop, oTop) - 20 * s - (boxH - 6 * s),
+        margin,
+        canvasH - boxH - margin,
+      );
       ctx.fillStyle = 'rgba(20,22,28,0.85)';
-      ctx.fillRect(Math.round(cx - w / 2), Math.round(y), Math.round(w), Math.round(6 * s));
+      ctx.fillRect(Math.round(cx - w / 2), Math.round(y), Math.round(w), Math.round(boxH));
       ctx.fillStyle = '#e8e9ee';
-      ctx.fillText(v.banner, cx, y + s);
+      for (let i = 0; i < layout.lines.length; i++) {
+        ctx.fillText(layout.lines[i]!, cx, y + s + i * lineH);
+      }
     }
     void ay;
     void mySize;

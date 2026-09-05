@@ -76,6 +76,8 @@ export class PetHost {
   private lastHitbox: Hitbox = null;
   private shake: ShakeDetectorState = createShakeState();
   private petVisible = true;
+  /** True while a battle is animating in the renderer; see `playBattle`/`IPC.petBattleDone`. */
+  private inBattle = false;
   /** True once the renderer has fired `ready-to-show`; gates the first reveal alongside a nation. */
   private windowReady = false;
   private trackerStarted = false;
@@ -151,8 +153,16 @@ export class PetHost {
     this.onBattleDoneHooks.push(hook);
   }
 
-  /** Hand a resolved battle to the renderer for playback. */
+  /**
+   * Hand a resolved battle to the renderer for playback. Switches the window into the battle
+   * arena (see `PetWindow.enterBattle`) so the opponent, hp bars, popups and banner have room —
+   * otherwise this can still be mid-drag (`follow` mode, a small square) or already back in
+   * `strip` mode, both too small/short for the battle HUD. Reverted in the `IPC.petBattleDone`
+   * handler below, once the renderer confirms the animation actually finished.
+   */
   playBattle(msg: BattlePlayMessage): void {
+    this.inBattle = true;
+    this.window.enterBattle(this.currentAnchor());
     this.window.send(IPC.petBattlePlay, msg);
   }
 
@@ -270,6 +280,7 @@ export class PetHost {
       x: this.lastState?.x ?? restoreAnchorX(this.display, this.state.anchorMemory),
       seed: this.state.seed,
       debug: DEBUG,
+      windowGeometry: this.window.geometry(),
     };
     this.window.send(IPC.petConfig, config);
     this.window.send(IPC.petWindowMoved, this.window.geometry());
@@ -285,13 +296,15 @@ export class PetHost {
 
     ipcMain.on(IPC.petHitbox, (e, hitbox: Hitbox) => {
       if (!own(e)) return;
-      if (DEBUG)
+      if (DEBUG) {
         console.info(
           '[pet] hitbox',
           JSON.stringify(hitbox),
           'window',
           JSON.stringify(this.window.win.getBounds()),
         );
+        this.assertHitboxWithinWindow(hitbox);
+      }
       this.lastHitbox = hitbox;
       this.tracker.setHitbox(hitbox);
     });
@@ -301,7 +314,20 @@ export class PetHost {
       if (DEBUG && msg.state !== this.lastState?.state)
         console.info('[pet] state', JSON.stringify(msg));
       this.lastState = msg;
-      if (this.window.getMode() === 'strip') this.callbacks.onAnchor(this.display, msg.x);
+      if (this.window.getMode() === 'strip') {
+        this.callbacks.onAnchor(this.display, msg.x);
+      } else if (this.window.getMode() === 'follow') {
+        // Bug: after a release that starts a real fall (`above` in the reducer's `input:release`
+        // handler), nothing repositioned the follow window while the model fell — `followTo` was
+        // only ever called from `onDragMove`, which stops the moment the pointer is released. The
+        // window stayed wherever the drag left it while the sprite kept falling inside it, so the
+        // hitbox (and the sprite itself) drifted past the window's own bottom edge until landing
+        // (visible as `assertHitboxWithinWindow` firing repeatedly with a growing `hitbox.y`).
+        // Tracking every reported position here, drag or fall alike, keeps the window under the
+        // sprite the whole time; it's a harmless no-op duplicate of the drag-time call while
+        // `this.drag` is still set, since both compute the same anchor for the same frame.
+        this.window.followTo({ x: msg.x, y: msg.y });
+      }
     });
 
     ipcMain.on(IPC.petPointer, (e, msg: PointerMessage) => {
@@ -321,8 +347,43 @@ export class PetHost {
 
     ipcMain.on(IPC.petBattleDone, (e, id: unknown) => {
       if (!own(e)) return;
+      // Leave the battle arena the same way `onLanded` leaves `follow` mode: back to `strip`,
+      // re-anchored to whatever display we're on. The renderer forces the model back to `idle`
+      // for the same stimulus (`battle:done`, packages/shared/src/behavior/reducer.ts), so there
+      // is nothing mid-drag/mid-fall left to preserve here.
+      this.inBattle = false;
+      this.window.setDisplay(this.display);
+      this.window.enterStrip();
+      this.pushWorld();
       if (typeof id === 'string') for (const hook of this.onBattleDoneHooks) hook(id);
     });
+  }
+
+  /**
+   * Debug-only (CLAUDE_MONS_DEBUG=1): warns when the renderer's reported sprite hitbox — supposedly
+   * window-local coordinates — falls outside the window's own current bounds. This would mean the
+   * renderer drew against geometry the main process no longer agrees with (e.g. a stale `geometry`
+   * after a mode switch), the general shape of bug reports like "HUD partly behind another window"
+   * (see docs/architecture/overlay-and-input.md and docs/architecture/flows/shake-to-battle.md).
+   */
+  private assertHitboxWithinWindow(hitbox: Hitbox): void {
+    if (!hitbox) return;
+    const b = this.window.win.getBounds();
+    const outOfBounds =
+      hitbox.x < 0 ||
+      hitbox.y < 0 ||
+      hitbox.x + hitbox.w > b.width ||
+      hitbox.y + hitbox.h > b.height;
+    if (outOfBounds) {
+      console.warn(
+        '[pet] geometry mismatch: hitbox lies outside window bounds',
+        JSON.stringify({
+          hitbox,
+          windowSize: { width: b.width, height: b.height },
+          mode: this.window.getMode(),
+        }),
+      );
+    }
   }
 
   private registerDisplayEvents(): void {
@@ -362,6 +423,10 @@ export class PetHost {
   }
 
   private beginDrag(cursor: { x: number; y: number }): void {
+    // A pointer-down landing on the sprite mid-battle would otherwise call `enterFollow` and
+    // shrink the window out from under the battle arena (`playBattle`/`enterBattle`), clipping the
+    // in-progress HUD. The battle owns the window until `IPC.petBattleDone` reverts it.
+    if (this.inBattle) return;
     const anchor = this.currentAnchor();
     this.drag = { anchorAtGrab: anchor, cursorAtGrab: cursor, startedAt: Date.now(), maxDist: 0 };
     this.shake = createShakeState();

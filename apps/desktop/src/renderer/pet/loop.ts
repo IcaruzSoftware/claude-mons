@@ -22,12 +22,16 @@ export class PetLoop {
     canvas: HTMLCanvasElement,
     private config: PetConfig,
   ) {
-    this.renderer = new PetRenderer(canvas, {
-      spriteScale: config.spriteScale,
-      speciesId: config.speciesId,
-      nation: config.nation,
-      debug: config.debug,
-    });
+    this.renderer = new PetRenderer(
+      canvas,
+      {
+        spriteScale: config.spriteScale,
+        speciesId: config.speciesId,
+        nation: config.nation,
+        debug: config.debug,
+      },
+      config.windowGeometry,
+    );
     this.model = createModel({
       stage: config.stage,
       world: config.world,

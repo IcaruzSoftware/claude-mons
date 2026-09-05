@@ -69,6 +69,49 @@ export function followBounds(
   };
 }
 
+/**
+ * Clamps `rect` so it lies fully inside `area`, shrinking it first on whichever axis it overflows.
+ * Used to keep the battle arena window (see `battleBounds`) inside the display's work area instead
+ * of letting it hang off an edge on a small/secondary display.
+ */
+export function clampRectToArea(
+  rect: { x: number; y: number; width: number; height: number },
+  area: { x: number; y: number; width: number; height: number },
+): { x: number; y: number; width: number; height: number } {
+  const width = Math.min(rect.width, area.width);
+  const height = Math.min(rect.height, area.height);
+  const x = Math.min(Math.max(rect.x, area.x), area.x + area.width - width);
+  const y = Math.min(Math.max(rect.y, area.y), area.y + area.height - height);
+  return { x, y, width, height };
+}
+
+/**
+ * Bounds of the "battle" window: like `followBounds`, centered horizontally on the anchor with its
+ * bottom edge at the anchor (so both mons stand on the same ground line as strip/follow mode), but
+ * sized generously enough to fit both mons, hp bars and popups without depending on banner text
+ * width — the banner instead wraps/shrinks to fit whatever width it is given, see
+ * `apps/desktop/src/renderer/pet/bannerFit.ts`. Clamped into the display's work area (`clampRectToArea`)
+ * so the window never has to exceed it, e.g. on a small secondary display.
+ */
+export function battleBounds(
+  anchor: { x: number; y: number },
+  width: number,
+  height: number,
+  display: DisplayLike,
+): { x: number; y: number; width: number; height: number } {
+  // A little slack below the anchor (same idea as `followBounds`'s 0.15 factor, scaled down since
+  // this box is much taller than a single sprite) so the sprite's foot row isn't drawn on the very
+  // last pixel of the window.
+  const slack = Math.round(height * 0.04);
+  const raw = {
+    x: Math.round(anchor.x - width / 2),
+    y: Math.round(anchor.y - height + slack),
+    width: Math.round(width),
+    height: Math.round(height),
+  };
+  return clampRectToArea(raw, roundRect(display.workArea));
+}
+
 export function displayContaining<D extends DisplayLike>(
   displays: readonly D[],
   point: { x: number; y: number },

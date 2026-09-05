@@ -1,11 +1,11 @@
 import { join } from 'node:path';
 import { BrowserWindow, screen, type Display } from 'electron';
 import { IPC, type WindowGeometry } from '../../common/ipc.ts';
-import { followBounds, stripBounds, toIntPoint, toIntRect } from '../display.ts';
+import { battleBounds, followBounds, stripBounds, toIntPoint, toIntRect } from '../display.ts';
 
 const DEBUG = process.env.CLAUDE_MONS_DEBUG === '1';
 
-export type PetWindowMode = 'strip' | 'follow';
+export type PetWindowMode = 'strip' | 'follow' | 'battle';
 
 export interface PetWindowOptions {
   spriteScale: number;
@@ -17,6 +17,15 @@ export interface PetWindowOptions {
 export const STRIP_HEIGHT_GRID = 80;
 /** Side length of the follow window in grid pixels. */
 export const FOLLOW_SIZE_GRID = 80;
+/**
+ * Size of the battle arena window in grid pixels (before scaling). Generous enough to fit both
+ * mons (opponent placed up to `BattlePlayer`'s `GAP_GRID` (56) plus half a 48-grid-px sprite away
+ * from the anchor), hp bars, popups and a banner without the window ever needing to grow to fit
+ * banner text (`apps/desktop/src/renderer/pet/bannerFit.ts` wraps/shrinks the text to fit instead).
+ * Clamped to the display's work area by `battleBounds`, so this is a target, not a guarantee.
+ */
+export const BATTLE_WIDTH_GRID = 220;
+export const BATTLE_HEIGHT_GRID = 150;
 
 /**
  * The transparent always-on-top window the pet lives in.
@@ -139,6 +148,25 @@ export class PetWindow {
   enterFollow(anchor: { x: number; y: number }): void {
     this.mode = 'follow';
     this.setBoundsSafe(followBounds(anchor, FOLLOW_SIZE_GRID * this.opts.spriteScale));
+    this.reassertTopmost();
+  }
+
+  /**
+   * Switch to the battle arena around the given anchor (world DIPs) for the duration of a battle
+   * playback. Sized by `battleBounds`/`BATTLE_WIDTH_GRID`/`BATTLE_HEIGHT_GRID` (see there) instead
+   * of the small `follow` square, so the opponent, hp bars, popups and banner all land inside the
+   * window instead of being clipped or drawn over whatever is behind the (too-small) window.
+   */
+  enterBattle(anchor: { x: number; y: number }): void {
+    this.mode = 'battle';
+    this.setBoundsSafe(
+      battleBounds(
+        anchor,
+        BATTLE_WIDTH_GRID * this.opts.spriteScale,
+        BATTLE_HEIGHT_GRID * this.opts.spriteScale,
+        this.display,
+      ),
+    );
     this.reassertTopmost();
   }
 

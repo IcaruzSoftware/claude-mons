@@ -71,6 +71,15 @@ export interface PetConfig {
   /** PRNG seed for the behavior engine (stable per install). */
   seed: number;
   debug: boolean;
+  /**
+   * The window's own geometry at the moment this config was sent. `PetRenderer` uses this to seed
+   * its initial geometry instead of a `{0,0,0,0}` placeholder: without it, the very first frame(s)
+   * — drawn as soon as `petConfig` starts the render loop — could be computed before the
+   * separately-sent `IPC.petWindowMoved` message had been handled, producing a hitbox computed
+   * against the wrong (stale/zero) window origin. Observed live: `apps/desktop/src/main/PetHost.ts`'s
+   * debug-only `assertHitboxWithinWindow` firing on the very first hitbox of a run.
+   */
+  windowGeometry: WindowGeometry;
 }
 
 /** Window geometry in world DIPs plus the display's scale factor. */

@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
+  battleBounds,
+  clampRectToArea,
   displayContaining,
   followBounds,
   rememberAnchor,
@@ -44,6 +46,73 @@ describe('display geometry', () => {
     expect(b.x).toBe(380);
     expect(b.y + b.height).toBeGreaterThan(400); // anchor is inside, near the bottom
     expect(b.y).toBeLessThan(400);
+  });
+
+  it('battle arena is centered on the anchor with its bottom edge near it, like followBounds', () => {
+    const b = battleBounds({ x: 500, y: 1032 }, 440, 300, primary);
+    expect(b.width).toBe(440);
+    expect(b.height).toBe(300);
+    expect(b.x).toBe(500 - 220);
+    // bottom edge sits at or just below the anchor (a little slack, never above it)
+    expect(b.y + b.height).toBeGreaterThanOrEqual(1032);
+    expect(b.y + b.height).toBeLessThan(1032 + 20);
+  });
+
+  it('battle arena clamps into the work area instead of hanging off a small display', () => {
+    const tiny: DisplayLike = {
+      id: 4,
+      bounds: { x: 0, y: 0, width: 300, height: 200 },
+      workArea: { x: 0, y: 0, width: 300, height: 180 },
+      scaleFactor: 1,
+    };
+    const b = battleBounds({ x: 10, y: 180 }, 440, 300, tiny);
+    expect(b.x).toBeGreaterThanOrEqual(0);
+    expect(b.y).toBeGreaterThanOrEqual(0);
+    expect(b.x + b.width).toBeLessThanOrEqual(300);
+    expect(b.y + b.height).toBeLessThanOrEqual(180);
+    // shrunk to fit, not just clipped
+    expect(b.width).toBeLessThanOrEqual(300);
+    expect(b.height).toBeLessThanOrEqual(180);
+  });
+
+  it('battle arena near the right edge of a display stays fully inside it', () => {
+    const b = battleBounds({ x: 1900, y: 1032 }, 440, 300, primary);
+    expect(b.x + b.width).toBeLessThanOrEqual(1920);
+  });
+
+  describe('clampRectToArea', () => {
+    it('leaves a rect that already fits untouched', () => {
+      const area = { x: 0, y: 0, width: 1000, height: 1000 };
+      expect(clampRectToArea({ x: 100, y: 100, width: 200, height: 200 }, area)).toEqual({
+        x: 100,
+        y: 100,
+        width: 200,
+        height: 200,
+      });
+    });
+
+    it('slides an out-of-bounds rect back inside without resizing it', () => {
+      const area = { x: 0, y: 0, width: 1000, height: 1000 };
+      expect(clampRectToArea({ x: -50, y: 900, width: 200, height: 200 }, area)).toEqual({
+        x: 0,
+        y: 800,
+        width: 200,
+        height: 200,
+      });
+    });
+
+    it('shrinks a rect bigger than the area on either axis', () => {
+      const area = { x: 0, y: 0, width: 300, height: 400 };
+      const r = clampRectToArea({ x: -10, y: -10, width: 500, height: 500 }, area);
+      expect(r).toEqual({ x: 0, y: 0, width: 300, height: 400 });
+    });
+
+    it('offsets the area itself correctly (non-origin work area, e.g. a secondary display)', () => {
+      const area = { x: 1920, y: -200, width: 2560, height: 1400 };
+      const r = clampRectToArea({ x: 1900, y: -300, width: 200, height: 200 }, area);
+      expect(r.x).toBeGreaterThanOrEqual(1920);
+      expect(r.y).toBeGreaterThanOrEqual(-200);
+    });
   });
 
   it('finds the display containing a point', () => {

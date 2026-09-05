@@ -3,7 +3,7 @@ doc_type: reference
 purpose: "Release notes and version history; check this when seeing claude-mons updates or deciding what version to expect features in."
 audience: both
 last_verified: 2026-09-05
-last_verified_commit: eefd2a2
+last_verified_commit: 91c68e5
 related_files:
   - docs/history/v1-handoff-2026-09-04.md
   - docs/README.md
@@ -24,6 +24,26 @@ All notable changes to claude-mons are documented here. See [Keep a Changelog](h
 - Onboarding wizard: `apps/desktop/src/renderer/panel/views/Onboarding.tsx` is now a 5-step wizard (welcome, what-is-claude-mons, controls reference, connect Claude Code, nation picker) with Back/Next buttons and step dots, replacing the bare nation-picker screen; copy lives in one `onboardingCopy` constant and step transitions go through pure helpers in `apps/desktop/src/renderer/panel/onboardingSteps.ts`. The new "Connect Claude Code" step calls the same hook-toggle IPC as Settings (via the shared `apps/desktop/src/renderer/ui/hookStatus.ts` helpers) and never installs hooks without a click; the nation-picker step was also re-tuned (smaller cards, clamped blurbs) and the wizard's scrollbar hidden so the four-nation grid fits the 440×660 panel without scrolling.
 
 ### Fixed
+- Battle HUD rendering: `PetHost.playBattle` now switches the pet window into a new, generously-sized
+  **battle** arena mode (`PetWindow.enterBattle`, `apps/desktop/src/main/display.ts:battleBounds`,
+  clamped into the display's work area) instead of playing the battle inside whatever small `follow`
+  square or short `strip` window happened to be active, which is why a banner like "Pebblet used
+  Bedrock Sla…" could be cut off and the hp bars/damage popups could land outside the window entirely
+  (looking like they were "behind" another app, when the window just didn't cover that part of the
+  screen). The banner itself now wraps to two lines, then shrinks its font, then truncates with an
+  ellipsis as a last resort (`apps/desktop/src/renderer/pet/bannerFit.ts:fitBanner`) so it always fits
+  regardless of arena width, and hp bars/popups/the banner box are all re-centered to stay inside the
+  canvas (`apps/desktop/src/renderer/pet/bannerFit.ts:clampCenter`). `PetWindow.reassertTopmost()` also runs after entering/leaving
+  the arena; live z-order testing on Windows 11 (`EnumWindows`) confirmed the window was already
+  correctly topmost, so the clipping above — not z-order — was the root cause.
+- Two further window-geometry bugs found while investigating the above, both debug-assertable via a
+  new `PetHost.assertHitboxWithinWindow` (`CLAUDE_MONS_DEBUG=1`): a fall started by releasing the pet
+  mid-air in `follow` mode never repositioned the window, so the sprite drifted past the window's own
+  bottom edge until landing (`PetHost`'s `IPC.petState` handler now calls `followTo` on every reported
+  position while in `follow` mode, not only during an active drag); and a renderer boot race where the
+  very first frame could draw before the window's geometry had arrived over a separate IPC message,
+  producing a hitbox computed against a `{0,0,0,0}` placeholder (`PetConfig` now carries
+  `windowGeometry`, which `PetRenderer` seeds its geometry from directly).
 - Linux packaging: explicit executable name and homepage/maintainer metadata required by deb target.
 - App builder: blockmap regeneration with pure JS builder, corrected pnpm dependency resolution in `refresh-latest-yml`.
 - First-run egg on screen before a nation was chosen: `PetHost` (`apps/desktop/src/main/PetHost.ts`) now withholds the pet window and every stimulus until `App.chooseNation` sets a nation (`apps/desktop/src/main/petGate.ts`), instead of showing the overlay with a default-tinted egg during onboarding. The tray tooltip and menu now reflect the pre-nation state ("claude-mons — choose your nation" / "Finish setup").

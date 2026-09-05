@@ -3,7 +3,7 @@ doc_type: architecture
 purpose: "Read this when tracing how a shake gesture becomes a battle, from cursor drag to a history entry."
 audience: agent
 last_verified: 2026-09-05
-last_verified_commit: d7db9c0
+last_verified_commit: 91c68e5
 related_files:
   - apps/desktop/src/main/PetHost.ts
   - packages/shared/src/input/shake.ts
@@ -14,6 +14,9 @@ related_files:
   - apps/desktop/src/main/net/Backend.ts
   - supabase/functions/battle-request/index.ts
   - apps/desktop/src/renderer/pet/BattlePlayer.ts
+  - apps/desktop/src/renderer/pet/PetRenderer.ts
+  - apps/desktop/src/renderer/pet/bannerFit.ts
+  - apps/desktop/src/main/display.ts
   - apps/desktop/src/renderer/panel/views/Battles.tsx
 ---
 
@@ -95,10 +98,16 @@ guarantee are `docs/design/battle.md`'s to state.
 ## Playback: BattlePlayMessage to BattlePlayer
 
 A successful `BattleOutcome` (`{ok: true, play}`) is stashed as `BattleService.pending` and handed to
-`PetHost.playBattle`, which sends `IPC.petBattlePlay` to the pet renderer. `PetLoop.playBattle`
-constructs a `BattlePlayer` (`apps/desktop/src/renderer/pet/BattlePlayer.ts`), which turns the
-already-resolved `BattleResult.turns` into a time-based schedule — robust to dropped frames because
-every step carries an absolute `at` (ms since playback start) rather than being driven frame-by-frame:
+`PetHost.playBattle`, which first switches the pet window into the **battle** arena
+(`PetWindow.enterBattle`, `apps/desktop/src/main/display.ts:battleBounds`) before sending
+`IPC.petBattlePlay` to the pet renderer — the arena is a generously-sized box (see
+`docs/architecture/overlay-and-input.md`'s "One window, three modes"), not the small `follow` square or
+the short `strip`, so the opponent, hp bars, popups and banner all have room. `PetHost` reverts to
+`strip` on `IPC.petBattleDone` and ignores a pointer-down that would otherwise start a drag
+(`enterFollow`) out from under an in-progress battle. `PetLoop.playBattle` constructs a `BattlePlayer`
+(`apps/desktop/src/renderer/pet/BattlePlayer.ts`), which turns the already-resolved `BattleResult.turns`
+into a time-based schedule — robust to dropped frames because every step carries an absolute `at` (ms
+since playback start) rather than being driven frame-by-frame:
 
 | Phase | Duration | Constant |
 |---|---|---|
@@ -113,6 +122,19 @@ While ticking, `BattlePlayer` emits `battle:play` / `battle:attack` / `battle:hi
 tracks the fight, and updates its own `BattleView` (hp, popups, banner) that
 `PetRenderer.drawBattle` reads directly — the view is mutated in place, not pushed through the
 reducer.
+
+### HUD fitting: banner wrap/shrink and canvas clamping
+
+`PetRenderer.drawBattle` fits the banner into the canvas width with
+`apps/desktop/src/renderer/pet/bannerFit.ts:fitBanner` instead of drawing it at a fixed font and letting
+it run past the canvas edge (bug: a move name like "Pebblet used Bedrock Slam" was reported cut off
+mid-word). `fitBanner` tries, in order: the base font on one line, the base font wrapped to two lines
+(`splitTwoLines`, nearest-space to the midpoint), a shrunk font on one line, a shrunk font wrapped to
+two lines, and finally a truncated ellipsis at the minimum font — so it always fits regardless of
+opponent nickname length or how narrow the arena ends up (`battleBounds` clamped to a small display).
+The hp bars, damage/miss popups and the banner box itself are all re-centered with
+`apps/desktop/src/renderer/pet/bannerFit.ts:clampCenter` so their on-screen box never extends past the
+canvas rect, even when a mon stands close to the arena's edge.
 
 ## battle-done: history and XP
 

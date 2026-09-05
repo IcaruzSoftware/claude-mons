@@ -3,13 +3,14 @@ doc_type: architecture
 purpose: "Read this when changing the pet overlay window, click-through detection, drag/shake gestures, or hover-card timing."
 audience: agent
 last_verified: 2026-09-05
-last_verified_commit: eefd2a2
+last_verified_commit: 91c68e5
 related_files:
   - apps/desktop/src/main/windows/PetWindow.ts
   - apps/desktop/src/main/input/CursorTracker.ts
   - apps/desktop/src/main/PetHost.ts
   - apps/desktop/src/main/display.ts
   - apps/desktop/src/main/windows/HoverCardWindow.ts
+  - apps/desktop/src/common/ipc.ts
   - packages/shared/src/input/shake.ts
   - packages/shared/src/behavior/reducer.ts
   - apps/desktop/test/CursorTracker.test.ts
@@ -23,18 +24,23 @@ it except over the sprite, and how drag/shake/hover gestures are detected. For t
 model and IPC channel list see `apps/desktop/README.md` and `apps/desktop/IPC.md`. For the pet's
 state machine (idle/walk/dragged/falling/battle_*) see `docs/design/behavior-engine.md`.
 
-## One window, two modes
+## One window, three modes
 
 `apps/desktop/src/main/windows/PetWindow.ts` owns a single `BrowserWindow` per pet; there is no
-separate window per mode. `PetHost` moves and resizes it between two bounds:
+separate window per mode. `PetHost` moves and resizes it between three bounds:
 
 - **strip** — spans the full work-area width along the bottom edge; the pet walks inside it and
   the window itself never moves, so there are no hop glitches and hit-testing stays trivial.
 - **follow** — an `apps/desktop/src/main/windows/PetWindow.ts:FOLLOW_SIZE_GRID`-square window that
   `PetHost` repositions every frame while the pet is dragged or falling, so it can leave the strip.
+- **battle** — a generously-sized box (`apps/desktop/src/main/windows/PetWindow.ts:BATTLE_WIDTH_GRID`/
+  `BATTLE_HEIGHT_GRID`) entered by `PetHost.playBattle` and left again on `IPC.petBattleDone`, wide/tall
+  enough to fit both mons, hp bars, popups and the banner without depending on banner text width — see
+  `docs/architecture/flows/shake-to-battle.md` for the arena sizing and HUD-fitting details.
 
-Bounds math for both lives in `apps/desktop/src/main/display.ts:stripBounds` and
-`apps/desktop/src/main/display.ts:followBounds`. `apps/desktop/src/main/windows/PetWindow.ts:STRIP_HEIGHT_GRID`
+Bounds math lives in `apps/desktop/src/main/display.ts`: `stripBounds`, `followBounds`, and
+`battleBounds` (which additionally clamps into the display's work area via `clampRectToArea`, so the
+arena never has to hang off a small/secondary display). `apps/desktop/src/main/windows/PetWindow.ts:STRIP_HEIGHT_GRID`
 (80 grid px) sets strip height before `spriteScale`; `FOLLOW_SIZE_GRID` (80) sets the follow square side.
 
 Window flags, all set in the `PetWindow` constructor unless noted:
@@ -84,10 +90,32 @@ this off:
 
 A dropped pet has been observed ending up behind another always-on-top window (e.g. the Claude
 desktop app) after a drag. `PetWindow.reassertTopmost()` (`setAlwaysOnTop(true, 'screen-saver')`
-+ `moveTop()`) is called after every mode switch (`enterStrip`, `enterFollow`), on `show()`, and
-every 5 s on win32 while visible — `moveTop()` matters because a non-focusable topmost window
-(`focusable: false`) can still lose its place in the topmost z-order to another topmost window;
-re-asserting the flag alone does not always restore ordering, `moveTop()` does.
++ `moveTop()`) is called after every mode switch (`enterStrip`, `enterFollow`, `enterBattle`), on
+`show()`, and every 5 s on win32 while visible — `moveTop()` matters because a non-focusable topmost
+window (`focusable: false`) can still lose its place in the topmost z-order to another topmost
+window; re-asserting the flag alone does not always restore ordering, `moveTop()` does.
+
+> Live-tested on Windows 11: with a normal (non-topmost) window covering the taskbar area, an
+> `EnumWindows` z-order dump taken mid-battle showed the pet window ahead of it. A battle HUD that
+> still looks "behind" another window despite this is a clipping bug, not a z-order one — see the
+> arena sizing note above and `docs/architecture/flows/shake-to-battle.md`.
+
+## Geometry divergence: a debug assertion, and two bugs it caught live
+
+`PetHost`'s `IPC.petHitbox` handler calls a debug-only (`CLAUDE_MONS_DEBUG=1`) `assertHitboxWithinWindow`
+that warns when the renderer's reported hitbox (window-local) falls outside `win.getBounds()` — the
+general shape of "something drawn where the window doesn't cover." Live-testing it caught two bugs:
+
+- **Falling in `follow` mode never repositioned the window.** `followTo` was only ever called from
+  `onDragMove`, which stops the moment the pointer is released; once a release started a real fall
+  (`above` in the reducer's `input:release` handler), the follow window stayed put while the model kept
+  falling inside it, so the sprite drifted past its bottom edge until landing. Fixed: `PetHost`'s
+  `IPC.petState` handler now calls `followTo` on every reported position while in `follow` mode, not
+  only during an active drag (a harmless duplicate of the drag-time call while dragging).
+- **A renderer boot race.** The render loop starts as soon as `IPC.petConfig` arrives, but geometry is
+  sent as a *separate* `IPC.petWindowMoved` message; a first frame drawn before that second message
+  landed used `PetRenderer.geometry`'s `{0,0,0,0}` placeholder (observed on a run's very first hitbox).
+  Fixed: `PetConfig` now carries `windowGeometry`, and `PetRenderer` seeds `geometry` from it directly.
 
 ## Click-through decision
 
@@ -253,8 +281,9 @@ unfocusable windows. The native-Wayland limitation (XWayland required) is tracke
 | Area | Coverage |
 |---|---|
 | `CursorTracker` (hover/click-through, drag streaming, poll-rate switching, non-finite cursor sample dropped) | Unit-tested, `apps/desktop/test/CursorTracker.test.ts` |
-| `apps/desktop/src/main/display.ts` (world bounds, strip/follow bounds, display lookup, anchor memory, `toIntPoint`/`toIntRect`, fractional-work-area rounding) | Unit-tested, `apps/desktop/test/display.test.ts` |
+| `apps/desktop/src/main/display.ts` (world bounds, strip/follow/battle bounds, `clampRectToArea`, display lookup, anchor memory, `toIntPoint`/`toIntRect`, fractional-work-area rounding) | Unit-tested, `apps/desktop/test/display.test.ts` |
+| Banner wrap/shrink/truncate and HUD-clamp helpers (`apps/desktop/src/renderer/pet/bannerFit.ts`) | Unit-tested, `apps/desktop/test/bannerFit.test.ts` |
 | Shake detector | Unit-tested in `packages/shared` (see that package's tests, not duplicated here) |
 | Reducer `world:bounds` clamp and `world:recenter` recovery | Unit-tested, `packages/shared/test/behavior.test.ts` |
-| `PetWindow`, `PetHost`, `HoverCardWindow` (actual window flags, always-on-top/z-order behavior, transparency, crash-log handlers) | No automated test — Electron-coupled; verified manually on Windows |
+| `PetWindow`, `PetHost`, `HoverCardWindow` (actual window flags, always-on-top/z-order behavior, transparency, crash-log handlers, battle arena mode switch) | No automated test — Electron-coupled; verified manually on Windows (see the z-order/clipping note above) |
 | Linux window flags, `enable-transparent-visuals`, the 300 ms boot delay, XWayland behavior | No automated test; not covered by the manual Windows verification either |

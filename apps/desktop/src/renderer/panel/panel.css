@@ -298,18 +298,14 @@
   font-style: italic;
   color: var(--fg);
   font-size: 12px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  /* wrap freely: the step has vertical room to spare and clipped text reads as a bug */
+  overflow-wrap: anywhere;
 }
 .nation .desc {
   color: var(--fg-dim);
   font-size: 11px;
   line-height: 1.35;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
+  overflow-wrap: anywhere;
 }
 .nation .eggs {
   display: flex;
