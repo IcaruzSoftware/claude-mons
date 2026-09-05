@@ -3,7 +3,7 @@ doc_type: root
 purpose: "Read this when starting with claude-mons, installing, or getting the app running locally."
 audience: both
 last_verified: 2026-09-05
-last_verified_commit: f198a9d
+last_verified_commit: ab12392
 related_files:
   - CONTRIBUTING.md
   - PRIVACY.md
@@ -12,6 +12,7 @@ related_files:
   - docs/design/species-and-nations.md
   - docs/design/battle.md
   - docs/architecture/overview.md
+  - docs/runbooks/apt-repository.md
   - CHANGELOG.md
   - docs/ROADMAP.md
 ---
@@ -32,7 +33,17 @@ The pet is a minimal overlay: it idles, walks along the taskbar, sleeps when you
 
 ## Install
 
-Signed Windows installers and Linux packages are published by the release workflow (`.github/workflows/release.yml`) on tags `v*`. Until the first tagged release, build locally:
+Signed Windows installers and Linux packages are published by the release workflow (`.github/workflows/release.yml`) on tags `v*`.
+
+**Linux (Debian/Ubuntu-family):**
+
+```bash
+curl -fsSL https://icaruzsoftware.github.io/claude-mons/install.sh | sudo bash
+```
+
+Registers a signed APT repository and installs claude-mons; `sudo apt upgrade` picks up future releases. See [docs/runbooks/apt-repository.md](docs/runbooks/apt-repository.md). An AppImage is also published on [GitHub Releases](https://github.com/IcaruzSoftware/claude-mons/releases) for users who prefer not to add a repository.
+
+Until the first tagged release, build locally:
 
 ```bash
 pnpm install

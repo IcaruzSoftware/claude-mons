@@ -42,14 +42,20 @@ export function SettingsView({ s }: { s: UiSnapshot }) {
     if (r.ok) setNick('');
   };
   const hooks = s.hooks.status;
+  const connected = hooks === 'installed-binary' || hooks === 'installed-script';
   const hookLabel: Record<typeof hooks, string> = {
-    installed: 'Connected',
+    'installed-binary': 'Connected',
+    'installed-script': 'Connected (script mode)',
     partial: 'Partially connected',
     'not-installed': 'Not connected',
     unreadable: 'settings.json unreadable',
     'no-binary': 'Hook binary missing (run pnpm hook:build)',
   };
-  const dot = hooks === 'installed' ? 'ok' : hooks === 'partial' ? 'warn' : '';
+  const dot = connected ? 'ok' : hooks === 'partial' ? 'warn' : '';
+  const modeHint =
+    s.hooks.effectiveMode === 'script'
+      ? 'Script mode uses curl to reach the app directly; there is no offline spool, so events sent while the app is closed are lost.'
+      : 'Binary mode uses the bundled hook program and spools events while the app is closed.';
 
   return (
     <div>
@@ -66,12 +72,32 @@ export function SettingsView({ s }: { s: UiSnapshot }) {
             </div>
           </div>
           <button
-            class={hooks === 'installed' ? '' : 'primary'}
+            class={connected ? '' : 'primary'}
             disabled={hooks === 'unreadable' || hooks === 'no-binary'}
             onClick={() => void window.monsUi.toggleHooks()}
           >
-            {hooks === 'installed' ? 'Disconnect' : hooks === 'partial' ? 'Repair' : 'Connect'}
+            {connected ? 'Disconnect' : hooks === 'partial' ? 'Repair' : 'Connect'}
           </button>
+        </div>
+        <div class="row">
+          <div>
+            Hook mode
+            <div class="hint">{modeHint}</div>
+          </div>
+          <select
+            value={s.hooks.mode}
+            onChange={(e) =>
+              void window.monsUi.setHookMode(
+                (e.target as HTMLSelectElement).value as 'auto' | 'binary' | 'script',
+              )
+            }
+          >
+            <option value="auto">
+              Auto ({s.hooks.probe === 'ok' ? 'binary' : s.hooks.probe === null ? '…' : 'script'})
+            </option>
+            <option value="binary">Binary</option>
+            <option value="script">Script (curl)</option>
+          </select>
         </div>
       </div>
 

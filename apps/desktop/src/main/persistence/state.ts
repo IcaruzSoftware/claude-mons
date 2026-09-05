@@ -51,6 +51,12 @@ export interface LocalState {
   hooks: {
     /** set after a successful install so we can re-verify on start */
     installedAt: number | null;
+    /** preferred bind port for HookServer; persists across restarts so script-mode commands stay valid */
+    port: number;
+    /** 64 hex chars; stable header token for the raw POST /hook endpoint (script mode) */
+    token: string;
+    /** 'auto' probes the binary and falls back to script mode when it is blocked or missing */
+    mode: 'auto' | 'binary' | 'script';
   };
   ui: {
     panel: { x: number; y: number } | null;
@@ -67,6 +73,9 @@ export interface LocalState {
   };
 }
 
+/** Default preferred bind port for HookServer's localhost endpoint (falls back to +1..+20 if taken). */
+export const DEFAULT_HOOK_PORT = 51733;
+
 export function defaultState(): LocalState {
   return {
     schemaVersion: 1,
@@ -80,12 +89,31 @@ export function defaultState(): LocalState {
     battleXp: 0,
     behavior: { anchor: null },
     settings: { spriteScale: 3, autostart: false, focusable: null, disableGpu: false },
-    hooks: { installedAt: null },
+    hooks: {
+      installedAt: null,
+      port: DEFAULT_HOOK_PORT,
+      token: randomBytes(32).toString('hex'),
+      mode: 'auto',
+    },
     ui: { panel: null },
     auth: { session: null },
     battles: { history: [], lastBattleAt: null, today: { day: '', count: 0 } },
   };
 }
 
+/** v1 -> v2: adds the persistent hook endpoint (port/token/mode) needed for script-mode hooks. */
+function addHookEndpoint(state: Record<string, unknown>): Record<string, unknown> {
+  const hooks = (state.hooks as Record<string, unknown> | undefined) ?? {};
+  return {
+    ...state,
+    hooks: {
+      installedAt: typeof hooks.installedAt === 'number' ? hooks.installedAt : null,
+      port: DEFAULT_HOOK_PORT,
+      token: randomBytes(32).toString('hex'),
+      mode: 'auto',
+    },
+  };
+}
+
 /** migrations[i] upgrades version i+1 -> i+2. Add new ones at the end; never edit old ones. */
-export const MIGRATIONS: readonly Migration[] = [];
+export const MIGRATIONS: readonly Migration[] = [addHookEndpoint];

@@ -3,10 +3,11 @@ doc_type: reference
 purpose: "Look up IPC channel names and payload types for renderer-to-main and main-to-renderer communication."
 audience: agent
 last_verified: 2026-09-05
-last_verified_commit: 6d99ae3
+last_verified_commit: ab12392
 related_files:
   - apps/desktop/src/common/ipc.ts
   - apps/desktop/README.md
+  - docs/decisions/0014-curl-script-mode-hook-fallback.md
 ---
 
 # IPC Channels
@@ -45,7 +46,8 @@ Handled by `App.registerUiIpc`.
 |---|---|---|---|
 | `ui:get-snapshot` | — | `UiSnapshot` | Fetch current state for rendering |
 | `ui:choose-nation` | `string` (validated by `isNation`) | `UiSnapshot` | Choose starting nation; idempotent |
-| `ui:toggle-hooks` | — | `UiSnapshot` | Enable/disable hook installation |
+| `ui:toggle-hooks` | — | `UiSnapshot` | Enable/disable hook installation, in the effective mode |
+| `ui:set-hook-mode` | `'auto' \| 'binary' \| 'script'` | `UiSnapshot` | Set the hook mode preference; reinstalls in place if already connected |
 | `ui:set-sprite-scale` | `2 \| 3 \| 4` | `UiSnapshot` | Change sprite scale |
 | `ui:open-external` | `string` (allow-listed https://github.com/… or https://claude-mons.dev/…) | void | Open URL in browser |
 | `ui:quit` | — | void | Quit the app |
@@ -75,5 +77,6 @@ Handled by `App.registerUiIpc`.
 - **StimulusMessage:** = shared Stimulus (union type from @claude-mons/shared).
 - **BattlePlayMessage:** id, result (BattleResult), me/opponent (MonSnapshot), reward XP, isBot.
 - **BattleSummary:** id, at (timestamp), won, xp, isBot, turns, reason, me stats, opponent (nickname, nation, stats).
-- **UiSnapshot:** version, isDev, profile (nickname, nation, userId), pet (speciesId, stage, state), progress (localXp, serverXp, streakDays), hooks (status), settings (scale, autostart), online (connected, lastSyncAt, lastError, configured), update status, notifications, battles (history, cooldownUntil, remainingToday).
+- **UiSnapshot:** version, isDev, profile (nickname, nation, userId), pet (speciesId, stage, state), progress (localXp, serverXp, streakDays), hooks (status, mode, effectiveMode, probe), settings (scale, autostart), online (connected, lastSyncAt, lastError, configured), update status, notifications, battles (history, cooldownUntil, remainingToday).
+- **hooks.status:** `'installed-binary' | 'installed-script' | 'partial' | 'not-installed' | 'unreadable' | 'no-binary'`. **hooks.mode:** the configured preference (`'auto' | 'binary' | 'script'`). **hooks.effectiveMode:** what `'auto'` resolved to (`'binary' | 'script'`). **hooks.probe:** last `probeBinary()` result (`'ok' | 'blocked' | 'missing' | null`).
 - **LeaderboardPayload:** nations rows, alltime rows, weekly rows, myRank, fetchedAt, error.

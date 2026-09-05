@@ -3,10 +3,12 @@ doc_type: architecture
 purpose: "Read this when tracing how a Claude Code hook event turns into pet animation and player XP, or debugging why an animation or an XP credit didn't happen."
 audience: agent
 last_verified: 2026-09-05
-last_verified_commit: d7db9c0
+last_verified_commit: ab12392
 related_files:
   - packages/hook-cli/main.go
   - apps/desktop/src/main/hooks/HookServer.ts
+  - apps/desktop/src/main/hooks/rawHook.ts
+  - apps/desktop/src/main/hooks/mode.ts
   - apps/desktop/src/main/hooks/SpoolDrainer.ts
   - apps/desktop/src/main/hooks/ActivityTracker.ts
   - apps/desktop/src/main/App.ts
@@ -14,6 +16,7 @@ related_files:
   - apps/desktop/src/main/net/SyncQueue.ts
   - supabase/functions/ingest-xp/index.ts
   - supabase/functions/_shared/pipeline.ts
+  - docs/decisions/0014-curl-script-mode-hook-fallback.md
 ---
 
 # Hook event to XP flow
@@ -27,6 +30,7 @@ async). Both start at the same envelope; this doc follows both paths end to end.
 ```mermaid
 sequenceDiagram
     participant HookCLI as HookCLI (hook-cli)
+    participant Curl as curl (script mode)
     participant HookServer
     participant SpoolDrainer
     participant App
@@ -38,12 +42,20 @@ sequenceDiagram
     participant IngestXp as ingest-xp
     participant ApplyXp as apply_xp
 
-    Note over HookCLI: Claude Code fires a hook event
-    HookCLI->>HookServer: POST /event (bearer token)
-    HookServer-->>HookCLI: 204 (before parsing body)
-    HookServer->>App: onEvent(envelope)
-    Note over HookCLI,SpoolDrainer: app unreachable -> spool to hook-spool.jsonl
-    SpoolDrainer->>App: onEvent({...env, spooled:true}) (every 30s / at boot)
+    Note over HookCLI,Curl: Claude Code fires a hook event; only one path runs, per the effective mode
+    alt binary mode (mode.ts probe reported 'ok')
+        HookCLI->>HookServer: POST /event (bearer token, fresh per app start)
+        HookServer-->>HookCLI: 204 (before parsing body)
+        HookServer->>App: onEvent(envelope)
+        Note over HookCLI,SpoolDrainer: app unreachable -> spool to hook-spool.jsonl
+        SpoolDrainer->>App: onEvent({...env, spooled:true}) (every 30s / at boot)
+    else script mode (binary blocked/missing, or mode forced to 'script')
+        Curl->>HookServer: POST /hook (X-Claude-Mons-Token header, raw hook JSON on stdin)
+        HookServer-->>Curl: 204 (before parsing body)
+        HookServer->>HookServer: rawHookToEnvelope(raw) -> same whitelist as buildEnvelope, or null
+        HookServer->>App: onEvent(envelope)
+        Note over Curl: app unreachable -> event is lost; script mode has no spool
+    end
     App->>ActivityTracker: ingest(env)
     ActivityTracker-->>App: stimuli[]
     App->>PetHost: stimulate(s) (skipped when env.spooled)
@@ -65,19 +77,39 @@ sequenceDiagram
 
 ## Step by step
 
-1. Claude Code invokes the bundled hook binary. `packages/hook-cli/main.go:main` reads stdin (capped
-   at 64 KiB), and `packages/hook-cli/main.go:buildEnvelope` keeps only the metadata whitelist (never
-   prompt text, tool input/output, or transcript paths).
+0. `App.start` decides which mode is effective before either path can run:
+   `apps/desktop/src/main/hooks/mode.ts:probeBinary` spawns the installed binary
+   (`--event SessionStart`, empty stdin, 3 s timeout) to check whether it can actually execute — a
+   file can exist and still be refused at exec time (Windows Smart App Control). `computeEffectiveMode`
+   combines that probe with the `LocalState.hooks.mode` preference (`auto` default, or a forced
+   `binary`/`script`); `auto` only picks binary mode when the probe reported `'ok'`. See
+   [ADR 0014](../../decisions/0014-curl-script-mode-hook-fallback.md) for why this fallback exists
+   and why it has no spool.
+1. **Binary mode:** Claude Code invokes the bundled hook binary. `packages/hook-cli/main.go:main`
+   reads stdin (capped at 64 KiB), and `packages/hook-cli/main.go:buildEnvelope` keeps only the
+   metadata whitelist (never prompt text, tool input/output, or transcript paths).
+   **Script mode:** Claude Code instead invokes a `curl`/`curl.exe` command line (no third-party
+   binary) that POSTs the raw hook JSON straight from stdin; see
+   `apps/desktop/src/main/hooks/HookInstaller.ts:scriptCommand` for the exact flags and why it needs
+   no quotes, pipes, or redirections.
 2. `packages/hook-cli/main.go:deliver` reads `<home>/hook-endpoint.json` and POSTs the envelope to
-   `http://127.0.0.1:<port>/event` with the bearer token from that file.
-3. `apps/desktop/src/main/hooks/HookServer.ts` (private `handle`) checks method, path and the bearer
-   token, then replies `204` **before** parsing the body, so the hook binary returns as fast as
-   possible; only after that does it call `parseHookEnvelope` and the `onEvent` callback wired in
-   `apps/desktop/src/main/App.ts` (`new HookServer({ home, onEvent: (e) => this.onHookEvent(e) })`).
-4. If delivery fails (app not running, endpoint stale, timeout), `packages/hook-cli/main.go:spool`
-   appends the envelope to `hook-spool.jsonl` instead. `apps/desktop/src/main/hooks/SpoolDrainer.ts:drain`
-   renames and replays that file at boot and every interval (see table below), marking each envelope
-   `spooled: true` so it is never double-counted.
+   `http://127.0.0.1:<port>/event` with the bearer token from that file (binary mode only; the
+   script command instead carries its own stable `X-Claude-Mons-Token` header and posts to
+   `/hook`, both persisted in `LocalState.hooks`).
+3. `apps/desktop/src/main/hooks/HookServer.ts` (private `handle`) checks method, path and the token
+   for whichever route matched, then replies `204` **before** parsing the body, so the caller
+   returns as fast as possible. `/event` bodies go straight to `parseHookEnvelope`; `/hook` bodies
+   first go through `apps/desktop/src/main/hooks/rawHook.ts:rawHookToEnvelope` (mirrors
+   `buildEnvelope`'s whitelist field-for-field, hashes `cwd` the same way, returns `null` for an
+   unrecognized event) and only then to `parseHookEnvelope`. Either way the result reaches the
+   `onEvent` callback wired in `apps/desktop/src/main/App.ts`
+   (`new HookServer({ home, onEvent: (e) => this.onHookEvent(e), ... })`).
+4. If binary-mode delivery fails (app not running, endpoint stale, timeout),
+   `packages/hook-cli/main.go:spool` appends the envelope to `hook-spool.jsonl` instead.
+   `apps/desktop/src/main/hooks/SpoolDrainer.ts:drain` renames and replays that file at boot and
+   every interval (see table below), marking each envelope `spooled: true` so it is never
+   double-counted. **Script mode has no equivalent**: a `curl` call the app was not listening for
+   simply times out and the event is lost (see ADR 0014's Consequences).
 5. Either path lands in `apps/desktop/src/main/App.ts:onHookEvent`, which fans the envelope out to
    `ActivityTracker.ingest` and `GameService.ingest`.
 6. `apps/desktop/src/main/hooks/ActivityTracker.ts:ingest` collapses concurrent Claude Code sessions
@@ -132,15 +164,21 @@ sequenceDiagram
 | Client credited-minute horizon | 48 h | `apps/desktop/src/main/game/GameService.ts` |
 | Server history window loaded per batch | 25 h | `supabase/functions/ingest-xp/index.ts` |
 | Hatch / evolve animation delay before stage swap | 2500 ms / 2000 ms | `apps/desktop/src/main/App.ts` |
+| Script command timeout | 2 s (`curl -m 2`) | `apps/desktop/src/main/hooks/HookInstaller.ts` |
+| Binary probe timeout | 3 s | `apps/desktop/src/main/hooks/mode.ts` |
+| Hook port fallback range | preferred port +1..+20, then random | `apps/desktop/src/main/hooks/HookServer.ts` |
 
 Per-bucket and per-day XP caps live in [economy.md](../../design/economy.md); the plausibility clamps
 applied at the ingest boundary live in [backend-rules.md](../../design/backend-rules.md).
 
 ## Failure paths
 
-- **App closed or endpoint stale**: `deliver` fails, the hook binary spools instead of dropping the
-  event; `SpoolDrainer` replays it later with `spooled: true` — XP is credited at its original
-  timestamp, but no animation plays for it (step 6).
+- **App closed or endpoint stale (binary mode)**: `deliver` fails, the hook binary spools instead of
+  dropping the event; `SpoolDrainer` replays it later with `spooled: true` — XP is credited at its
+  original timestamp, but no animation plays for it (step 6).
+- **App closed or endpoint stale (script mode)**: the `curl` command simply times out after 2 s and
+  exits non-zero; there is no spool, so the event is lost outright — see
+  [ADR 0014](../../decisions/0014-curl-script-mode-hook-fallback.md).
 - **`NO_PROFILE` (409 from `ingest-xp`)**: the player row is missing server-side; `SyncQueue.flush`
   clears `profile.userId`/`nickname` so the next flush recreates the profile via `ensureProfile` before
   retrying the batch.
@@ -148,8 +186,11 @@ applied at the ingest boundary live in [backend-rules.md](../../design/backend-r
   rather than retrying it forever; the event is logged, not retried.
 - **429 (rate-limited), 5xx, or network error**: `SyncQueue.scheduleRetry` backs off exponentially
   (5 s → 5 min) and keeps the same `batchId`, so the identical batch is retried once reachable.
-- **Malformed or unauthorized POST to the event route**: `HookServer` answers `404` for both a wrong
-  path/method and a bad bearer token — the two cases are made indistinguishable on purpose.
+- **Malformed or unauthorized POST to either route**: `HookServer` answers `404` for a wrong
+  path/method, a bad bearer token on `/event`, or a bad/missing `X-Claude-Mons-Token` on `/hook` —
+  all made indistinguishable from each other on purpose.
+- **Unrecognized `hook_event_name` on `/hook`**: `rawHookToEnvelope` returns `null` (logged at debug
+  level); the request still gets its `204` and nothing reaches `onEvent`.
 
 ## Animation-only vs. XP-relevant
 

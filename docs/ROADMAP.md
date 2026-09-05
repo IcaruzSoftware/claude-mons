@@ -3,11 +3,12 @@ doc_type: reference
 purpose: "Check this for what is shipping next and blocked work items for v1 and beyond."
 audience: both
 last_verified: 2026-09-05
-last_verified_commit: 6d99ae3
+last_verified_commit: ab12392
 related_files:
   - docs/history/v1-design-2026-09-04.md
   - docs/history/v1-handoff-2026-09-04.md
   - docs/CODE_SIGNING_POLICY.md
+  - docs/decisions/0014-curl-script-mode-hook-fallback.md
 ---
 
 # claude-mons — Product Roadmap
@@ -20,7 +21,6 @@ v1 is feature-complete and end-to-end tested on Windows 11. Below are the blocke
 - **SignPath Foundation certificate.** Self-signed cert is working for test releases; apply for the Foundation cert and attach it to the `release-signing` policy (`docs/CODE_SIGNING_POLICY.md`).
 - **Database password.** `.env.local` password does not authenticate; correct it so `npx supabase db push` works for future migrations (currently using Management API fallback).
 - **First tagged release.** Tag `v0.1.0` to exercise the `.github/workflows/release.yml` workflow and auto-update; this makes the build public and starts the keepalive cron.
-- **Smart App Control fallback.** Go hook binary is blocked by Windows Smart App Control when unsigned; implement a curl-based fallback script for restricted users (`packages/hook-cli`).
 - **Remove unused `ui:route` IPC.** Channel sent by `PanelWindow.show()` but no renderer listener; routing off `location.hash` instead (`apps/desktop/src/common/ipc.ts`).
 - **Deduplicate species.** `apps/desktop/src/main/game/species.ts` mirrors the shared species table for offline mode; consolidate into one source (`packages/shared/src/game/species.ts`).
 - **Wire `--autostart` flag.** Flag is parsed and written to login item / `.desktop` Exec but never read on startup (`apps/desktop/src/main/autostart/Autostart.ts`).

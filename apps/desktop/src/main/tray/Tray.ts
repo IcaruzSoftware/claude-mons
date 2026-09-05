@@ -67,13 +67,15 @@ export class AppTray {
     const scale = this.actions.getSpriteScale();
     const status = this.actions.hookStatus();
     const hookLabel =
-      status === 'installed'
+      status === 'installed-binary'
         ? '● Claude Code connected (click to disconnect)'
-        : status === 'partial'
-          ? '◐ Claude Code partially connected (click to repair)'
-          : status === 'unreadable'
-            ? '○ Cannot read Claude settings.json'
-            : '○ Connect Claude Code';
+        : status === 'installed-script'
+          ? '● Claude Code connected via script mode (click to disconnect)'
+          : status === 'partial'
+            ? '◐ Claude Code partially connected (click to repair)'
+            : status === 'unreadable'
+              ? '○ Cannot read Claude settings.json'
+              : '○ Connect Claude Code';
     return [
       { label: this.actions.progressLine(), enabled: false },
       { type: 'separator' },

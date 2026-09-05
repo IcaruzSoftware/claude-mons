@@ -3,11 +3,14 @@ doc_type: policy
 purpose: "Read this when you want to know what data claude-mons collects and where it goes."
 audience: both
 last_verified: 2026-09-05
-last_verified_commit: f198a9d
+last_verified_commit: ab12392
 related_files:
   - packages/hook-cli/README.md
   - packages/hook-cli/main.go
   - apps/desktop/src/main/hooks/binary.ts
+  - apps/desktop/src/main/hooks/rawHook.ts
+  - apps/desktop/src/main/hooks/HookServer.ts
+  - docs/decisions/0014-curl-script-mode-hook-fallback.md
   - docs/runbooks/delete-a-player.md
   - docs/runbooks/reset-local-state.md
   - supabase/README.md
@@ -19,7 +22,7 @@ claude-mons is a desktop pet that earns experience while you use Claude Code. Th
 
 ## What the hook forwarder reads
 
-Claude Code invokes `claude-mons-hook` on every hook event (prompts, tool calls, etc.). The forwarder reads the hook event JSON from stdin and keeps only a small whitelist of metadata fields:
+Claude Code invokes a hook forwarder on every hook event (prompts, tool calls, etc.): normally the bundled `claude-mons-hook` binary, or — on machines where Windows Smart App Control blocks that binary — a `curl`/`curl.exe` command that posts the same raw event JSON straight to the app's own `127.0.0.1` endpoint instead (see [ADR 0014](docs/decisions/0014-curl-script-mode-hook-fallback.md)). Either way, only a small whitelist of metadata fields ever survives past this point, applied by `packages/hook-cli/main.go:buildEnvelope` for the binary and, field-for-field identically, by `apps/desktop/src/main/hooks/rawHook.ts:rawHookToEnvelope` for the `curl` path — both reduce the raw JSON before it is ever stored or forwarded further:
 
 - the event name (`SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `Notification`, `Stop`, `SessionEnd`),
 - the session id,
@@ -28,7 +31,7 @@ Claude Code invokes `claude-mons-hook` on every hook event (prompts, tool calls,
 - whether a Stop hook is active,
 - a 12-character SHA-1 hash of the working directory (so activity can be grouped per project without revealing the path).
 
-Everything else is discarded: prompt text, tool inputs, tool outputs, file contents and transcript paths are never written to disk or sent anywhere. For full technical details, see [`packages/hook-cli/README.md`](packages/hook-cli/README.md).
+Everything else is discarded: prompt text, tool inputs, tool outputs, file contents and transcript paths are never written to disk or sent anywhere. This holds for both delivery paths — the `curl` command's raw JSON reaches only the app's own process on `127.0.0.1`, and is reduced to the exact same whitelist before anything is stored or sent onward, so which path is active changes nothing about what data leaves the machine. For full technical details, see [`packages/hook-cli/README.md`](packages/hook-cli/README.md).
 
 ## What is sent to the server
 

@@ -300,7 +300,8 @@ function isValidCalendarDate(str) {
 // ---------------------------------------------------------------------------
 
 function extractPathCandidate(raw) {
-  if (/^(https?:\/\/|mailto:|#|~\/)/.test(raw)) return null;
+  // URLs, anchors, home-relative and absolute filesystem paths are never repo paths.
+  if (/^(https?:\/\/|mailto:|#|~\/|\/)/.test(raw)) return null;
   let s = raw;
   const hashIdx = s.indexOf('#');
   if (hashIdx !== -1) s = s.slice(0, hashIdx);
@@ -757,7 +758,11 @@ function main() {
   const root = findRepoRoot();
   const today = todayLocal();
   // CI runners and contributors sit in different time zones; allow one day of slack.
-  const maxDate = (() => { const d = new Date(); d.setDate(d.getDate() + 1); return d.toISOString().slice(0, 10) > today ? d.toISOString().slice(0, 10) : today; })();
+  const maxDate = (() => {
+    const d = new Date();
+    d.setDate(d.getDate() + 1);
+    return d.toISOString().slice(0, 10) > today ? d.toISOString().slice(0, 10) : today;
+  })();
   const gitAvailable = isGitAvailable(root);
   const allowlist = loadAllowlist(root);
 

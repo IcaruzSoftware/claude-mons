@@ -42,6 +42,7 @@ export const IPC = {
   uiGetSnapshot: 'ui:get-snapshot',
   uiChooseNation: 'ui:choose-nation',
   uiToggleHooks: 'ui:toggle-hooks',
+  uiSetHookMode: 'ui:set-hook-mode',
   uiSetSpriteScale: 'ui:set-sprite-scale',
   uiOpenExternal: 'ui:open-external',
   uiQuit: 'ui:quit',
@@ -127,7 +128,16 @@ export interface BattleSummary {
 }
 
 export type HookStatusValue =
-  'installed' | 'partial' | 'not-installed' | 'unreadable' | 'no-binary';
+  | 'installed-binary'
+  | 'installed-script'
+  | 'partial'
+  | 'not-installed'
+  | 'unreadable'
+  | 'no-binary';
+
+/** `hooks.mode` preference (`LocalState`) vs. what actually got installed (probe-resolved in 'auto'). */
+export type HookModeValue = 'auto' | 'binary' | 'script';
+export type HookProbeValue = 'ok' | 'blocked' | 'missing' | null;
 
 /** Everything the panel and hover card need to render. Pushed on every change. */
 export interface UiSnapshot {
@@ -136,7 +146,15 @@ export interface UiSnapshot {
   profile: { nickname: string | null; nation: Nation | null; userId: string | null };
   pet: { speciesId: string | null; stage: Stage; state: PetState };
   progress: LevelProgress & { serverXp: number | null; streakDays: number };
-  hooks: { status: HookStatusValue };
+  hooks: {
+    status: HookStatusValue;
+    /** configured preference: 'auto' | 'binary' | 'script' */
+    mode: HookModeValue;
+    /** mode actually installed/probed for, resolved from 'auto' via the binary probe */
+    effectiveMode: 'binary' | 'script';
+    /** last `probeBinary()` result, or null before the first probe (e.g. no binary bundled) */
+    probe: HookProbeValue;
+  };
   settings: { spriteScale: number; autostart: boolean };
   online: {
     connected: boolean;

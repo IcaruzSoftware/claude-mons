@@ -59,6 +59,8 @@ const uiApi = {
   chooseNation: (nation: string): Promise<UiSnapshot> =>
     ipcRenderer.invoke(IPC.uiChooseNation, nation),
   toggleHooks: (): Promise<UiSnapshot> => ipcRenderer.invoke(IPC.uiToggleHooks),
+  setHookMode: (mode: 'auto' | 'binary' | 'script'): Promise<UiSnapshot> =>
+    ipcRenderer.invoke(IPC.uiSetHookMode, mode),
   setSpriteScale: (scale: number): Promise<UiSnapshot> =>
     ipcRenderer.invoke(IPC.uiSetSpriteScale, scale),
   openExternal: (url: string): Promise<void> => ipcRenderer.invoke(IPC.uiOpenExternal, url),

@@ -3,18 +3,20 @@ doc_type: runbook
 purpose: "Create a new release of claude-mons with signed Windows binaries."
 audience: both
 last_verified: 2026-09-05
-last_verified_commit: f198a9d
+last_verified_commit: ab12392
 related_files:
   - .github/workflows/release.yml
   - scripts/signpath-sign.ps1
   - scripts/refresh-latest-yml.mjs
+  - scripts/build-apt-repo.sh
   - apps/desktop/electron-builder.yml
   - apps/desktop/package.json
+  - docs/runbooks/apt-repository.md
 ---
 
 # Release
 
-Use this runbook when shipping a new version. The workflow builds and signs Windows executables via SignPath Foundation, packages Linux installers, and publishes all artifacts to GitHub Releases.
+Use this runbook when shipping a new version. The workflow builds and signs Windows executables via SignPath Foundation, packages Linux installers, publishes all artifacts to GitHub Releases, and publishes/updates the APT repository on `gh-pages` (see [docs/runbooks/apt-repository.md](apt-repository.md)).
 
 ## Prerequisites
 
@@ -53,6 +55,7 @@ SignPath code signing requires one-time setup by a project owner; see the "Setup
 
    or visit **Actions** on GitHub and click the run. Expect these jobs:
    - `build (linux)`: compiles and packages AppImage + deb, publishes to Release if `v*` tag
+   - `publish apt repository`: runs after `build (linux)`; on a `v*` tag with `APT_GPG_PRIVATE_KEY`/`APT_GPG_PASSPHRASE` configured it merges the new `.deb` into the APT repository on `gh-pages` (`scripts/build-apt-repo.sh`); without those secrets it logs a `::notice::` and does nothing; a `workflow_dispatch` run with `apt_dry_run: true` builds the tree unsigned and uploads it as the `apt-repo-dry-run` artifact instead
    - `build + sign (windows)`: builds unpacked app, signs executables via SignPath, builds NSIS installer, signs installer, refreshes metadata (see `scripts/refresh-latest-yml.mjs`), publishes to Release if `v*` tag
 
    If `SIGNPATH_API_TOKEN` or `SIGNPATH_ORGANIZATION_ID` secrets are missing, the windows job logs a notice and produces unsigned builds.
@@ -125,6 +128,7 @@ Two artifact configurations with XML are needed to sign the executables (pass 1)
 - [ ] The workflow run completed without errors: check **Actions** log for job status
 - [ ] Signing steps completed (if secrets present): look for "Valid" in `signpath-sign:` log lines
 - [ ] Windows, Linux, and metadata files appear in GitHub Releases (for tag push) or Artifacts (for workflow_dispatch)
+- [ ] `publish apt repository` ran (`gh-pages` push) or logged a `::notice::` skip if secrets are missing — see [docs/runbooks/apt-repository.md](apt-repository.md)
 - [ ] (Post-release) electron-updater can fetch and verify the update: test from a prior version
 
 ## What signing does not fix

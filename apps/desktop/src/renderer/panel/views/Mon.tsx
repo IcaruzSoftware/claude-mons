@@ -116,7 +116,7 @@ export function MonView({ s }: { s: UiSnapshot }) {
       <div class="section">
         <h3>Training</h3>
         <p class="flavor" style={{ margin: 0 }}>
-          {s.hooks.status === 'installed'
+          {s.hooks.status === 'installed-binary' || s.hooks.status === 'installed-script'
             ? 'Claude Code is connected. Every prompt, tool call and finished turn earns XP.'
             : 'Connect Claude Code in Settings to start training.'}
         </p>

@@ -3,12 +3,13 @@ doc_type: runbook
 purpose: "Read this when rotating API tokens, database passwords, or code signing credentials that workflows and local development depend on."
 audience: both
 last_verified: 2026-09-05
-last_verified_commit: d7db9c0
+last_verified_commit: ab12392
 related_files:
   - .github/workflows/release.yml
   - .github/workflows/supabase-deploy.yml
   - .github/workflows/keepalive.yml
   - docs/CODE_SIGNING_POLICY.md
+  - docs/runbooks/apt-repository.md
   - supabase/README.md
 ---
 
@@ -102,9 +103,29 @@ To add it:
 gh secret set SUPABASE_ANON_KEY
 ```
 
+## APT_GPG_PRIVATE_KEY / APT_GPG_PASSPHRASE
+
+Sign the APT repository published to `gh-pages` (see [`docs/runbooks/apt-repository.md`](../runbooks/apt-repository.md)).
+
+1. **Generate** a new key and export it, following the "Key rotation" steps in [`docs/runbooks/apt-repository.md`](../runbooks/apt-repository.md#key-rotation).
+2. **Update the repository secrets**:
+
+```bash
+gh secret set APT_GPG_PRIVATE_KEY < claude-mons-apt-private.asc
+gh secret set APT_GPG_PASSPHRASE
+```
+
+Paste the passphrase when prompted; it will not echo to the terminal. Delete the local `.asc` file
+once both secrets are set.
+
+3. Note the rotation in `CHANGELOG.md`: existing installs cache the old public key locally and must
+   re-run `install.sh` after the next tagged release or their `apt update` will fail signature
+   verification.
+
 ## Acceptance
 
 - All secret names match those used in `.github/workflows/*.yml`.
 - `.env.local` contains non-empty values for `SUPABASE_ACCESS_TOKEN`, `SUPABASE_DB_PASSWORD`, and `SUPABASE_PROJECT_REF`.
 - Trigger `.github/workflows/supabase-deploy.yml` to verify `SUPABASE_ACCESS_TOKEN` and `SUPABASE_DB_PASSWORD` work.
 - Trigger `.github/workflows/release.yml` via `workflow_dispatch` to verify `SIGNPATH_API_TOKEN` and `SIGNPATH_ORGANIZATION_ID` work.
+- After the next tagged release, confirm the `publish apt repository` job signed successfully (no `::notice::` skip in its log) to verify `APT_GPG_PRIVATE_KEY` and `APT_GPG_PASSPHRASE` work; `workflow_dispatch` with `apt_dry_run: true` only checks the unsigned tree, not the secrets.

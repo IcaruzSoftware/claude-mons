@@ -3,10 +3,11 @@ doc_type: reference
 purpose: "Understand the desktop app's process model, module map, IPC channels, and CLI flags."
 audience: agent
 last_verified: 2026-09-05
-last_verified_commit: 6d99ae3
+last_verified_commit: ab12392
 related_files:
   - apps/desktop/src/**
   - apps/desktop/IPC.md
+  - docs/decisions/0014-curl-script-mode-hook-fallback.md
 ---
 
 # Desktop App Reference
@@ -32,7 +33,7 @@ src/main/App.ts (composition root)
     ├─ BattleService (cooldown, daily cap, offline fallback)
     ├─ JsonStore (atomic persistence)
     │
-    ├─ HookServer + SpoolDrainer + ActivityTracker (event ingestion)
+    ├─ HookServer + SpoolDrainer + ActivityTracker (event ingestion, binary or script mode)
     ├─ SupabaseClient (Edge Functions, anonymous auth)
     ├─ SyncQueue (batched XP upload with exponential backoff)
     └─ Updater + Autostart
@@ -52,10 +53,12 @@ All windows share one preload (`src/preload/index.ts`); three renderers (pet, pa
 | `src/main/game/GameService.ts` | Hook events → provisional XP, buckets, daily bonus/streak, level-ups, hatch/evolve |
 | `src/main/game/BattleService.ts` | Cooldown/daily cap, remote or offline wild battle, battle history |
 | `src/main/game/species.ts` | Species lookup per nation (offline hatching only) |
-| `src/main/hooks/HookServer.ts` | HTTP endpoint for events (bearer token, 64 KB cap) |
-| `src/main/hooks/SpoolDrainer.ts` | Drains `hook-spool.jsonl` every 30 s; marks `spooled: true` |
+| `src/main/hooks/HookServer.ts` | HTTP endpoint: `/event` (bearer token, Go binary) and `/hook` (stable header token, script mode); 64 KB cap; port persisted with +1..+20 fallback |
+| `src/main/hooks/rawHook.ts` | `rawHookToEnvelope`: reduces raw Claude Code hook JSON to the same whitelist as `packages/hook-cli/main.go:buildEnvelope`, for the `/hook` route |
+| `src/main/hooks/mode.ts` | `probeBinary` (exec-time check) and `computeEffectiveMode` (`auto`/`binary`/`script`) |
+| `src/main/hooks/SpoolDrainer.ts` | Drains `hook-spool.jsonl` every 30 s; marks `spooled: true` (binary mode only; script mode has no spool) |
 | `src/main/hooks/ActivityTracker.ts` | Collapses Claude Code sessions into stimuli; TTL pruning |
-| `src/main/hooks/HookInstaller.ts` | Safe merge/remove of hooks in `~/.claude/settings.json` (5-backup rotation) |
+| `src/main/hooks/HookInstaller.ts` | Safe merge/remove of hooks in `~/.claude/settings.json` for either mode (5-backup rotation); `scriptCommand` builds the `curl` command line |
 | `src/main/hooks/binary.ts` | Locates and installs Go hook binary with sha256 verify + atomic rename |
 | `src/main/net/config.ts` | Supabase URL/anon key with env overrides, offline switch |
 | `src/main/net/SupabaseClient.ts` | supabase-js wrapper; anonymous auth; typed Edge Function invoke |
@@ -100,12 +103,12 @@ All channel names and payload types live in `src/common/ipc.ts`. See `apps/deskt
 | `bonusXp` / `battleXp` | Cumulative rewards |
 | `behavior` | `{ anchor }` (display ID + fractional X for remembered position) |
 | `settings` | `{ spriteScale: 2\|3\|4, autostart, focusable, disableGpu }` |
-| `hooks` | `{ installedAt }` |
+| `hooks` | `{ installedAt, port, token, mode }` — `port`/`token` are the persisted `/hook` endpoint (script mode); `mode` is `'auto' \| 'binary' \| 'script'` |
 | `ui` | `{ panel }` (window position or null) |
 | `auth` | `{ session }` (serialized supabase-js session) |
 | `battles` | `{ history (≤50), lastBattleAt, today }` |
 
-**Migrations:** `MIGRATIONS[i]` upgrades version i+1 → i+2; run in order; currently empty. JsonStore uses 500 ms debounce; loads fall back to backup or defaults when unparsable.
+**Migrations:** `MIGRATIONS[i]` upgrades version i+1 → i+2; run in order. `MIGRATIONS[0]` (v1 → v2) adds `hooks.port`/`hooks.token`/`hooks.mode`. JsonStore uses 500 ms debounce; loads fall back to backup or defaults when unparsable.
 
 ## Dev CLI flags (parsed in `src/main/App.ts`)
 
@@ -116,6 +119,7 @@ All channel names and payload types live in `src/common/ipc.ts`. See `apps/deskt
 | `--dev-nation <water\|fire\|earth\|air>` | Yes | Auto-choose nation after 1 s |
 | `--dev-battle` | Yes | Trigger `onBattleRequest()` after 2.5 s |
 | `--dev-xp <n>` | Yes | Grant XP via `game.grantXp(n, 'server')` after 2 s |
+| `--dev-install-hooks` | Yes | Install hooks (`toggleHooks()`) 1.5 s after boot, in the effective mode; used for manual testing against `CLAUDE_CONFIG_DIR` |
 | `--autostart` | No | Marker for installer (not read by app) |
 
 ## Environment variables
@@ -146,7 +150,9 @@ All channel names and payload types live in `src/common/ipc.ts`. See `apps/deskt
 | `test/BattleService.test.ts` | Offline wild mon, egg refusal, cross-nation opponent, cooldown/daily cap, busy refusal |
 | `test/CursorTracker.test.ts` | Click-through toggle, hitbox inflation, drag streaming, poll-rate switch |
 | `test/GameService.test.ts` | Provisional XP, bucket fill, local hatch, daily bonus, spooled events |
-| `test/HookInstaller.test.ts` | Hook merge/remove, purity + idempotence, partial status, fs install/uninstall, backup rotation |
+| `test/HookInstaller.test.ts` | Hook merge/remove (both modes), purity + idempotence, partial/mixed-mode status, fs install/uninstall, mode-switch reinstall, backup rotation |
+| `test/rawHook.test.ts` | `rawHookToEnvelope` whitelist parity with `buildEnvelope`, cwd hashing, unknown event → null |
+| `test/mode.test.ts` | `probeBinary` classification (ok/blocked/missing/timeout) via injected spawn, `computeEffectiveMode` |
 | `test/JsonStore.test.ts` | Atomic write, `.bak` recovery, corrupt recovery, ordered migrations, debouncing |
 | `test/display.test.ts` | Strip/follow bounds, displayContaining, fractional anchor memory |
-| `test/hooks.test.ts` | HookServer auth, SpoolDrainer junk skip, ActivityTracker collapsing/pruning |
+| `test/hooks.test.ts` | HookServer `/event` and `/hook` auth, port persistence/fallback, SpoolDrainer junk skip, ActivityTracker collapsing/pruning |

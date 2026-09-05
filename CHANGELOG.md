@@ -3,7 +3,7 @@ doc_type: reference
 purpose: "Release notes and version history; check this when seeing claude-mons updates or deciding what version to expect features in."
 audience: both
 last_verified: 2026-09-05
-last_verified_commit: 6d99ae3
+last_verified_commit: ab12392
 related_files:
   - docs/history/v1-handoff-2026-09-04.md
   - docs/README.md
@@ -19,6 +19,8 @@ All notable changes to claude-mons are documented here. See [Keep a Changelog](h
 - Documentation tooling: `scripts/check-docs.mjs` script and CI job to validate doc structure and code references.
 - Code signing infrastructure: SignPath Foundation signing pipeline (test certificate verified).
 - Privacy policy and code signing policy documentation.
+- APT repository: `scripts/build-apt-repo.sh` publishes a signed APT repository to GitHub Pages from the `apt` job in `.github/workflows/release.yml`; `curl -fsSL https://icaruzsoftware.github.io/claude-mons/install.sh | sudo bash` then `sudo apt upgrade` installs and updates claude-mons on Debian/Ubuntu. See `docs/runbooks/apt-repository.md`.
+- Script-mode hook fallback: on machines where Windows Smart App Control blocks the unsigned Go hook binary, the app now installs a `curl`/`curl.exe` command instead, posting raw Claude Code hook events to a new `/hook` endpoint (`apps/desktop/src/main/hooks/HookServer.ts`) that reduces them with the same metadata whitelist as the binary. Mode is auto-detected by actually probing the binary at start (`apps/desktop/src/main/hooks/mode.ts`), with a manual override in Settings; see `docs/decisions/0014-curl-script-mode-hook-fallback.md`.
 
 ### Fixed
 - Linux packaging: explicit executable name and homepage/maintainer metadata required by deb target.

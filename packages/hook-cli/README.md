@@ -3,17 +3,25 @@ doc_type: reference
 purpose: "Read this when building or understanding how hook events flow from Claude Code to the desktop app."
 audience: agent
 last_verified: "2026-09-05"
-last_verified_commit: 6d99ae3
+last_verified_commit: ab12392
 related_files:
   - packages/shared/src/hooks/payload.ts
   - apps/desktop/src/main/hooks/binary.ts
   - apps/desktop/src/main/hooks/HookServer.ts
   - apps/desktop/src/main/hooks/SpoolDrainer.ts
+  - apps/desktop/src/main/hooks/rawHook.ts
+  - apps/desktop/src/main/hooks/mode.ts
+  - apps/desktop/src/main/hooks/HookInstaller.ts
+  - docs/decisions/0014-curl-script-mode-hook-fallback.md
 ---
 
 # hook-cli
 
 Tiny Go binary (Go 1.22, stdlib only) invoked by Claude Code on every tool call and hook event. Reads whitelisted metadata from stdin, creates an envelope, and POSTs it to the running desktop app or spools it for later. Never writes stdout; always exits 0.
+
+## Script-mode fallback (no Go binary)
+
+Some machines refuse to run this binary at all — Windows Smart App Control blocks unsigned executables at exec time (file copy succeeds; spawning fails with `EACCES`/`UNKNOWN` or exit code 126). For those, the desktop app can install a `curl`/`curl.exe` command line instead, POSTing the raw Claude Code hook JSON straight to `apps/desktop/src/main/hooks/HookServer.ts`'s `POST /hook` route, which reduces it to the same envelope via `apps/desktop/src/main/hooks/rawHook.ts:rawHookToEnvelope` (same whitelist as `buildEnvelope` below). Mode selection (`auto`/`binary`/`script`) and the exec-time probe live in `apps/desktop/src/main/hooks/mode.ts`; the installed command shape lives in `apps/desktop/src/main/hooks/HookInstaller.ts:scriptCommand`. Script mode has no spool — see [ADR 0014](../../docs/decisions/0014-curl-script-mode-hook-fallback.md).
 
 ## CLI Flags
 

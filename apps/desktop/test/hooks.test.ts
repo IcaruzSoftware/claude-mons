@@ -1,3 +1,4 @@
+import { createServer, type Server } from 'node:http';
 import { promises as fs } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -73,6 +74,143 @@ describe('HookServer', () => {
       await server.stop();
     }
     await expect(fs.stat(join(home, ENDPOINT_FILE))).rejects.toThrow();
+  });
+});
+
+describe('HookServer /hook (script mode)', () => {
+  let home: string;
+  beforeEach(async () => {
+    home = await fs.mkdtemp(join(tmpdir(), 'cm-srv-hook-'));
+  });
+  afterEach(async () => {
+    await fs.rm(home, { recursive: true, force: true });
+  });
+
+  it('accepts the token header, replies 204, and delivers a converted envelope', async () => {
+    const received: HookEnvelope[] = [];
+    const scriptToken = 'x'.repeat(64);
+    const server = new HookServer({ home, onEvent: (e) => received.push(e), scriptToken });
+    await server.start();
+    try {
+      const url = `http://127.0.0.1:${server.getPort()}/hook`;
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'X-Claude-Mons-Token': scriptToken, 'content-type': 'application/json' },
+        body: JSON.stringify({
+          hook_event_name: 'UserPromptSubmit',
+          session_id: 's1',
+          cwd: 'C:/x',
+          prompt: 'this must never reach the envelope',
+        }),
+      });
+      expect(res.status).toBe(204);
+      await new Promise((r) => setTimeout(r, 20));
+      expect(received).toHaveLength(1);
+      expect(received[0]?.event).toBe('UserPromptSubmit');
+      expect(received[0]?.session_id).toBe('s1');
+      expect(JSON.stringify(received[0])).not.toContain('prompt');
+    } finally {
+      await server.stop();
+    }
+  });
+
+  it('rejects a wrong or missing token with 404, indistinguishable from a bad path', async () => {
+    const scriptToken = 'y'.repeat(64);
+    const server = new HookServer({ home, onEvent: () => {}, scriptToken });
+    await server.start();
+    try {
+      const url = `http://127.0.0.1:${server.getPort()}/hook`;
+      const wrongToken = await fetch(url, {
+        method: 'POST',
+        headers: { 'X-Claude-Mons-Token': 'nope' },
+        body: '{}',
+      });
+      expect(wrongToken.status).toBe(404);
+      const noToken = await fetch(url, { method: 'POST', body: '{}' });
+      expect(noToken.status).toBe(404);
+    } finally {
+      await server.stop();
+    }
+  });
+
+  it('is always 404 when no scriptToken is configured', async () => {
+    const server = new HookServer({ home, onEvent: () => {} });
+    await server.start();
+    try {
+      const res = await fetch(`http://127.0.0.1:${server.getPort()}/hook`, {
+        method: 'POST',
+        headers: { 'X-Claude-Mons-Token': 'anything' },
+        body: '{}',
+      });
+      expect(res.status).toBe(404);
+    } finally {
+      await server.stop();
+    }
+  });
+
+  it('rejects an oversized body', async () => {
+    const scriptToken = 'z'.repeat(64);
+    const server = new HookServer({ home, onEvent: () => {}, scriptToken });
+    await server.start();
+    try {
+      const big = JSON.stringify({ hook_event_name: 'Stop', reason: 'a'.repeat(70 * 1024) });
+      const res = await fetch(`http://127.0.0.1:${server.getPort()}/hook`, {
+        method: 'POST',
+        headers: { 'X-Claude-Mons-Token': scriptToken, 'content-length': String(big.length) },
+        body: big,
+      });
+      expect(res.status).toBe(413);
+    } finally {
+      await server.stop();
+    }
+  });
+});
+
+describe('HookServer port persistence', () => {
+  let home: string;
+  beforeEach(async () => {
+    home = await fs.mkdtemp(join(tmpdir(), 'cm-srv-port-'));
+  });
+  afterEach(async () => {
+    await fs.rm(home, { recursive: true, force: true });
+  });
+
+  it('binds the preferred port when free', async () => {
+    const server = new HookServer({ home, onEvent: () => {}, preferredPort: 51900 });
+    await server.start();
+    try {
+      expect(server.getPort()).toBe(51900);
+    } finally {
+      await server.stop();
+    }
+  });
+
+  it('falls back to the next free port and reports the change via onPortChosen', async () => {
+    const dummy: Server = createServer();
+    await new Promise<void>((resolve, reject) => {
+      dummy.once('error', reject);
+      dummy.listen(51901, '127.0.0.1', () => resolve());
+    });
+    try {
+      let chosen = -1;
+      const server = new HookServer({
+        home,
+        onEvent: () => {},
+        preferredPort: 51901,
+        onPortChosen: (p) => (chosen = p),
+      });
+      await server.start();
+      try {
+        expect(server.getPort()).not.toBe(51901);
+        expect(server.getPort()).toBeGreaterThan(51901);
+        expect(server.getPort()).toBeLessThanOrEqual(51901 + 20);
+        expect(chosen).toBe(server.getPort());
+      } finally {
+        await server.stop();
+      }
+    } finally {
+      await new Promise<void>((resolve) => dummy.close(() => resolve()));
+    }
   });
 });
 

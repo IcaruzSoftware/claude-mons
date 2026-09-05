@@ -21,10 +21,17 @@ import { BattleService } from './game/BattleService.ts';
 import { GameService } from './game/GameService.ts';
 import { rollSpeciesForNation } from './game/species.ts';
 import { ActivityTracker } from './hooks/ActivityTracker.ts';
-import { HookInstaller, claudeSettingsPath, type HookStatus } from './hooks/HookInstaller.ts';
+import {
+  HookInstaller,
+  claudeSettingsPath,
+  type HookMode,
+  type HookStatus,
+  type HookTarget,
+} from './hooks/HookInstaller.ts';
 import { HookServer } from './hooks/HookServer.ts';
 import { SpoolDrainer } from './hooks/SpoolDrainer.ts';
 import { ensureHookBinary } from './hooks/binary.ts';
+import { computeEffectiveMode, probeBinary, type ProbeResult } from './hooks/mode.ts';
 import { RemoteBattleBackend, fetchLeaderboard, type LeaderboardData } from './net/Backend.ts';
 import { ApiCallError, SupabaseClient } from './net/SupabaseClient.ts';
 import { SyncQueue } from './net/SyncQueue.ts';
@@ -43,6 +50,7 @@ import { HoverCardWindow } from './windows/HoverCardWindow.ts';
 import { PanelWindow } from './windows/PanelWindow.ts';
 
 const HOVER_DELAY_MS = 1000;
+const DEBUG = process.env.CLAUDE_MONS_DEBUG === '1';
 
 /** Wires all main-process services together. One instance per app. */
 export class App {
@@ -72,6 +80,9 @@ export class App {
   private spool!: SpoolDrainer;
   private installer: HookInstaller | null = null;
   private hookStatus: HookStatus | 'no-binary' = 'no-binary';
+  private hookBinaryPath: string | null = null;
+  private probeResult: ProbeResult | null = null;
+  private effectiveMode: 'binary' | 'script' = 'script';
   private sim: ScriptRunner | null = null;
 
   async start(): Promise<void> {
@@ -136,24 +147,32 @@ export class App {
     this.host.start();
     this.wireGameEvents();
 
-    // Hooks: endpoint + spool + binary + installer
-    this.hookServer = new HookServer({ home: this.home, onEvent: (e) => this.onHookEvent(e) });
+    // Hooks: endpoint + spool + binary + mode probe + installer.
+    // The port and the script-mode token are persisted (LocalState.hooks) so a script-mode hook
+    // command installed in a previous run keeps working across restarts; hook-endpoint.json is
+    // still written for the Go binary exactly as before.
+    const priorHookPort = state.hooks.port;
+    this.hookServer = new HookServer({
+      home: this.home,
+      onEvent: (e) => this.onHookEvent(e),
+      preferredPort: priorHookPort,
+      scriptToken: state.hooks.token,
+      onPortChosen: (port) => {
+        if (port !== this.store.get().hooks.port) this.store.update((s) => (s.hooks.port = port));
+      },
+    });
     await this.hookServer.start();
     this.spool = new SpoolDrainer(this.home, (e) => this.onHookEvent(e));
     this.spool.start();
-    const binary = await ensureHookBinary(this.home).catch((err) => {
+    this.hookBinaryPath = await ensureHookBinary(this.home).catch((err) => {
       console.warn('hook binary unavailable:', err);
       return null;
     });
-    if (binary) {
-      this.installer = new HookInstaller({
-        settingsPath: claudeSettingsPath(),
-        binaryPath: binary,
-        homeDir: this.home,
-      });
-      this.hookStatus = await this.installer.status().catch(() => 'unreadable' as const);
-      this.host.tray.refreshMenu();
-    }
+    this.probeResult = this.hookBinaryPath
+      ? await probeBinary(this.hookBinaryPath, this.home).catch(() => 'blocked' as const)
+      : 'missing';
+    if (DEBUG) console.info(`[hooks] binary probe: ${this.probeResult}`);
+    await this.applyHookMode({ portChanged: this.hookServer.getPort() !== priorHookPort });
 
     this.autostartEnabled = await this.autostart.isEnabled().catch(() => false);
     this.updater.onStatus(() => this.pushSnapshot());
@@ -175,6 +194,11 @@ export class App {
       }
       const devXp = parseDevXpArg(process.argv);
       if (devXp) setTimeout(() => this.game.grantXp(devXp, 'server'), 2000);
+      // Installs hooks into CLAUDE_CONFIG_DIR/settings.json in the currently effective mode, for
+      // manual live testing without touching the developer's real ~/.claude/settings.json.
+      if (process.argv.includes('--dev-install-hooks')) {
+        setTimeout(() => void this.toggleHooks(), 1500);
+      }
     }
     const capturePath = parseCaptureArg(process.argv);
     if (capturePath) {
@@ -231,7 +255,12 @@ export class App {
         serverXp: p.serverXp,
         streakDays: p.streakDays,
       },
-      hooks: { status: this.hookStatus as HookStatusValue },
+      hooks: {
+        status: this.hookStatus as HookStatusValue,
+        mode: s.hooks.mode,
+        effectiveMode: this.effectiveMode,
+        probe: this.probeResult,
+      },
       settings: { spriteScale: s.settings.spriteScale, autostart: this.autostartEnabled },
       online: {
         connected: sync?.connected ?? false,
@@ -261,6 +290,14 @@ export class App {
     ipcMain.handle(IPC.uiChooseNation, (_e, nation: unknown) => {
       if (!isNation(nation)) throw new Error('invalid nation');
       this.chooseNation(nation);
+      return this.snapshot();
+    });
+    ipcMain.handle(IPC.uiSetHookMode, async (_e, mode: unknown) => {
+      if (mode === 'auto' || mode === 'binary' || mode === 'script') {
+        this.store.update((s) => (s.hooks.mode = mode));
+        await this.applyHookMode();
+        this.pushSnapshot();
+      }
       return this.snapshot();
     });
     ipcMain.handle(IPC.uiToggleHooks, async () => {
@@ -447,7 +484,7 @@ export class App {
   private async toggleHooks(): Promise<void> {
     if (!this.installer) return;
     try {
-      if (this.hookStatus === 'installed') {
+      if (this.hookStatus === 'installed-binary' || this.hookStatus === 'installed-script') {
         this.hookStatus = await this.installer.uninstall();
         this.store.update((s) => (s.hooks.installedAt = null));
       } else {
@@ -464,6 +501,56 @@ export class App {
     }
     this.host.tray.refreshMenu();
     this.pushSnapshot();
+  }
+
+  /**
+   * (Re)computes the effective hook mode ('auto' resolves via the binary probe result), rebuilds
+   * the installer to target it, and refreshes `hookStatus`. Called on start and whenever the mode
+   * preference changes. If hooks were already installed in the *other* mode (or, when
+   * `portChanged`, the same script-mode command needs a fresh port), this reinstalls in place so
+   * the on-disk `settings.json` always matches the effective mode without the user re-clicking
+   * Connect.
+   */
+  private async applyHookMode(opts: { portChanged?: boolean } = {}): Promise<void> {
+    const configured = this.store.get().hooks.mode;
+    this.effectiveMode = computeEffectiveMode(configured, this.probeResult);
+    const target: HookTarget | null =
+      this.effectiveMode === 'binary'
+        ? this.hookBinaryPath
+          ? { mode: 'binary', binaryPath: this.hookBinaryPath, homeDir: this.home }
+          : null
+        : {
+            mode: 'script',
+            endpoint: { port: this.hookServer.getPort(), token: this.store.get().hooks.token },
+          };
+    if (!target) {
+      // Explicit 'binary' preference but no binary was ever bundled/copied: nothing installable.
+      this.installer = null;
+      this.hookStatus = 'no-binary';
+      this.host.tray.refreshMenu();
+      return;
+    }
+    this.installer = new HookInstaller({ settingsPath: claudeSettingsPath(), target });
+    this.hookStatus = await this.installer.status().catch(() => 'unreadable' as const);
+    const installedMode: HookMode | null =
+      this.hookStatus === 'installed-binary'
+        ? 'binary'
+        : this.hookStatus === 'installed-script'
+          ? 'script'
+          : null;
+    const wasInstalled = this.store.get().hooks.installedAt !== null;
+    const modeMismatch =
+      wasInstalled && installedMode !== null && installedMode !== this.effectiveMode;
+    const stalePort = Boolean(opts.portChanged) && installedMode === 'script';
+    if (modeMismatch || stalePort) {
+      this.hookStatus = await this.installer.install().catch(() => this.hookStatus);
+    }
+    if (DEBUG) {
+      console.info(
+        `[hooks] effective mode: ${this.effectiveMode} (configured: ${configured}, status: ${this.hookStatus})`,
+      );
+    }
+    this.host.tray.refreshMenu();
   }
 
   private async shutdown(): Promise<void> {
