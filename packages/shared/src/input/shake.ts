@@ -1,5 +1,5 @@
 /**
- * Pure shake detector (docs/DESIGN.md section 2).
+ * Pure shake detector (docs/architecture/overlay-and-input.md).
  *
  * Feed it `(t, x, y)` pointer samples while the pet is being dragged. It keeps a sliding window,
  * derives per-segment velocities, picks the dominant axis and counts velocity sign reversals

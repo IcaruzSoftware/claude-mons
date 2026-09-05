@@ -1,1 +1,6 @@
-[]
+[
+  { "pattern": "^supabase/functions/_shared/game(/|$)" },
+  { "pattern": "^packages/sprites/preview(/|$)" },
+  { "pattern": "^packages/hook-cli/dist(/|$)" },
+  { "pattern": "^apps/desktop/(release|out)(/|$)" }
+]

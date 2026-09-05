@@ -6,7 +6,7 @@ name: Release
 # that is not available on every plan)
 # when the repository has the secrets SIGNPATH_API_TOKEN and SIGNPATH_ORGANIZATION_ID and the
 # variable SIGNPATH_PROJECT_SLUG. Without them the workflow still runs and produces unsigned builds.
-# See docs/SIGNING.md.
+# See docs/runbooks/release.md.
 
 on:
   push:

@@ -1,6 +1,6 @@
 import type { PetState } from './states.ts';
 
-/** Higher replaces lower; expiry and decay may always lower. See docs/DESIGN.md section 3. */
+/** Higher replaces lower; expiry and decay may always lower. See docs/design/behavior-engine.md. */
 export const PRIORITY: Record<PetState, number> = {
   evolving: 100,
   hatching: 100,

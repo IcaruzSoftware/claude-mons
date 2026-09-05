@@ -469,7 +469,7 @@ function checkDoc(root, relPath, opts, ctx) {
       addIssue('error', `last_verified must match YYYY-MM-DD: "${data.last_verified}"`);
     } else if (!isValidCalendarDate(data.last_verified)) {
       addIssue('error', `last_verified is not a real calendar date: "${data.last_verified}"`);
-    } else if (data.last_verified > ctx.today) {
+    } else if (data.last_verified > ctx.maxDate) {
       addIssue('error', `last_verified is in the future: "${data.last_verified}"`);
     }
 
@@ -756,6 +756,8 @@ function main() {
   const { write, files } = parseArgs(process.argv.slice(2));
   const root = findRepoRoot();
   const today = todayLocal();
+  // CI runners and contributors sit in different time zones; allow one day of slack.
+  const maxDate = (() => { const d = new Date(); d.setDate(d.getDate() + 1); return d.toISOString().slice(0, 10) > today ? d.toISOString().slice(0, 10) : today; })();
   const gitAvailable = isGitAvailable(root);
   const allowlist = loadAllowlist(root);
 
@@ -764,6 +766,7 @@ function main() {
 
   const ctx = {
     today,
+    maxDate,
     gitAvailable,
     allowlist,
     addIssue(relPath, level, message) {
