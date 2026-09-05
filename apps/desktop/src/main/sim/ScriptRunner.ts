@@ -77,6 +77,16 @@ export function parseDevXpArg(argv: readonly string[]): number | null {
   return Number.isFinite(v) && v > 0 ? v : null;
 }
 
+/**
+ * `--dev-onboarding-step <n>`: open the onboarding wizard on step n instead of step 0 (development
+ * only). Used to capture a screenshot of a specific step without driving the UI. Ignored once a
+ * nation is chosen; the renderer clamps n to a valid step.
+ */
+export function parseDevOnboardingStepArg(argv: readonly string[]): number | null {
+  const v = Number(parseArg(argv, '--dev-onboarding-step'));
+  return Number.isFinite(v) && v >= 0 ? v : null;
+}
+
 function parseArg(argv: readonly string[], flag: string): string | null {
   const i = argv.indexOf(flag);
   if (i >= 0 && argv[i + 1]) return argv[i + 1]!;

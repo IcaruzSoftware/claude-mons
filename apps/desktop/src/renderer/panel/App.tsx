@@ -30,7 +30,7 @@ export function App() {
   }, []);
 
   if (!s) return <div class="placeholder">Loading…</div>;
-  if (!s.profile.nation) return <Onboarding />;
+  if (!s.profile.nation) return <Onboarding s={s} />;
 
   return (
     <div class="app">

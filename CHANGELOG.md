@@ -3,7 +3,7 @@ doc_type: reference
 purpose: "Release notes and version history; check this when seeing claude-mons updates or deciding what version to expect features in."
 audience: both
 last_verified: 2026-09-05
-last_verified_commit: ab12392
+last_verified_commit: eefd2a2
 related_files:
   - docs/history/v1-handoff-2026-09-04.md
   - docs/README.md
@@ -21,10 +21,16 @@ All notable changes to claude-mons are documented here. See [Keep a Changelog](h
 - Privacy policy and code signing policy documentation.
 - APT repository: `scripts/build-apt-repo.sh` publishes a signed APT repository to GitHub Pages from the `apt` job in `.github/workflows/release.yml`; `curl -fsSL https://icaruzsoftware.github.io/claude-mons/install.sh | sudo bash` then `sudo apt upgrade` installs and updates claude-mons on Debian/Ubuntu. See `docs/runbooks/apt-repository.md`.
 - Script-mode hook fallback: on machines where Windows Smart App Control blocks the unsigned Go hook binary, the app now installs a `curl`/`curl.exe` command instead, posting raw Claude Code hook events to a new `/hook` endpoint (`apps/desktop/src/main/hooks/HookServer.ts`) that reduces them with the same metadata whitelist as the binary. Mode is auto-detected by actually probing the binary at start (`apps/desktop/src/main/hooks/mode.ts`), with a manual override in Settings; see `docs/decisions/0014-curl-script-mode-hook-fallback.md`.
+- Onboarding wizard: `apps/desktop/src/renderer/panel/views/Onboarding.tsx` is now a 5-step wizard (welcome, what-is-claude-mons, controls reference, connect Claude Code, nation picker) with Back/Next buttons and step dots, replacing the bare nation-picker screen; copy lives in one `onboardingCopy` constant and step transitions go through pure helpers in `apps/desktop/src/renderer/panel/onboardingSteps.ts`. The new "Connect Claude Code" step calls the same hook-toggle IPC as Settings (via the shared `apps/desktop/src/renderer/ui/hookStatus.ts` helpers) and never installs hooks without a click; the nation-picker step was also re-tuned (smaller cards, clamped blurbs) and the wizard's scrollbar hidden so the four-nation grid fits the 440×660 panel without scrolling.
 
 ### Fixed
 - Linux packaging: explicit executable name and homepage/maintainer metadata required by deb target.
 - App builder: blockmap regeneration with pure JS builder, corrected pnpm dependency resolution in `refresh-latest-yml`.
+- First-run egg on screen before a nation was chosen: `PetHost` (`apps/desktop/src/main/PetHost.ts`) now withholds the pet window and every stimulus until `App.chooseNation` sets a nation (`apps/desktop/src/main/petGate.ts`), instead of showing the overlay with a default-tinted egg during onboarding. The tray tooltip and menu now reflect the pre-nation state ("claude-mons — choose your nation" / "Finish setup").
+- Crash "Uncaught Exception: ... conversion failure" while dragging/shaking the pet: a fractional or non-finite coordinate could reach `BrowserWindow.setBounds`/`setPosition`, which reject anything but an integer. Every such call in `PetWindow` (`apps/desktop/src/main/windows/PetWindow.ts`) now goes through new `toIntPoint`/`toIntRect` helpers (`apps/desktop/src/main/display.ts`) that round and skip the call instead of crashing; `CursorTracker` also drops a non-finite OS cursor sample outright, and `worldForDisplay`/`stripBounds` round `display.workArea` itself (observed fractional under non-100% Windows DPI scaling). `apps/desktop/src/main/index.ts` additionally installs `uncaughtException`/`unhandledRejection` handlers that log to console and `<userData>/crash.log` (capped ~1 MB) instead of showing Electron's blocking crash dialog, so the app survives whatever else slips through.
+- Dropped pet ending up behind other always-on-top windows: `PetWindow.reassertTopmost()` (`setAlwaysOnTop` + `moveTop()`) now runs after every mode switch (drag start/end) and on `show()`, not just the existing 5 s timer — a non-focusable topmost window can otherwise lose its place in the z-order.
+- Flicker while dragging: `PetWindow.followTo` now broadcasts the pet window's new geometry synchronously from the bounds it just commanded instead of waiting for the native `'move'` event, which could lag a frame behind the actual move and have the renderer draw against stale geometry for one frame.
+- Pet walking out of the visible work area with no easy way back: the reducer's `world:bounds` handler now clamps position on every update (`packages/shared/src/behavior/reducer.ts`), and a new "Bring pet back" tray/context-menu item (`PetHost.recenterOnPrimary`, stimulus `world:recenter`) re-anchors the pet to the primary display and recenters it on demand.
 
 ## [0.1.0] - 2026-09-04
 

@@ -148,7 +148,12 @@ export class PetRenderer {
     }
     ctx.restore();
 
-    if (fx) this.drawFx(fx, ax, top, s, now);
+    if (fx) {
+      // anchor effects to the visible head, not the sprite grid top (babies leave ~half the grid empty)
+      const bodyBBox = frameBBox(def, resolvedAnim, frame);
+      const headTop = bodyBBox ? top + bodyBBox.y * s : top;
+      this.drawFx(fx, ax, headTop, s, now);
+    }
 
     if (this.battle) this.drawBattle(this.battle, model, ax, ay, top, size, s, now);
 
@@ -175,7 +180,7 @@ export class PetRenderer {
     return next.x !== prev.x || next.y !== prev.y || next.w !== prev.w || next.h !== prev.h;
   }
 
-  private drawFx(fx: FxName, ax: number, spriteTop: number, s: number, now: number): void {
+  private drawFx(fx: FxName, ax: number, headTop: number, s: number, now: number): void {
     let def: SpriteDef;
     try {
       def = getSprite(FX_IDS[fx]);
@@ -185,10 +190,13 @@ export class PetRenderer {
     const frame = frameAt(def, 'idle', now);
     const img = this.cache.get(def, 'idle', frame);
     const size = def.size * s;
-    // float above the head, slightly to the right
+    // glyph content sits in the upper-left quadrant of the FX grid; place its bottom edge
+    // one grid pixel above the visible head, slightly to the right
+    const glyph = frameBBox(def, 'idle', frame);
+    const glyphBottom = glyph ? glyph.y + glyph.h : def.size / 2;
     const bob = fxBob(now) * s;
     const x = Math.round(ax + 6 * s);
-    const y = Math.round(spriteTop - size * 0.6 + bob);
+    const y = Math.round(headTop - (glyphBottom + 1) * s + bob);
     this.ctx.drawImage(img, x, y, size, size);
   }
 

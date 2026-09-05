@@ -5,6 +5,8 @@ import {
   rememberAnchor,
   restoreAnchorX,
   stripBounds,
+  toIntPoint,
+  toIntRect,
   worldForDisplay,
   type DisplayLike,
 } from '../src/main/display.ts';
@@ -55,5 +57,55 @@ describe('display geometry', () => {
     expect(mem.fractionX).toBeCloseTo(0.5);
     expect(restoreAnchorX(secondary, mem)).toBe(1920 + 1280);
     expect(restoreAnchorX(primary, null)).toBe(960);
+  });
+
+  it('rounds a fractional work area (fractional Windows DPI scaling) before deriving world/strip bounds', () => {
+    // Electron has been observed to hand back non-integer workArea values under 125%/150%/175%
+    // Windows scaling; both computations must still land on integers.
+    const fractional: DisplayLike = {
+      id: 3,
+      bounds: { x: 0, y: 0, width: 1536, height: 864 },
+      workArea: { x: 0, y: 0, width: 1536, height: 833.6 },
+      scaleFactor: 1.25,
+    };
+    const world = worldForDisplay(fractional, 96);
+    expect(Number.isInteger(world.groundY)).toBe(true);
+    expect(Number.isInteger(world.minX)).toBe(true);
+    expect(Number.isInteger(world.maxX)).toBe(true);
+
+    const strip = stripBounds(fractional, 240);
+    expect(Number.isInteger(strip.x)).toBe(true);
+    expect(Number.isInteger(strip.y)).toBe(true);
+    expect(Number.isInteger(strip.width)).toBe(true);
+    expect(Number.isInteger(strip.height)).toBe(true);
+  });
+});
+
+describe('toIntPoint / toIntRect', () => {
+  it('rounds finite fractional points and rects', () => {
+    expect(toIntPoint({ x: 10.4, y: 10.6 })).toEqual({ x: 10, y: 11 });
+    expect(toIntRect({ x: 1.2, y: 2.8, width: 100.4, height: 99.9 })).toEqual({
+      x: 1,
+      y: 3,
+      width: 100,
+      height: 100,
+    });
+  });
+
+  it('returns null instead of NaN/Infinity so the caller can skip the native call', () => {
+    expect(toIntPoint({ x: NaN, y: 0 })).toBeNull();
+    expect(toIntPoint({ x: 0, y: Infinity })).toBeNull();
+    expect(toIntRect({ x: 0, y: 0, width: NaN, height: 10 })).toBeNull();
+    expect(toIntRect({ x: 0, y: 0, width: 10, height: -Infinity })).toBeNull();
+  });
+
+  it('passes through already-integer values unchanged', () => {
+    expect(toIntPoint({ x: 5, y: -3 })).toEqual({ x: 5, y: -3 });
+    expect(toIntRect({ x: 0, y: 0, width: 240, height: 240 })).toEqual({
+      x: 0,
+      y: 0,
+      width: 240,
+      height: 240,
+    });
   });
 });

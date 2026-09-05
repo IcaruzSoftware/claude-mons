@@ -101,6 +101,12 @@ export class CursorTracker {
   /** One poll. Public so tests and IPC handlers can drive it synchronously. */
   tick(): void {
     const c = this.cursor.getCursorScreenPoint();
+    if (!Number.isFinite(c.x) || !Number.isFinite(c.y)) {
+      // The OS cursor point has been observed to come back non-finite for a single sample during
+      // very fast pointer movement (e.g. shaking). Drop it rather than feeding NaN into drag math
+      // and, downstream, PetWindow's setBounds/setPosition — the next tick tries again.
+      return;
+    }
     if (this.dragging) {
       this.events.onDragMove(c, this.opts.now());
       return;

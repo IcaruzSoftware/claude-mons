@@ -89,6 +89,22 @@ describe('CursorTracker', () => {
     expect(h.tracker.isDragging()).toBe(false);
   });
 
+  it('drops a non-finite cursor sample instead of forwarding NaN', () => {
+    const h = harness({ x: 300, y: 100, w: 60, h: 80 });
+    h.tracker.beginDrag();
+    h.cursor.x = 10;
+    h.cursor.y = 20;
+    h.tracker.tick();
+    h.cursor.x = NaN;
+    h.tracker.tick(); // dropped: no onDragMove call for the bad sample
+    h.cursor.x = 30;
+    h.tracker.tick();
+    expect(h.drags).toEqual([
+      { x: 10, y: 20 },
+      { x: 30, y: 20 },
+    ]);
+  });
+
   it('polls faster while the cursor is inside the window', () => {
     const h = harness({ x: 300, y: 100, w: 60, h: 80 });
     h.tracker.start();

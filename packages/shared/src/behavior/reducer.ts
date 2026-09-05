@@ -365,7 +365,16 @@ function applyStimulus(
       m = touch(m, now);
       if (m.state !== 'dragged' && m.state !== 'shaking') return m;
       const above = m.pos.y < m.world.groundY - 1;
-      return force(m, above ? 'falling' : 'idle', now, effects);
+      const next = force(m, above ? 'falling' : 'idle', now, effects);
+      // `landed` means "now resting on the ground", which is just as true for a release right at
+      // ground level as it is for a completed fall (the falling branch of `integrate` emits it for
+      // that case). The host only ever switches `PetWindow` back out of follow mode in reaction to
+      // this effect (`PetHost.onLanded`) — without it here, a drop that doesn't go through
+      // `falling` leaves the window stuck in its small follow square forever, and the pet
+      // (continuing to walk in strip-sized world coordinates) visibly walks outside that square
+      // almost immediately. Bug: reported as "mon walks out of frame and is hard to recover".
+      if (!above) effects.push({ type: 'landed' });
+      return next;
     }
 
     case 'input:shake-progress':
@@ -423,6 +432,16 @@ function applyStimulus(
           y: airborne ? Math.min(m.pos.y, world.groundY) : world.groundY,
         },
       };
+    }
+
+    case 'world:recenter': {
+      // Recovery action ("Bring pet back"): snap to the center of the current world, back on the
+      // ground, cancelling any drag/fall/walk in progress. Left alone mid-battle so an in-progress
+      // battle animation is not derailed.
+      const center = (m.world.minX + m.world.maxX) / 2;
+      m = { ...m, pos: { x: center, y: m.pos.y }, vel: { x: 0, y: 0 }, grabOffset: null };
+      if (isBattleState(m.state)) return m;
+      return force(m, 'idle', now, effects);
     }
 
     case 'stage:set': {

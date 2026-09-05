@@ -143,6 +143,8 @@ export type HookProbeValue = 'ok' | 'blocked' | 'missing' | null;
 export interface UiSnapshot {
   version: string;
   isDev: boolean;
+  /** `--dev-onboarding-step <n>` (dev builds only): open the wizard on step n for a capture/screenshot. */
+  devOnboardingStep: number | null;
   profile: { nickname: string | null; nation: Nation | null; userId: string | null };
   pet: { speciesId: string | null; stage: Stage; state: PetState };
   progress: LevelProgress & { serverXp: number | null; streakDays: number };

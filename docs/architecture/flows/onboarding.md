@@ -3,11 +3,17 @@ doc_type: architecture
 purpose: "Read this when tracing what happens between first launch and a hatched mon: nation choice, anonymous sign-in, create-profile, and who decides the hatch."
 audience: agent
 last_verified: 2026-09-05
-last_verified_commit: d7db9c0
+last_verified_commit: eefd2a2
 related_files:
   - apps/desktop/src/main/App.ts
+  - apps/desktop/src/main/PetHost.ts
+  - apps/desktop/src/main/petGate.ts
+  - apps/desktop/src/main/tray/Tray.ts
   - apps/desktop/src/renderer/panel/App.tsx
   - apps/desktop/src/renderer/panel/views/Onboarding.tsx
+  - apps/desktop/src/renderer/panel/onboardingSteps.ts
+  - apps/desktop/src/renderer/panel/panel.css
+  - apps/desktop/src/renderer/ui/hookStatus.ts
   - apps/desktop/src/main/net/SyncQueue.ts
   - apps/desktop/src/main/net/SupabaseClient.ts
   - apps/desktop/src/main/net/config.ts
@@ -30,24 +36,60 @@ picks the Supabase URL/anon key unless `CLAUDE_MONS_OFFLINE=1`, in which case it
 `App.start` never constructs a `SupabaseClient`. `GameService` is built with
 `localGame: !this.api` — that one flag decides who is authoritative for hatching, below.
 
-Because `state.profile.nation` is null, `App.start` calls `this.panel.show()`. The panel renderer
-(`apps/desktop/src/renderer/panel/App.tsx`) renders `Onboarding`
+Because `state.profile.nation` is null, `App.start` calls `this.panel.show()`. The pet window
+itself is *not* shown yet: `PetHost.start` (`apps/desktop/src/main/PetHost.ts:start`) always
+constructs and loads the (hidden, `show: false`) `BrowserWindow` so it is ready the instant a
+nation is picked, but only calls `window.show()` and starts the cursor tracker once
+`canRevealPet` (`apps/desktop/src/main/petGate.ts`) is true — nation set, `ready-to-show` fired,
+and the user hasn't hidden the pet from the tray. `PetHost.stimulate` similarly drops every
+stimulus while `nation` is null (`canStimulatePet`), so a stray hook event during onboarding
+cannot animate a window that shouldn't be on screen. Until a nation is chosen, the tray tooltip
+reads "claude-mons — choose your nation" and its menu is reduced to a single "Finish setup" item
+that reopens the panel (`apps/desktop/src/main/tray/Tray.ts`).
+
+The panel renderer (`apps/desktop/src/renderer/panel/App.tsx`) renders `Onboarding`
 (`apps/desktop/src/renderer/panel/views/Onboarding.tsx`) whenever `snapshot.value.profile.nation`
 is falsy — this check runs on every snapshot, not just at boot, so it also covers the (currently
-unreachable in v1) case of a nation-less profile appearing later. `Onboarding` shows the four
-nations from `NATION_INFO`/`speciesForNation` (species detail, palette and hatch rarity are covered
-in `../../design/species-and-nations.md`, not restated here) and calls
+unreachable in v1) case of a nation-less profile appearing later. `apps/desktop/src/renderer/panel/App.tsx`
+passes the live `UiSnapshot` in as a prop (`<Onboarding s={s} />`) so the wizard can read hook
+status without its own IPC round-trip. `Onboarding` is a 5-step wizard (step index kept in local component state, not
+persisted): **1. Welcome** (title, one-line pitch, an untinted egg that slowly cycles through each
+nation's tint via `SpriteView`); **2. What is claude-mons** (three bullets: taskbar-edge pet, XP
+from real Claude Code activity with no prompt text ever leaving the machine, egg→baby→teen→adult);
+**3. Controls** (a compact hover/click/drag/shake/Settings/leaderboard reference table); **4.
+Connect Claude Code** (two sentences on what connecting does, a primary "Connect Claude Code"
+button and a secondary "Skip for now"); **5. Choose your nation** — the four-card picker from
+`NATION_INFO`/`speciesForNation` (species detail, palette and hatch rarity are covered in
+`../../design/species-and-nations.md`, not restated here), noting the choice is permanent. Copy for
+all five steps lives in the `onboardingCopy` constant at the top of
+`apps/desktop/src/renderer/panel/views/Onboarding.tsx`; step
+transitions go through the pure helpers in
+`apps/desktop/src/renderer/panel/onboardingSteps.ts`. Only step 5 calls
 `window.monsUi.chooseNation(n)` on click, disabling all four buttons while the call is in flight.
+The nation grid is sized (padding, font sizes, a 2-line `-webkit-line-clamp` on each card's
+personality blurb, a 1-line ellipsis on its tagline) to fit the 440×660 panel with no scroll; the
+onboarding content pane also hides its scrollbar (`scrollbar-width: none` /
+`::-webkit-scrollbar { display: none }` in `apps/desktop/src/renderer/panel/panel.css`) while
+staying scrollable if the window is resized smaller.
+
+**Step 4, Connect Claude Code**, reuses the existing hook toggle: its primary button calls
+`window.monsUi.toggleHooks()` (`IPC.uiToggleHooks`, the same IPC the Settings hook row uses) and
+then renders the resulting `s.hooks.status` inline via the shared helpers in
+`apps/desktop/src/renderer/ui/hookStatus.ts` — a green dot and "Connected. Start a new Claude Code
+session to begin training." for `installed-binary`/`installed-script`, otherwise the label for the
+status plus a hint to finish in Settings later. It never installs hooks without the click. The
+secondary "Skip for now" button and the nav's own "Next" both call the same
+`nextOnboardingStep` advance.
 
 That IPC call (`IPC.uiChooseNation`) reaches `App.chooseNation`
 (`apps/desktop/src/main/App.ts:chooseNation`), which is **idempotent by construction**: its first
 line is `if (this.store.get().profile.nation) return;` — a second call with any nation, including
 a race from a double-click, is a no-op once the field is set. The choice is permanent in v1; there
 is no client or server path to change it later (`create-profile`'s own lock is described below).
-On the first call it persists `profile.nation`, tells `PetHost.setNation` to retint the sprite,
-fires a `game:levelup` stimulus purely for the on-screen celebration (no XP or level change), and
-pushes a snapshot so the panel leaves `Onboarding` immediately — all of this is local and does not
-wait on the network.
+On the first call it persists `profile.nation`, tells `PetHost.setNation` to retint the sprite and
+reveal the (until now hidden) pet window, fires a `game:levelup` stimulus purely for the on-screen
+celebration wobble (no XP or level change), and pushes a snapshot so the panel leaves `Onboarding`
+immediately, landing on the Mon tab — all of this is local and does not wait on the network.
 
 Still inside `chooseNation`, if a `SyncQueue` exists (i.e. a backend is configured) it kicks off
 `this.sync.ensureProfile({ nation })` asynchronously. `SyncQueue.ensureProfile`
@@ -111,10 +153,12 @@ sequenceDiagram
     participant GameService
 
     App->>App: start() loads defaultState (nation=null, stage=egg)
-    App->>Onboarding: panel.show()
+    Note over App: PetHost window stays hidden; tray shows "Finish setup"
+    App->>Onboarding: panel.show() (5-step wizard, step 5 = nation)
     Onboarding->>App: uiChooseNation(n)
     App->>App: chooseNation(n) — no-op if nation already set
-    App-->>Onboarding: pushSnapshot() (leaves Onboarding)
+    Note over App: PetHost.setNation reveals the window + wobble
+    App-->>Onboarding: pushSnapshot() (leaves Onboarding, Mon tab)
     App->>SyncQueue: ensureProfile({nation})
     SyncQueue->>SupabaseClient: ensureSession()
     SupabaseClient->>SupabaseClient: signInAnonymously() (first time only)

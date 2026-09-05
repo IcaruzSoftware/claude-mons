@@ -12,11 +12,28 @@ export interface DisplayLike {
 export const EDGE_MARGIN = 24;
 
 /**
+ * `display.workArea`/`display.bounds` are documented as integer DIPs, but Electron has been
+ * observed to hand back fractional values on Windows under certain mixed-DPI / fractional
+ * scale-factor (125%/150%/175%) multi-monitor setups. Rounding here, once, keeps every downstream
+ * computation (world bounds, strip/follow bounds) safely on integers instead of propagating a
+ * fraction into `BrowserWindow.setBounds`/`setPosition`, which reject non-integer values outright.
+ */
+function roundRect<R extends { x: number; y: number; width: number; height: number }>(r: R): R {
+  return {
+    ...r,
+    x: Math.round(r.x),
+    y: Math.round(r.y),
+    width: Math.round(r.width),
+    height: Math.round(r.height),
+  };
+}
+
+/**
  * The world the pet lives in on a given display: the anchor (foot point) may travel along the
  * bottom edge of the work area, so the pet stands on top of the taskbar/panel.
  */
 export function worldForDisplay(display: DisplayLike, spriteWidth: number): World {
-  const wa = display.workArea;
+  const wa = roundRect(display.workArea);
   const half = Math.ceil(spriteWidth / 2);
   const minX = wa.x + half + EDGE_MARGIN;
   const maxX = Math.max(minX, wa.x + wa.width - half - EDGE_MARGIN);
@@ -31,8 +48,8 @@ export function stripBounds(
   display: DisplayLike,
   height: number,
 ): { x: number; y: number; width: number; height: number } {
-  const wa = display.workArea;
-  const h = Math.min(height, wa.height);
+  const wa = roundRect(display.workArea);
+  const h = Math.min(Math.round(height), wa.height);
   return { x: wa.x, y: wa.y + wa.height - h, width: wa.width, height: h };
 }
 
@@ -82,6 +99,40 @@ export function restoreAnchorX(display: DisplayLike, memory: AnchorMemory | null
   const wa = display.workArea;
   const f = memory ? memory.fractionX : 0.5;
   return Math.round(wa.x + wa.width * f);
+}
+
+/**
+ * Rounds a point to integer DIPs for `BrowserWindow.setPosition`/`setBounds`, which reject
+ * non-integer or non-finite numbers with "Error processing argument at index N, conversion
+ * failure". Returns `null` when either coordinate is not finite (NaN/Infinity) so the caller can
+ * skip the native call instead of crashing the process.
+ */
+export function toIntPoint(p: { x: number; y: number }): { x: number; y: number } | null {
+  if (!Number.isFinite(p.x) || !Number.isFinite(p.y)) return null;
+  return { x: Math.round(p.x), y: Math.round(p.y) };
+}
+
+/** Same as `toIntPoint` but for a full `{x,y,width,height}` rect. */
+export function toIntRect(r: {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}): { x: number; y: number; width: number; height: number } | null {
+  if (
+    !Number.isFinite(r.x) ||
+    !Number.isFinite(r.y) ||
+    !Number.isFinite(r.width) ||
+    !Number.isFinite(r.height)
+  ) {
+    return null;
+  }
+  return {
+    x: Math.round(r.x),
+    y: Math.round(r.y),
+    width: Math.round(r.width),
+    height: Math.round(r.height),
+  };
 }
 
 export function pointInRect(

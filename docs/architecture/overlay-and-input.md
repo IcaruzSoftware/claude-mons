@@ -3,7 +3,7 @@ doc_type: architecture
 purpose: "Read this when changing the pet overlay window, click-through detection, drag/shake gestures, or hover-card timing."
 audience: agent
 last_verified: 2026-09-05
-last_verified_commit: d7db9c0
+last_verified_commit: eefd2a2
 related_files:
   - apps/desktop/src/main/windows/PetWindow.ts
   - apps/desktop/src/main/input/CursorTracker.ts
@@ -11,6 +11,7 @@ related_files:
   - apps/desktop/src/main/display.ts
   - apps/desktop/src/main/windows/HoverCardWindow.ts
   - packages/shared/src/input/shake.ts
+  - packages/shared/src/behavior/reducer.ts
   - apps/desktop/test/CursorTracker.test.ts
   - apps/desktop/test/display.test.ts
 ---
@@ -42,7 +43,7 @@ Window flags, all set in the `PetWindow` constructor unless noted:
 |---|---|---|
 | `transparent` | `true` | |
 | `frame` | `false` | |
-| `alwaysOnTop` | `true` | re-set via `setAlwaysOnTop(true, 'screen-saver')`; re-asserted every 5 s on win32 (other topmost windows can cover it) |
+| `alwaysOnTop` | `true` | re-set via `setAlwaysOnTop(true, 'screen-saver')`; re-asserted every 5 s on win32, and (with `moveTop()`) after every mode switch and on `show()` — see "Z-order re-assertion" below |
 | `skipTaskbar` | `true` | |
 | `resizable` / `movable` | `false` | bounds are only ever changed programmatically |
 | `minimizable` / `maximizable` / `fullscreenable` | `false` | |
@@ -53,6 +54,40 @@ Window flags, all set in the `PetWindow` constructor unless noted:
 | `setIgnoreMouseEvents` | `true` by default | flipped per-frame, see below |
 | `webPreferences.sandbox` / `contextIsolation` | `true` | shared preload, see `apps/desktop/IPC.md` |
 | `webPreferences.backgroundThrottling` | `false` | keeps the rAF loop running while occluded |
+
+## Integer geometry only
+
+`BrowserWindow.setBounds`/`setPosition`/`setSize` reject any non-integer or non-finite (`NaN`/
+`Infinity`) coordinate with `TypeError: Error processing argument at index 0, conversion failure`,
+which Electron then surfaces as an uncaught-exception crash dialog. A fractional or `NaN`
+coordinate has reached these calls in the wild (observed while shaking an egg, which streams
+`CursorTracker` samples at 60 Hz through drag math very quickly). Two independent guards close
+this off:
+
+- `apps/desktop/src/main/display.ts:toIntPoint` / `toIntRect` round to the nearest integer and
+  return `null` when either input is non-finite. Every `setBounds`/`setPosition`/`setSize` call in
+  `PetWindow` goes through the private `setBoundsSafe`/`setPositionSafe` wrappers, which call these
+  helpers and skip the native call (logging under `CLAUDE_MONS_DEBUG=1`) instead of ever forwarding
+  a bad value. `worldForDisplay`/`stripBounds` additionally round `display.workArea` itself before
+  using it, since Electron has been observed to hand back fractional work-area values under
+  fractional Windows DPI scaling (125%/150%/175%).
+- `CursorTracker.tick` drops a single OS cursor sample outright when
+  `screen.getCursorScreenPoint()` comes back non-finite, rather than feeding it into drag/anchor
+  math (which would otherwise carry the bad value all the way to `PetWindow.followTo`). The next
+  tick tries again; a dropped sample is invisible at 60 Hz.
+- As a last line of defense, `apps/desktop/src/main/index.ts` installs `uncaughtException` and
+  `unhandledRejection` handlers that log to console and append to `<userData>/crash.log` (capped
+  at ~1 MB, oldest history dropped first) instead of letting Electron show its blocking modal and
+  take the app down.
+
+## Z-order re-assertion
+
+A dropped pet has been observed ending up behind another always-on-top window (e.g. the Claude
+desktop app) after a drag. `PetWindow.reassertTopmost()` (`setAlwaysOnTop(true, 'screen-saver')`
++ `moveTop()`) is called after every mode switch (`enterStrip`, `enterFollow`), on `show()`, and
+every 5 s on win32 while visible — `moveTop()` matters because a non-focusable topmost window
+(`focusable: false`) can still lose its place in the topmost z-order to another topmost window;
+re-asserting the flag alone does not always restore ordering, `moveTop()` does.
 
 ## Click-through decision
 
@@ -110,7 +145,13 @@ suppressed, and poll-rate switching.
 2. While dragging, `CursorTracker.tick` streams cursor positions to `PetHost.onDragMove`, which
    computes the new anchor (cursor position offset by the grab delta), calls
    `PetWindow.followTo(anchor)` to reposition the window, emits `input:drag`, and feeds the sample
-   to the shake detector (below).
+   to the shake detector (below). `followTo` only ever repositions (`setPosition`, never resizes)
+   and broadcasts the new `IPC.petWindowMoved` geometry synchronously from the bounds it just
+   commanded, rather than waiting for the native `'move'` event: that event can lag a frame behind
+   the actual OS move, during which the renderer would otherwise paint the sprite against the
+   previous frame's window origin while the window itself has already moved — a one-frame
+   offset/flicker. `enterFollow`/`enterStrip` never call `show()`/`hide()`, so a mode switch is
+   always a same-window resize in place.
 3. `IPC.petPointer` `up` → `PetHost.endDrag`: a press under
    `apps/desktop/src/main/PetHost.ts:CLICK_MAX_MS` (300 ms) that moved less than
    `CLICK_MAX_DIST` (6 DIPs) counts as a click, not a drag, and fires `onClick` (opens the tray/panel
@@ -168,7 +209,17 @@ flips to 12 px below the anchor instead.
 stands on top of the taskbar/dock), and `minX`/`maxX` keep the sprite's center at least
 `apps/desktop/src/main/display.ts:EDGE_MARGIN` (24 DIPs) plus half the sprite width from either
 edge. `PetHost.world()` recomputes this whenever sprite scale, stage, or display changes and pushes
-it via `IPC.petWorld` plus stimulus `world:bounds`.
+it via `IPC.petWorld` plus stimulus `world:bounds`. The reducer's `world:bounds` handler
+(`packages/shared/src/behavior/reducer.ts`) clamps `pos.x` into the new `[minX, maxX]` and pulls
+`pos.y` up to the new `groundY` while airborne on every such update, so a display/scale change
+mid-walk or mid-fall cannot leave the pet outside the new bounds.
+
+If the pet still ends up stuck or off-screen (e.g. a missed edge case in the above), "Bring pet
+back" in the tray/context menu (`apps/desktop/src/main/tray/Tray.ts`) calls
+`PetHost.recenterOnPrimary()`: re-anchors the window to the primary display, forces it back to
+`enterStrip()` regardless of the current mode, and sends stimulus `world:recenter`, which snaps
+the model to the center of the (new) world, on the ground, cancelling any drag/fall/walk in
+progress (left alone mid-battle, so it doesn't derail an in-progress battle animation).
 
 Position across restarts and resolution changes is remembered as a fraction, not a pixel: `AnchorMemory`
 (`{ displayId, fractionX }`) is produced by `rememberAnchor` and turned back into an absolute `x` by
@@ -201,8 +252,9 @@ unfocusable windows. The native-Wayland limitation (XWayland required) is tracke
 
 | Area | Coverage |
 |---|---|
-| `CursorTracker` (hover/click-through, drag streaming, poll-rate switching) | Unit-tested, `apps/desktop/test/CursorTracker.test.ts` |
-| `apps/desktop/src/main/display.ts` (world bounds, strip/follow bounds, display lookup, anchor memory) | Unit-tested, `apps/desktop/test/display.test.ts` |
+| `CursorTracker` (hover/click-through, drag streaming, poll-rate switching, non-finite cursor sample dropped) | Unit-tested, `apps/desktop/test/CursorTracker.test.ts` |
+| `apps/desktop/src/main/display.ts` (world bounds, strip/follow bounds, display lookup, anchor memory, `toIntPoint`/`toIntRect`, fractional-work-area rounding) | Unit-tested, `apps/desktop/test/display.test.ts` |
 | Shake detector | Unit-tested in `packages/shared` (see that package's tests, not duplicated here) |
-| `PetWindow`, `PetHost`, `HoverCardWindow` (actual window flags, always-on-top behavior, transparency) | No automated test — Electron-coupled; verified manually on Windows |
+| Reducer `world:bounds` clamp and `world:recenter` recovery | Unit-tested, `packages/shared/test/behavior.test.ts` |
+| `PetWindow`, `PetHost`, `HoverCardWindow` (actual window flags, always-on-top/z-order behavior, transparency, crash-log handlers) | No automated test — Electron-coupled; verified manually on Windows |
 | Linux window flags, `enable-transparent-visuals`, the 300 ms boot delay, XWayland behavior | No automated test; not covered by the manual Windows verification either |

@@ -1,6 +1,7 @@
 import { useState } from 'preact/hooks';
 import { NATION_INFO, validateNickname } from '@claude-mons/shared';
 import type { UiSnapshot, UpdateStatusValue } from '../../../common/ipc.ts';
+import { HOOK_STATUS_LABEL, hookStatusDotClass, isHookConnected } from '../../ui/hookStatus.ts';
 
 function updateLabel(u: UpdateStatusValue): string {
   switch (u.kind) {
@@ -42,16 +43,8 @@ export function SettingsView({ s }: { s: UiSnapshot }) {
     if (r.ok) setNick('');
   };
   const hooks = s.hooks.status;
-  const connected = hooks === 'installed-binary' || hooks === 'installed-script';
-  const hookLabel: Record<typeof hooks, string> = {
-    'installed-binary': 'Connected',
-    'installed-script': 'Connected (script mode)',
-    partial: 'Partially connected',
-    'not-installed': 'Not connected',
-    unreadable: 'settings.json unreadable',
-    'no-binary': 'Hook binary missing (run pnpm hook:build)',
-  };
-  const dot = connected ? 'ok' : hooks === 'partial' ? 'warn' : '';
+  const connected = isHookConnected(hooks);
+  const dot = hookStatusDotClass(hooks);
   const modeHint =
     s.hooks.effectiveMode === 'script'
       ? 'Script mode uses curl to reach the app directly; there is no offline spool, so events sent while the app is closed are lost.'
@@ -64,7 +57,7 @@ export function SettingsView({ s }: { s: UiSnapshot }) {
         <div class="row">
           <div>
             <span class={`status-dot ${dot}`} />
-            {hookLabel[hooks]}
+            {HOOK_STATUS_LABEL[hooks]}
             <div class="hint">
               Adds hooks to ~/.claude/settings.json. Only event metadata reaches the app; prompts
               and file contents stay on your machine. Start a new Claude Code session after

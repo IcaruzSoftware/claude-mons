@@ -42,6 +42,7 @@ import {
   ScriptRunner,
   parseCaptureArg,
   parseDevNationArg,
+  parseDevOnboardingStepArg,
   parseDevXpArg,
   parseSimulateArg,
 } from './sim/ScriptRunner.ts';
@@ -84,6 +85,7 @@ export class App {
   private probeResult: ProbeResult | null = null;
   private effectiveMode: 'binary' | 'script' = 'script';
   private sim: ScriptRunner | null = null;
+  private devOnboardingStep: number | null = null;
 
   async start(): Promise<void> {
     const state = await this.store.load();
@@ -194,6 +196,7 @@ export class App {
       }
       const devXp = parseDevXpArg(process.argv);
       if (devXp) setTimeout(() => this.game.grantXp(devXp, 'server'), 2000);
+      this.devOnboardingStep = parseDevOnboardingStepArg(process.argv);
       // Installs hooks into CLAUDE_CONFIG_DIR/settings.json in the currently effective mode, for
       // manual live testing without touching the developer's real ~/.claude/settings.json.
       if (process.argv.includes('--dev-install-hooks')) {
@@ -239,6 +242,7 @@ export class App {
     return {
       version: app.getVersion(),
       isDev: !app.isPackaged,
+      devOnboardingStep: this.devOnboardingStep,
       profile: { nickname: s.profile.nickname, nation: s.profile.nation, userId: s.profile.userId },
       pet: {
         speciesId: s.pet.speciesId,
@@ -473,6 +477,7 @@ export class App {
   }
 
   private progressLine(): string {
+    if (!this.store.get().profile.nation) return 'claude-mons — choose your nation';
     const p = this.game.snapshot();
     const name = p.speciesId ? p.speciesId : 'egg';
     const stage: Stage = p.stage;

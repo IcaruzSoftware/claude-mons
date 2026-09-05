@@ -276,13 +276,84 @@ describe('drag and fall', () => {
     expect(t - 32).toBeLessThan(700);
   });
 
-  it('releasing on the ground goes straight to idle', () => {
+  it('releasing on the ground goes straight to idle and still emits landed', () => {
     let m = stepBehavior(baby(), [{ type: 'input:grab', x: 500, y: 500 }], 0).model;
     m = stepBehavior(m, [{ type: 'input:drag', x: 700, y: 500 }], 16).model;
     const res = stepBehavior(m, [{ type: 'input:release', x: 700, y: 500 }], 32);
     expect(res.model.state).toBe('idle');
     expect(res.model.pos).toEqual({ x: 700, y: 500 });
-    expect(res.effects.some((e) => e.type === 'landed')).toBe(false);
+    // Regression: PetHost only switches PetWindow back out of follow mode in reaction to
+    // `landed` (`PetHost.onLanded`). A release that goes straight to idle (no `falling` in
+    // between) used to skip this effect entirely, leaving the window stuck in its small follow
+    // square while the pet went on to walk in strip-sized world coordinates — visibly walking
+    // outside that square almost immediately ("mon walks out of frame and is hard to recover",
+    // reproduced live: dropping the pet at/near ground level).
+    expect(res.effects).toContainEqual({ type: 'landed' });
+  });
+});
+
+describe('world bounds updates', () => {
+  it('clamps pos.x into the new bounds on world:bounds, even mid-walk', () => {
+    let m = transition({ ...baby(), expiresAt: 0 }, 'walk', 0, 10000);
+    // Simulate having walked near the old edge; freeze updatedAt so this step's own physics
+    // integration doesn't move pos.x further and blur the clamp assertion below.
+    m = { ...m, pos: { x: 900, y: m.world.groundY }, updatedAt: 10 };
+    const res = stepBehavior(m, [{ type: 'world:bounds', minX: 100, maxX: 400, groundY: 500 }], 10);
+    expect(res.model.world).toEqual({ minX: 100, maxX: 400, groundY: 500 });
+    expect(res.model.pos.x).toBe(400);
+  });
+
+  it('clamps the low edge too', () => {
+    const m = { ...baby(), pos: { x: 5, y: 500 } };
+    const res = stepBehavior(m, [{ type: 'world:bounds', minX: 50, maxX: 950, groundY: 500 }], 10);
+    expect(res.model.pos.x).toBe(50);
+  });
+
+  it('while airborne, pulls the pet up to a new (higher) ground instead of leaving it below it', () => {
+    let m = stepBehavior(baby(), [{ type: 'input:grab', x: 500, y: 500 }], 0).model;
+    m = stepBehavior(m, [{ type: 'input:drag', x: 500, y: 450 }], 16).model;
+    const rel = stepBehavior(m, [{ type: 'input:release', x: 500, y: 450 }], 32).model;
+    expect(rel.state).toBe('falling');
+    expect(rel.pos.y).toBeGreaterThan(300); // still above the *new* ground we're about to push in
+    // The work area shrank (e.g. taller taskbar): new groundY is above the pet's current
+    // position. Freeze updatedAt so this step applies only the world:bounds clamp, not another
+    // slice of gravity integration, keeping the clamp assertion itself precise.
+    const frozen = { ...rel, updatedAt: 33 };
+    const res = stepBehavior(
+      frozen,
+      [{ type: 'world:bounds', minX: 0, maxX: 1000, groundY: 300 }],
+      33,
+    );
+    expect(res.model.pos.y).toBe(300);
+  });
+});
+
+describe('world:recenter recovery action', () => {
+  it('snaps to the center of the world and cancels a walk', () => {
+    let m = transition({ ...baby(), expiresAt: 0 }, 'walk', 0, 10000);
+    m = { ...m, pos: { x: 950, y: m.world.groundY } };
+    const res = stepBehavior(m, [{ type: 'world:recenter' }], 10);
+    expect(res.model.state).toBe('idle');
+    expect(res.model.pos).toEqual({ x: 500, y: m.world.groundY });
+    expect(res.model.vel).toEqual({ x: 0, y: 0 });
+  });
+
+  it('cancels an in-progress drag/fall', () => {
+    let m = stepBehavior(baby(), [{ type: 'input:grab', x: 500, y: 500 }], 0).model;
+    m = stepBehavior(m, [{ type: 'input:drag', x: 900, y: 100 }], 16).model;
+    expect(m.state).toBe('dragged');
+    const res = stepBehavior(m, [{ type: 'world:recenter' }], 20);
+    expect(res.model.state).toBe('idle');
+    expect(res.model.grabOffset).toBeNull();
+    expect(res.model.pos.x).toBe(500);
+  });
+
+  it('does not interrupt an active battle', () => {
+    const { model: battle } = stepBehavior(baby(), [{ type: 'battle:play' }], 10);
+    expect(battle.state).toBe('battle_intro');
+    const res = stepBehavior(battle, [{ type: 'world:recenter' }], 20);
+    expect(res.model.state).toBe('battle_intro');
+    expect(res.model.pos.x).toBe(500); // still recentred, just doesn't change state
   });
 });
 

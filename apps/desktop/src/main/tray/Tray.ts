@@ -8,6 +8,10 @@ export interface TrayActions {
   getSpriteScale(): number;
   togglePetVisible(): void;
   isPetVisible(): boolean;
+  /** Recovery action: re-anchors the pet to the primary display and recenters it in its world. */
+  bringPetBack(): void;
+  /** False until a nation is chosen; gates whether the full pet menu or "Finish setup" shows. */
+  hasNation(): boolean;
   openPanel(): void;
   hookStatus(): HookStatus;
   toggleHooks(): void;
@@ -64,6 +68,16 @@ export class AppTray {
   }
 
   private template(): MenuItemConstructorOptions[] {
+    if (!this.actions.hasNation()) {
+      return [
+        { label: 'claude-mons — choose your nation', enabled: false },
+        { type: 'separator' },
+        { label: 'Finish setup', click: () => this.actions.openPanel() },
+        { type: 'separator' },
+        { label: `claude-mons v${app.getVersion()}`, enabled: false },
+        { label: 'Quit', click: () => this.actions.quit() },
+      ];
+    }
     const scale = this.actions.getSpriteScale();
     const status = this.actions.hookStatus();
     const hookLabel =
@@ -90,6 +104,7 @@ export class AppTray {
         label: this.actions.isPetVisible() ? 'Hide pet' : 'Show pet',
         click: () => this.actions.togglePetVisible(),
       },
+      { label: 'Bring pet back', click: () => this.actions.bringPetBack() },
       {
         label: 'Sprite size',
         submenu: [2, 3, 4].map((s) => ({

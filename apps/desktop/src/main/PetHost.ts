@@ -24,6 +24,7 @@ import {
 } from './display.ts';
 import type { HookStatus } from './hooks/HookInstaller.ts';
 import { CursorTracker } from './input/CursorTracker.ts';
+import { canRevealPet, canStimulatePet } from './petGate.ts';
 import { AppTray } from './tray/Tray.ts';
 import { PetWindow } from './windows/PetWindow.ts';
 
@@ -75,6 +76,9 @@ export class PetHost {
   private lastHitbox: Hitbox = null;
   private shake: ShakeDetectorState = createShakeState();
   private petVisible = true;
+  /** True once the renderer has fired `ready-to-show`; gates the first reveal alongside a nation. */
+  private windowReady = false;
+  private trackerStarted = false;
   private readonly onStimulusHooks: Array<(s: Stimulus) => void> = [];
   private readonly onBattleDoneHooks: Array<(id: string) => void> = [];
 
@@ -106,6 +110,8 @@ export class PetHost {
       getSpriteScale: () => this.state.spriteScale,
       togglePetVisible: () => this.togglePetVisible(),
       isPetVisible: () => this.petVisible,
+      bringPetBack: () => this.recenterOnPrimary(),
+      hasNation: () => this.state.nation !== null,
       openPanel: () => this.callbacks.onPanel(),
       hookStatus: () => this.callbacks.hooks.status(),
       toggleHooks: () => this.callbacks.hooks.toggle(),
@@ -116,17 +122,23 @@ export class PetHost {
     this.registerDisplayEvents();
   }
 
+  /**
+   * The window is always constructed and loaded (so it is ready the instant a nation is chosen),
+   * but stays hidden and the cursor tracker stays off until `canRevealPet` allows it — no nation
+   * means no egg on screen. See `apps/desktop/src/main/petGate.ts`.
+   */
   start(): void {
     this.window.load();
     this.window.win.once('ready-to-show', () => {
-      this.window.show();
-      this.tracker.start();
+      this.windowReady = true;
+      this.maybeReveal();
     });
     this.tray.create(this.state.speciesId, this.state.stage);
   }
 
-  /** Send a behavior stimulus to the renderer. */
+  /** Send a behavior stimulus to the renderer. Ignored while no nation is chosen. */
   stimulate(s: Stimulus): void {
+    if (!canStimulatePet(this.state.nation)) return;
     this.window.send(IPC.petStimulus, s);
     for (const hook of this.onStimulusHooks) hook(s);
   }
@@ -142,6 +154,20 @@ export class PetHost {
   /** Hand a resolved battle to the renderer for playback. */
   playBattle(msg: BattlePlayMessage): void {
     this.window.send(IPC.petBattlePlay, msg);
+  }
+
+  /**
+   * Recovery action ("Bring pet back", tray/context menu): re-anchors the window to the primary
+   * display and recenters the model in its world, cancelling any stuck drag/fall/walk. Covers the
+   * "mon walked out of frame" case regardless of what actually went wrong.
+   */
+  recenterOnPrimary(): void {
+    const primary = screen.getPrimaryDisplay();
+    this.display = primary;
+    this.window.setDisplay(primary);
+    this.window.enterStrip();
+    this.pushWorld();
+    this.stimulate({ type: 'world:recenter' });
   }
 
   currentAnchor(): { x: number; y: number } {
@@ -174,7 +200,8 @@ export class PetHost {
 
   setNation(nation: PetConfig['nation']): void {
     this.state.nation = nation;
-    this.sendConfig();
+    this.sendConfig(); // correct tint is queued before the window can ever become visible
+    this.maybeReveal();
   }
 
   currentState(): StateMessage | null {
@@ -191,9 +218,27 @@ export class PetHost {
 
   private togglePetVisible(): void {
     this.petVisible = !this.petVisible;
-    if (this.petVisible) this.window.show();
+    if (this.petVisible) this.maybeReveal();
     else this.window.win.hide();
     this.tray.refreshMenu();
+  }
+
+  /** Shows the window and starts the cursor tracker the first time `canRevealPet` allows it. */
+  private maybeReveal(): void {
+    if (
+      !canRevealPet({
+        nation: this.state.nation,
+        windowReady: this.windowReady,
+        userVisible: this.petVisible,
+      })
+    ) {
+      return;
+    }
+    this.window.show();
+    if (!this.trackerStarted) {
+      this.trackerStarted = true;
+      this.tracker.start();
+    }
   }
 
   private spriteWidth(): number {

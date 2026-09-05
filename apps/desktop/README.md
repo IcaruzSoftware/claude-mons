@@ -3,7 +3,7 @@ doc_type: reference
 purpose: "Understand the desktop app's process model, module map, IPC channels, and CLI flags."
 audience: agent
 last_verified: 2026-09-05
-last_verified_commit: ab12392
+last_verified_commit: eefd2a2
 related_files:
   - apps/desktop/src/**
   - apps/desktop/IPC.md
@@ -45,11 +45,12 @@ All windows share one preload (`src/preload/index.ts`); three renderers (pet, pa
 
 | Path | Responsibility |
 |---|---|
-| `src/main/index.ts` | Bootstrap: single instance, Linux transparency, app quit override, `new App().start()` |
+| `src/main/index.ts` | Bootstrap: single instance, Linux transparency, app quit override, `new App().start()`; installs `uncaughtException`/`unhandledRejection` handlers that log to `<userData>/crash.log` (capped ~1 MB) instead of letting Electron show its blocking crash dialog |
 | `src/main/App.ts` | Composition root; IPC; snapshot feed; nation choice; battle request/finish; hook fan-out |
-| `src/main/PetHost.ts` | Pet window, tray, cursor tracking; drag/shake/click; world bounds; stimulus forwarding |
-| `src/main/display.ts` | Pure geometry (strip/follow bounds, anchor memory, display lookup) |
-| `src/main/windows/*` | PetWindow (strip/follow, geo broadcast), PanelWindow (lazy, remembered pos), HoverCardWindow (delayed card) |
+| `src/main/PetHost.ts` | Pet window, tray, cursor tracking; drag/shake/click; world bounds; stimulus forwarding; withholds the window and stimuli until a nation is chosen (`canRevealPet`/`canStimulatePet`) |
+| `src/main/petGate.ts` | Pure `canRevealPet`/`canStimulatePet` helpers deciding whether the pet window may be shown or animated before onboarding picks a nation |
+| `src/main/display.ts` | Pure geometry (strip/follow bounds, anchor memory, display lookup); `toIntPoint`/`toIntRect` round-and-validate coordinates before any `BrowserWindow.setBounds`/`setPosition` call |
+| `src/main/windows/*` | PetWindow (strip/follow, geo broadcast; every bounds/position change goes through the integer-safe `setBoundsSafe`/`setPositionSafe`; re-asserts always-on-top + z-order via `reassertTopmost()` on every mode switch), PanelWindow (lazy, remembered pos), HoverCardWindow (delayed card) |
 | `src/main/game/GameService.ts` | Hook events → provisional XP, buckets, daily bonus/streak, level-ups, hatch/evolve |
 | `src/main/game/BattleService.ts` | Cooldown/daily cap, remote or offline wild battle, battle history |
 | `src/main/game/species.ts` | Species lookup per nation (offline hatching only) |
@@ -67,7 +68,7 @@ All windows share one preload (`src/preload/index.ts`); three renderers (pet, pa
 | `src/main/persistence/state.ts` | LocalState shape, defaults, migration list |
 | `src/main/persistence/JsonStore.ts` | Atomic debounced JSON store with `.bak` recovery and versioned migrations |
 | `src/main/sim/ScriptRunner.ts` | Scripted stimulus timeline (dev aid); CLI arg parsers |
-| `src/main/tray/Tray.ts` | Tray icon, tooltip, context menu; pet right-click menu |
+| `src/main/tray/Tray.ts` | Tray icon, tooltip, context menu; pet right-click menu; while no nation is chosen the tooltip reads "claude-mons — choose your nation" and the menu is reduced to a single "Finish setup" item; "Bring pet back" (`PetHost.recenterOnPrimary`) re-anchors the pet to the primary display and recenters it if it ever walks out of frame |
 | `src/main/updater/Updater.ts` | electron-updater over GitHub Releases (unsupported in dev, on `.deb`) |
 | `src/main/autostart/Autostart.ts` | Windows `setLoginItemSettings`; Linux `~/.config/autostart/claude-mons.desktop` |
 | `src/main/input/CursorTracker.ts` | OS cursor polling (60 Hz hot / 12 Hz cold); click-through toggle; drag streams |
@@ -80,10 +81,12 @@ All windows share one preload (`src/preload/index.ts`); three renderers (pet, pa
 | `src/renderer/pet/BattlePlayer.ts` | Time-based battle playback; schedules attack/hit steps |
 | `src/renderer/panel/main.tsx` | Panel entry: snapshot feed |
 | `src/renderer/panel/App.tsx` | Tab router (mon/leaderboard/battles/settings); Onboarding while no nation |
-| `src/renderer/panel/views/*` | Onboarding, Mon, Battles, Leaderboard, Settings |
+| `src/renderer/panel/onboardingSteps.ts` | Pure step arithmetic (`nextOnboardingStep`/`prevOnboardingStep`/`canGoBack`/`canGoNext`) for the onboarding wizard |
+| `src/renderer/panel/views/*` | Onboarding (5-step wizard: welcome, what-is, controls, connect Claude Code, nation picker), Mon, Battles, Leaderboard, Settings |
 | `src/renderer/hovercard/main.tsx` | Hover card entry: compact stat card |
 | `src/renderer/ui/useSnapshot.ts` | Shared snapshot signal + one-time feed subscription |
 | `src/renderer/ui/SpriteView.tsx` | Animated sprite preview (nation-tinted) |
+| `src/renderer/ui/hookStatus.ts` | Shared `HookStatusValue` label/dot-class helpers (Settings hook row + onboarding Connect step) |
 
 ## IPC channels
 
@@ -120,6 +123,7 @@ All channel names and payload types live in `src/common/ipc.ts`. See `apps/deskt
 | `--dev-battle` | Yes | Trigger `onBattleRequest()` after 2.5 s |
 | `--dev-xp <n>` | Yes | Grant XP via `game.grantXp(n, 'server')` after 2 s |
 | `--dev-install-hooks` | Yes | Install hooks (`toggleHooks()`) 1.5 s after boot, in the effective mode; used for manual testing against `CLAUDE_CONFIG_DIR` |
+| `--dev-onboarding-step <n>` | Yes | Open the onboarding wizard on step n (via `UiSnapshot.devOnboardingStep`) instead of step 0; for capturing a specific step |
 | `--autostart` | No | Marker for installer (not read by app) |
 
 ## Environment variables
@@ -148,11 +152,13 @@ All channel names and payload types live in `src/common/ipc.ts`. See `apps/deskt
 | File | Coverage |
 |---|---|
 | `test/BattleService.test.ts` | Offline wild mon, egg refusal, cross-nation opponent, cooldown/daily cap, busy refusal |
-| `test/CursorTracker.test.ts` | Click-through toggle, hitbox inflation, drag streaming, poll-rate switch |
+| `test/CursorTracker.test.ts` | Click-through toggle, hitbox inflation, drag streaming, poll-rate switch, non-finite cursor sample dropped |
 | `test/GameService.test.ts` | Provisional XP, bucket fill, local hatch, daily bonus, spooled events |
 | `test/HookInstaller.test.ts` | Hook merge/remove (both modes), purity + idempotence, partial/mixed-mode status, fs install/uninstall, mode-switch reinstall, backup rotation |
 | `test/rawHook.test.ts` | `rawHookToEnvelope` whitelist parity with `buildEnvelope`, cwd hashing, unknown event → null |
 | `test/mode.test.ts` | `probeBinary` classification (ok/blocked/missing/timeout) via injected spawn, `computeEffectiveMode` |
 | `test/JsonStore.test.ts` | Atomic write, `.bak` recovery, corrupt recovery, ordered migrations, debouncing |
-| `test/display.test.ts` | Strip/follow bounds, displayContaining, fractional anchor memory |
+| `test/display.test.ts` | Strip/follow bounds (incl. fractional-work-area rounding), displayContaining, fractional anchor memory, `toIntPoint`/`toIntRect` |
 | `test/hooks.test.ts` | HookServer `/event` and `/hook` auth, port persistence/fallback, SpoolDrainer junk skip, ActivityTracker collapsing/pruning |
+| `test/petGate.test.ts` | `canRevealPet`/`canStimulatePet`: withheld until nation + window-ready + user-visible, refused while any is missing |
+| `test/onboardingSteps.test.ts` | Onboarding wizard step clamping (`nextOnboardingStep`/`prevOnboardingStep`) and Back/Next availability at the edges |

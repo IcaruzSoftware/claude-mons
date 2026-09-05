@@ -39,6 +39,9 @@ export type Stimulus =
   | { type: 'battle:lose' }
   | { type: 'battle:done' }
   | { type: 'world:bounds'; minX: number; maxX: number; groundY: number }
+  /** Recovery action (tray "Bring pet back"): snap the pet to the center of the current world,
+   *  back on the ground, cancelling any drag/fall in progress. */
+  | { type: 'world:recenter' }
   | { type: 'stage:set'; stage: Stage };
 
 export type StimulusType = Stimulus['type'];
