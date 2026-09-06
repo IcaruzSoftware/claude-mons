@@ -15,6 +15,10 @@ All notable changes to claude-mons are documented here. See [Keep a Changelog](h
 
 ## [Unreleased]
 
+### Fixed
+
+- Update check no longer fails with "Cannot read properties of undefined (reading 'checkForUpdates')": electron-updater is CommonJS and its `autoUpdater` export is only reachable through the default export in the packaged ESM bundle. Update errors are now one readable line (e.g. no release published yet, offline).
+
 ### Added
 - Documentation tooling: `scripts/check-docs.mjs` script and CI job to validate doc structure and code references.
 - Code signing infrastructure: SignPath Foundation signing pipeline (test certificate verified).

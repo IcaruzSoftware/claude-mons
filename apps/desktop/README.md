@@ -70,6 +70,7 @@ All windows share one preload (`src/preload/index.ts`); three renderers (pet, pa
 | `src/main/sim/ScriptRunner.ts` | Scripted stimulus timeline (dev aid); CLI arg parsers |
 | `src/main/tray/Tray.ts` | Tray icon, tooltip, context menu; pet right-click menu; while no nation is chosen the tooltip reads "claude-mons — choose your nation" and the menu is reduced to a single "Finish setup" item; "Bring pet back" (`PetHost.recenterOnPrimary`) re-anchors the pet to the primary display and recenters it if it ever walks out of frame |
 | `src/main/updater/Updater.ts` | electron-updater over GitHub Releases (unsupported in dev, on `.deb`) |
+| `src/main/updater/interop.ts` | Resolves electron-updater's `autoUpdater` from either the named or the CommonJS default export shape; maps update errors to one readable line | `pickAutoUpdater`, `describeUpdateError`, `UpdatePayload` |
 | `src/main/autostart/Autostart.ts` | Windows `setLoginItemSettings`; Linux `~/.config/autostart/claude-mons.desktop` |
 | `src/main/input/CursorTracker.ts` | OS cursor polling (60 Hz hot / 12 Hz cold); click-through toggle; drag streams |
 | `src/main/util/png.ts` | PNG encoder + RGBA scale/crop (no dependencies) |

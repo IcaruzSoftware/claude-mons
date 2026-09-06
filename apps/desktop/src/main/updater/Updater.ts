@@ -1,4 +1,5 @@
 import { app } from 'electron';
+import { describeUpdateError, pickAutoUpdater } from './interop.ts';
 
 export type UpdateStatus =
   | { kind: 'idle' }
@@ -36,40 +37,40 @@ export class Updater {
       return;
     }
     try {
-      const { autoUpdater } = await import('electron-updater');
+      const autoUpdater = pickAutoUpdater(await import('electron-updater'));
       autoUpdater.autoDownload = true;
       autoUpdater.autoInstallOnAppQuit = true;
       autoUpdater.on('checking-for-update', () => this.set({ kind: 'checking' }));
       autoUpdater.on('update-available', (info) =>
-        this.set({ kind: 'available', version: info.version }),
+        this.set({ kind: 'available', version: info.version ?? 'unknown' }),
       );
       autoUpdater.on('update-not-available', () => this.set({ kind: 'up-to-date' }));
       autoUpdater.on('update-downloaded', (info) =>
-        this.set({ kind: 'downloaded', version: info.version }),
+        this.set({ kind: 'downloaded', version: info.version ?? 'unknown' }),
       );
       autoUpdater.on('error', (err) =>
-        this.set({ kind: 'error', message: String(err?.message ?? err) }),
+        this.set({ kind: 'error', message: describeUpdateError(err) }),
       );
       const check = () => autoUpdater.checkForUpdates().catch(() => {});
       setTimeout(check, 30_000);
       this.timer = setInterval(check, 6 * 60 * 60 * 1000);
     } catch (err) {
-      this.set({ kind: 'error', message: String(err) });
+      this.set({ kind: 'error', message: describeUpdateError(err) });
     }
   }
 
   async checkNow(): Promise<void> {
     if (!app.isPackaged) return;
     try {
-      const { autoUpdater } = await import('electron-updater');
+      const autoUpdater = pickAutoUpdater(await import('electron-updater'));
       await autoUpdater.checkForUpdates();
     } catch (err) {
-      this.set({ kind: 'error', message: String(err) });
+      this.set({ kind: 'error', message: describeUpdateError(err) });
     }
   }
 
   async quitAndInstall(): Promise<void> {
-    const { autoUpdater } = await import('electron-updater');
+    const autoUpdater = pickAutoUpdater(await import('electron-updater'));
     autoUpdater.quitAndInstall();
   }
 
