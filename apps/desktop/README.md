@@ -3,7 +3,7 @@ doc_type: reference
 purpose: "Understand the desktop app's process model, module map, IPC channels, and CLI flags."
 audience: agent
 last_verified: 2026-09-09
-last_verified_commit: 9635b29
+last_verified_commit: b0a0308
 related_files:
   - apps/desktop/src/**
   - apps/desktop/IPC.md
@@ -65,7 +65,8 @@ All windows share one preload (`src/preload/index.ts`); four renderers (pet, pan
 | `src/main/hooks/HookInstaller.ts` | Safe merge/remove of hooks in `~/.claude/settings.json` for either mode (5-backup rotation); `scriptCommand` builds the `curl` command line |
 | `src/main/hooks/binary.ts` | Locates and installs Go hook binary with sha256 verify + atomic rename |
 | `src/main/net/config.ts` | Supabase URL/anon key with env overrides, offline switch |
-| `src/main/net/SupabaseClient.ts` | supabase-js wrapper; anonymous auth; typed Edge Function invoke |
+| `src/main/net/SupabaseClient.ts` | supabase-js wrapper; anonymous auth; typed Edge Function invoke; account linking (`linkEmail`/`verifyLinkCode`/`requestSignInCode`/`verifySignInCode`/`linkedEmail`/`signOutToAnonymous`) — see `docs/architecture/flows/account-linking.md` |
+| `src/main/net/account.ts` | Pure account-linking helpers: email format check, the `buildAdoptedProfile`/`resetToAnonymousProfile` local-state transforms |
 | `src/main/net/Backend.ts` | Server-resolved battles; leaderboard via PostgREST views |
 | `src/main/net/SyncQueue.ts` | Batches minute buckets → `ingest-xp` (idempotent, exponential backoff) |
 | `src/main/persistence/state.ts` | LocalState shape, defaults, migration list |
@@ -86,12 +87,14 @@ All windows share one preload (`src/preload/index.ts`); four renderers (pet, pan
 | `src/renderer/panel/main.tsx` | Panel entry: snapshot feed |
 | `src/renderer/panel/App.tsx` | Tab router (mon/leaderboard/battles/settings); Onboarding while no nation |
 | `src/renderer/panel/onboardingSteps.ts` | Pure step arithmetic (`nextOnboardingStep`/`prevOnboardingStep`/`canGoBack`/`canGoNext`) for the onboarding wizard |
-| `src/renderer/panel/views/*` | Onboarding (5-step wizard: welcome, what-is, controls, connect Claude Code, nation picker), Mon, Battles, Leaderboard, Settings |
+| `src/renderer/panel/accountCopy.ts` | Copy for account linking, shared by Settings' Account section and Onboarding's sign-in sub-step |
+| `src/renderer/panel/views/*` | Onboarding (5-step wizard: welcome, what-is, controls, connect Claude Code, nation picker; welcome also offers a "sign in" sub-step, see account-linking flow doc), Mon, Battles, Leaderboard, Settings (Account section: link/switch/sign-out) |
 | `src/renderer/hovercard/main.tsx` | Hover card entry: compact stat card |
 | `src/renderer/reminder/main.tsx` | Water reminder card entry: nation-tinted sprite (or a 💧 glyph before hatch) + "Time for a sip of water" + Done/Snooze buttons; always renders the same content since the window is only shown while due |
 | `src/renderer/ui/useSnapshot.ts` | Shared snapshot signal + one-time feed subscription |
 | `src/renderer/ui/SpriteView.tsx` | Animated sprite preview (nation-tinted) |
 | `src/renderer/ui/hookStatus.ts` | Shared `HookStatusValue` label/dot-class helpers (Settings hook row + onboarding Connect step) |
+| `src/renderer/ui/AccountEmailCode.tsx` | Shared email → 6-digit-code widget for account linking (link, switch, onboarding sign-in) |
 
 ## IPC channels
 
@@ -101,9 +104,9 @@ All channel names and payload types live in `src/common/ipc.ts`. See `apps/deskt
 
 | Top-level key | Contents |
 |---|---|
-| `schemaVersion` | Current = 1 (no migrations yet) |
+| `schemaVersion` | Current = 4 |
 | `device` | `{ id, createdAt }` (random device UUID) |
-| `profile` | `{ userId, nickname, nation }` |
+| `profile` | `{ userId, nickname, nation, email }` — `email` is null while the account is anonymous-only |
 | `pet` | `{ speciesId, seed }` (seed stable per install) |
 | `progress` | `{ localXp, serverXp, stage, hatchedAt, evolvedAt }` |
 | `ledger` | `{ credited, pending, lastSyncAt, batchId }` (XP buckets, 48 h history) |
@@ -117,7 +120,7 @@ All channel names and payload types live in `src/common/ipc.ts`. See `apps/deskt
 | `battles` | `{ history (≤50), lastBattleAt, today }` |
 | `water` | `{ lastDoneAt, snoozedUntil, todayCount, todayKey }` — `snoozedUntil` is reused both for an explicit "Snooze 10 min" and to re-arm after an ignored card auto-hides; see `src/main/reminders/WaterReminder.ts` |
 
-**Migrations:** `MIGRATIONS[i]` upgrades version i+1 → i+2; run in order. `MIGRATIONS[0]` (v1 → v2) adds `hooks.port`/`hooks.token`/`hooks.mode`. `MIGRATIONS[1]` (v2 → v3) adds `settings.waterReminder` (on by default, 60 min) and the top-level `water` state. JsonStore uses 500 ms debounce; loads fall back to backup or defaults when unparsable.
+**Migrations:** `MIGRATIONS[i]` upgrades version i+1 → i+2; run in order. `MIGRATIONS[0]` (v1 → v2) adds `hooks.port`/`hooks.token`/`hooks.mode`. `MIGRATIONS[1]` (v2 → v3) adds `settings.waterReminder` (on by default, 60 min) and the top-level `water` state. `MIGRATIONS[2]` (v3 → v4) adds `profile.email` (null). JsonStore uses 500 ms debounce; loads fall back to backup or defaults when unparsable.
 
 ## Dev CLI flags (parsed in `src/main/App.ts`)
 
@@ -170,3 +173,4 @@ All channel names and payload types live in `src/common/ipc.ts`. See `apps/deskt
 | `test/petGate.test.ts` | `canRevealPet`/`canStimulatePet`: withheld until nation + window-ready + user-visible, refused while any is missing |
 | `test/onboardingSteps.test.ts` | Onboarding wizard step clamping (`nextOnboardingStep`/`prevOnboardingStep`) and Back/Next availability at the edges |
 | `test/WaterReminder.test.ts` | `nextDueAt` derivation, `tick`/`done`/`snooze`/auto-hide re-arm, skip-while-asleep and skip-while-in-battle, daily sip counter rollover across a UTC day boundary, `onConfigChanged`, `devForceDueInSeconds` |
+| `test/account.test.ts` | Email format validation, `describeAuthError` code mapping, `buildAdoptedProfile`/`resetToAnonymousProfile` state transforms |

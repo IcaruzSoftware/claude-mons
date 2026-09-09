@@ -2,8 +2,8 @@
 doc_type: policy
 purpose: "Read this when you want to know what data claude-mons collects and where it goes."
 audience: both
-last_verified: 2026-09-05
-last_verified_commit: ab12392
+last_verified: 2026-09-09
+last_verified_commit: b0a0308
 related_files:
   - packages/hook-cli/README.md
   - packages/hook-cli/main.go
@@ -11,6 +11,7 @@ related_files:
   - apps/desktop/src/main/hooks/rawHook.ts
   - apps/desktop/src/main/hooks/HookServer.ts
   - docs/decisions/0014-curl-script-mode-hook-fallback.md
+  - docs/decisions/0016-email-otp-account-linking.md
   - docs/runbooks/delete-a-player.md
   - docs/runbooks/reset-local-state.md
   - supabase/README.md
@@ -18,7 +19,7 @@ related_files:
 
 # Privacy
 
-claude-mons is a desktop pet that earns experience while you use Claude Code. This document lists exactly what data is collected and where it goes. In summary: hook events are filtered to metadata only, aggregated event counts are sent to the server for XP calculation, prompt text and file paths never leave your machine, and you can delete your account and local data at any time.
+claude-mons is a desktop pet that earns experience while you use Claude Code. This document lists exactly what data is collected and where it goes. In summary: hook events are filtered to metadata only, aggregated event counts are sent to the server for XP calculation, prompt text and file paths never leave your machine, linking an email is optional, and you can delete your account and local data at any time.
 
 ## What the hook forwarder reads
 
@@ -45,6 +46,21 @@ The app aggregates hook events into per-minute counts (prompts, finished turns, 
 The server stores player records (nickname, nation, streak, timestamps), mon records (species, stage, level, XP), per-day and per-minute XP counters (the latter deleted after 48 hours), battle records (both mons' snapshots and the battle log) and battle notifications.
 
 **What is never collected:** prompt text, tool input/output, file contents, transcript paths, telemetry, crash reports, analytics, IP-based location. Supabase receives your IP address as part of normal HTTPS requests; see Supabase's privacy policy for their data handling.
+
+## Linking an email (optional)
+
+Settings' Account section lets you optionally link an email so the same mon can be used on a second
+computer (`docs/decisions/0016-email-otp-account-linking.md`, `docs/architecture/flows/account-linking.md`).
+This is entirely optional and off by default. If you link one:
+
+- The email is stored by Supabase Auth (`auth.users`), not in claude-mons' own `players` table.
+- It is used only to send you a 6-digit sign-in code by email — never a password, never shown to
+  other players, never used for marketing or analytics.
+- Signing in with that email on a second device replaces that device's local mon after an explicit
+  confirmation; the previous device's anonymous player row is not deleted, only orphaned (see
+  `docs/runbooks/delete-a-player.md` to remove it).
+- "Sign out on this device" (Settings) returns this device to a fresh anonymous profile without
+  deleting the linked account.
 
 ## Local data
 

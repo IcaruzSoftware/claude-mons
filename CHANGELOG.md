@@ -3,10 +3,11 @@ doc_type: reference
 purpose: "Release notes and version history; check this when seeing claude-mons updates or deciding what version to expect features in."
 audience: both
 last_verified: 2026-09-09
-last_verified_commit: 9635b29
+last_verified_commit: b0a0308
 related_files:
   - docs/history/v1-handoff-2026-09-04.md
   - docs/README.md
+  - docs/decisions/0016-email-otp-account-linking.md
 ---
 
 # Changelog
@@ -14,6 +15,9 @@ related_files:
 All notable changes to claude-mons are documented here. See [Keep a Changelog](https://keepachangelog.com/) for format details.
 
 ## [Unreleased]
+
+### Added
+- Optional email account linking: Settings' Account section lets a player link an email (6-digit code, no password ever) so the same mon can be used on a second computer, and sign in with that email on a fresh install (Onboarding's "Already have a mon? Sign in") to adopt the server profile instead of choosing a nation. `apps/desktop/src/main/net/SupabaseClient.ts` gains `linkEmail`/`verifyLinkCode`/`requestSignInCode`/`verifySignInCode`/`linkedEmail`/`signOutToAnonymous`; `apps/desktop/src/main/net/account.ts` holds the pure email-validation and profile-adoption/reset transforms. `scripts/supabase-auth-config.mjs` configures the required Supabase auth settings (manual linking, autoconfirm off, code-carrying email templates). See `docs/decisions/0016-email-otp-account-linking.md` and `docs/architecture/flows/account-linking.md`. `LocalState` gains `profile.email` (`MIGRATIONS[2]`, schema v3 → v4).
 
 ### Fixed
 

@@ -2,8 +2,8 @@
 doc_type: architecture
 purpose: "Read this when tracing what happens between first launch and a hatched mon: nation choice, anonymous sign-in, create-profile, and who decides the hatch."
 audience: agent
-last_verified: 2026-09-05
-last_verified_commit: eefd2a2
+last_verified: 2026-09-09
+last_verified_commit: b0a0308
 related_files:
   - apps/desktop/src/main/App.ts
   - apps/desktop/src/main/PetHost.ts
@@ -19,6 +19,7 @@ related_files:
   - apps/desktop/src/main/net/config.ts
   - apps/desktop/src/main/game/GameService.ts
   - supabase/functions/create-profile/index.ts
+  - docs/architecture/flows/account-linking.md
 ---
 
 # Onboarding flow
@@ -120,6 +121,14 @@ nation choice and local egg already happened and are not rolled back. Separately
 `code === 'NO_PROFILE'` specially by clearing `profile.userId`/`profile.nickname` so the next flush
 re-creates the profile; a nation that was never accepted server-side is retried by every later
 `flush()`, since `flush` calls `ensureProfile` again whenever `!s.profile.userId || !s.profile.nickname`.
+
+**Alternative to step 5:** the Welcome step (step 0) also offers "Already have a mon? Sign in", for a
+player who already linked an email on another device (`docs/architecture/flows/account-linking.md`).
+This replaces the whole wizard with an email → code form; on success the server's profile (nation,
+nickname, species, stage, XP) is adopted onto this device and nation choice is skipped entirely —
+`App.adoptProfile` sets `profile.nation` directly, which is what makes this component stop rendering
+(same falsy-`nation` check as above), not a step transition. Not restated here — see the flow doc
+linked above for the full sequence.
 
 The egg sprite does not change until XP arrives — nothing in onboarding itself hatches it. From
 there the two authority modes diverge:

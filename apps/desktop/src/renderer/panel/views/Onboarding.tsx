@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'preact/hooks';
 import { NATIONS, NATION_INFO, speciesForNation, type Nation } from '@claude-mons/shared';
+import { AccountEmailCode } from '../../ui/AccountEmailCode.tsx';
 import { SpriteView } from '../../ui/SpriteView.tsx';
 import { HOOK_STATUS_LABEL, hookStatusDotClass, isHookConnected } from '../../ui/hookStatus.ts';
 import type { UiSnapshot } from '../../../common/ipc.ts';
+import { accountCopy } from '../accountCopy.ts';
 import {
   canGoBack,
   canGoNext,
@@ -68,12 +70,51 @@ function WelcomeEgg() {
   return <SpriteView speciesId={null} stage="egg" nation={nation} scale={5} />;
 }
 
-function WelcomeStep() {
+function WelcomeStep({ onSignIn }: { onSignIn: () => void }) {
   return (
     <div class="onboard-step onboard-welcome">
       <WelcomeEgg />
       <h1>{onboardingCopy.welcome.title}</h1>
       <p class="lead">{onboardingCopy.welcome.lead}</p>
+      <p class="hint">
+        <a
+          href="#"
+          onClick={(e) => {
+            e.preventDefault();
+            onSignIn();
+          }}
+        >
+          {accountCopy.onboardingSignin.link}
+        </a>
+      </p>
+    </div>
+  );
+}
+
+/** "Already have a mon? Sign in" sub-step: email -> code -> adopt. Replaces the whole wizard while active; a successful verify sets `profile.nation` server-side, which is what makes `App.tsx` stop rendering `Onboarding` at all — there is no explicit "finish" step here. */
+function SignInSubStep({ onBack }: { onBack: () => void }) {
+  return (
+    <div class="onboard">
+      <div class="onboard-content onboard-step">
+        <h1>{accountCopy.onboardingSignin.title}</h1>
+        <p class="lead">{accountCopy.onboardingSignin.lead}</p>
+        <AccountEmailCode
+          autoFocus
+          sendCta={accountCopy.link.sendCta}
+          verifyCta={accountCopy.link.verifyCta}
+          resendCta={accountCopy.link.resendCta}
+          codePlaceholder={accountCopy.link.codePlaceholder}
+          onRequestCode={(email) => window.monsUi.account.signinStart(email)}
+          onVerify={(email, code) => window.monsUi.account.signinVerify(email, code)}
+        />
+      </div>
+      <div class="onboard-nav">
+        <div class="buttons">
+          <button type="button" onClick={onBack}>
+            {accountCopy.onboardingSignin.back}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -209,6 +250,7 @@ export function Onboarding({ s }: { s: UiSnapshot }) {
       : ONBOARDING_FIRST_STEP,
   );
   const [busy, setBusy] = useState<Nation | null>(null);
+  const [signingIn, setSigningIn] = useState(false);
 
   const choose = async (n: Nation) => {
     if (busy) return;
@@ -220,12 +262,14 @@ export function Onboarding({ s }: { s: UiSnapshot }) {
     }
   };
 
+  if (signingIn) return <SignInSubStep onBack={() => setSigningIn(false)} />;
+
   const isLastStep = !canGoNext(step);
 
   return (
     <div class="onboard">
       <div class="onboard-content">
-        {step === 0 && <WelcomeStep />}
+        {step === 0 && <WelcomeStep onSignIn={() => setSigningIn(true)} />}
         {step === 1 && <WhatStep />}
         {step === 2 && <ControlsStep />}
         {step === 3 && (

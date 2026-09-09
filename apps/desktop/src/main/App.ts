@@ -1,15 +1,18 @@
+import { randomBytes } from 'node:crypto';
 import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { app, dialog, ipcMain, shell } from 'electron';
 import {
   isNation,
   type BattleNotification,
+  type CreateProfileResponse,
   type HookEnvelope,
   type Nation,
   type Stage,
 } from '@claude-mons/shared';
 import {
   IPC,
+  type AccountOpResult,
   type HookStatusValue,
   type LeaderboardPayload,
   type UiSnapshot,
@@ -32,6 +35,7 @@ import { HookServer } from './hooks/HookServer.ts';
 import { SpoolDrainer } from './hooks/SpoolDrainer.ts';
 import { ensureHookBinary } from './hooks/binary.ts';
 import { computeEffectiveMode, probeBinary, type ProbeResult } from './hooks/mode.ts';
+import { buildAdoptedProfile, isValidEmailFormat, resetToAnonymousProfile } from './net/account.ts';
 import { RemoteBattleBackend, fetchLeaderboard, type LeaderboardData } from './net/Backend.ts';
 import { ApiCallError, SupabaseClient } from './net/SupabaseClient.ts';
 import { SyncQueue } from './net/SyncQueue.ts';
@@ -270,6 +274,7 @@ export class App {
       isDev: !app.isPackaged,
       devOnboardingStep: this.devOnboardingStep,
       profile: { nickname: s.profile.nickname, nation: s.profile.nation, userId: s.profile.userId },
+      account: { email: s.profile.email, anonymous: s.profile.email === null },
       pet: {
         speciesId: s.pet.speciesId,
         stage: s.progress.stage,
@@ -401,6 +406,59 @@ export class App {
       }
       return this.snapshot();
     });
+    ipcMain.handle(IPC.accountLinkStart, async (_e, email: unknown): Promise<AccountOpResult> => {
+      if (!this.api) return { ok: false, error: 'offline build' };
+      if (typeof email !== 'string' || !isValidEmailFormat(email)) {
+        return { ok: false, error: 'Enter a valid email address' };
+      }
+      return this.api.linkEmail(email.trim());
+    });
+    ipcMain.handle(
+      IPC.accountLinkVerify,
+      async (_e, email: unknown, code: unknown): Promise<AccountOpResult> => {
+        if (!this.api) return { ok: false, error: 'offline build' };
+        if (typeof email !== 'string' || typeof code !== 'string') {
+          return { ok: false, error: 'invalid' };
+        }
+        const res = await this.api.verifyLinkCode(email.trim(), code.trim());
+        if (res.ok) {
+          this.store.update((s) => (s.profile.email = email.trim()));
+          this.pushSnapshot();
+        }
+        return res;
+      },
+    );
+    ipcMain.handle(IPC.accountSigninStart, async (_e, email: unknown): Promise<AccountOpResult> => {
+      if (!this.api) return { ok: false, error: 'offline build' };
+      if (typeof email !== 'string' || !isValidEmailFormat(email)) {
+        return { ok: false, error: 'Enter a valid email address' };
+      }
+      return this.api.requestSignInCode(email.trim());
+    });
+    ipcMain.handle(
+      IPC.accountSigninVerify,
+      async (_e, email: unknown, code: unknown): Promise<AccountOpResult> => {
+        if (!this.api) return { ok: false, error: 'offline build' };
+        if (typeof email !== 'string' || typeof code !== 'string') {
+          return { ok: false, error: 'invalid' };
+        }
+        const verify = await this.api.verifySignInCode(email.trim(), code.trim());
+        if (!verify.ok) return verify;
+        return this.adoptProfile(email.trim());
+      },
+    );
+    ipcMain.handle(IPC.accountSignout, async (): Promise<AccountOpResult> => {
+      if (!this.api) return { ok: false, error: 'offline build' };
+      await this.api.signOutToAnonymous();
+      const seed = randomBytes(4).readUInt32LE(0);
+      this.store.update((s) => Object.assign(s, resetToAnonymousProfile(seed)));
+      this.host.setStage('egg', null);
+      this.host.setNation(null);
+      this.host.window.win.hide();
+      this.panel.show();
+      this.pushSnapshot();
+      return { ok: true, error: null };
+    });
     ipcMain.handle(IPC.waterDone, () => {
       this.water.done();
       this.host.stimulate({ type: 'game:cheer' }); // little celebration; no XP for drinking water
@@ -427,6 +485,39 @@ export class App {
         .then(() => this.sync?.flush())
         .then(() => this.pushSnapshot())
         .catch((err) => console.warn('create-profile failed:', err));
+    }
+  }
+
+  /**
+   * Adopts the server profile of the account this device just signed into (see
+   * `docs/architecture/flows/account-linking.md`): overwrites this device's local profile/pet/
+   * progress with the server's, server-authoritative via `GameService.applyServerState`. Called
+   * only after `SupabaseClient.verifySignInCode` succeeds — the caller is responsible for any
+   * "this replaces the mon on this device" confirmation the UI needs beforehand.
+   */
+  private async adoptProfile(email: string): Promise<AccountOpResult> {
+    if (!this.api) return { ok: false, error: 'offline build' };
+    try {
+      const res = await this.api.invoke<CreateProfileResponse>('create-profile', {});
+      this.store.update((s) => Object.assign(s, buildAdoptedProfile(s, res, email)));
+      this.game.applyServerState({
+        totalXp: res.mon.totalXp,
+        speciesId: res.mon.speciesId,
+        stage: res.mon.stage,
+      });
+      this.host.setNation(res.player.nation);
+      // wireGameEvents' hatch handler always lands on 'baby' after the crack animation; correct
+      // the sprite to the true adopted stage once that settles (a mon adopted mid-teen/adult would
+      // otherwise get stuck showing 'baby'). A no-op when the mon is still an egg or really is baby.
+      setTimeout(() => {
+        this.host.setStage(res.mon.stage, res.mon.speciesId);
+        this.pushSnapshot();
+      }, 2600);
+      this.pushSnapshot();
+      return { ok: true, error: null };
+    } catch (err) {
+      const msg = err instanceof ApiCallError ? `${err.code}: ${err.message}` : String(err);
+      return { ok: false, error: msg };
     }
   }
 

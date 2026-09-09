@@ -6,6 +6,7 @@ import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron';
 import type { World } from '@claude-mons/shared';
 import {
   IPC,
+  type AccountOpResult,
   type BattlePlayMessage,
   type Hitbox,
   type LeaderboardPayload,
@@ -81,6 +82,17 @@ const uiApi = {
   water: {
     done: (): Promise<UiSnapshot> => ipcRenderer.invoke(IPC.waterDone),
     snooze: (): Promise<UiSnapshot> => ipcRenderer.invoke(IPC.waterSnooze),
+  },
+  account: {
+    linkStart: (email: string): Promise<AccountOpResult> =>
+      ipcRenderer.invoke(IPC.accountLinkStart, email),
+    linkVerify: (email: string, code: string): Promise<AccountOpResult> =>
+      ipcRenderer.invoke(IPC.accountLinkVerify, email, code),
+    signinStart: (email: string): Promise<AccountOpResult> =>
+      ipcRenderer.invoke(IPC.accountSigninStart, email),
+    signinVerify: (email: string, code: string): Promise<AccountOpResult> =>
+      ipcRenderer.invoke(IPC.accountSigninVerify, email, code),
+    signout: (): Promise<AccountOpResult> => ipcRenderer.invoke(IPC.accountSignout),
   },
 };
 

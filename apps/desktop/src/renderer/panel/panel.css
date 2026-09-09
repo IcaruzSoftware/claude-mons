@@ -405,3 +405,9 @@ input.nick {
   padding: 5px 8px;
   width: 150px;
 }
+.account-flow {
+  margin-top: 8px;
+}
+.account-flow .hint {
+  margin-top: 6px;
+}

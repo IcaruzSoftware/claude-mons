@@ -2,8 +2,8 @@
 doc_type: reference
 purpose: "Read this when deploying the backend, debugging database issues, or contributing to Edge Functions."
 audience: agent
-last_verified: 2026-09-05
-last_verified_commit: 74a76ce
+last_verified: 2026-09-09
+last_verified_commit: b0a0308
 related_files:
   - supabase/migrations/20260904000000_init.sql
   - supabase/config.toml
@@ -13,6 +13,8 @@ related_files:
   - supabase/functions/battle-request/index.ts
   - packages/shared/src/game/levels.ts
   - packages/shared/src/game/species.ts
+  - scripts/supabase-auth-config.mjs
+  - docs/runbooks/auth-email-config.md
 ---
 
 # claude-mons backend (Supabase)
@@ -129,6 +131,15 @@ npx supabase functions deploy               # deploys all; honours per-function 
 ```
 
 The GitHub workflow `.github/workflows/supabase-deploy.yml` runs these steps on manual dispatch. `.github/workflows/keepalive.yml` pings `heartbeat` daily at 06:00 UTC.
+
+## Auth config (account linking)
+
+Optional email account linking (`docs/decisions/0016-email-otp-account-linking.md`) needs project
+auth settings beyond the CLI-managed `config.toml`: `site_url`, `external_email_enabled`,
+`security_manual_linking_enabled`, `mailer_autoconfirm`, and the Magic Link / Email Change templates
+(`{{ .Token }}` for the 6-digit code). `scripts/supabase-auth-config.mjs` applies these through the
+Management API; see `docs/runbooks/auth-email-config.md` for the exact keys, why each one matters,
+and the free-tier template-editing limitation.
 
 ## Local development
 

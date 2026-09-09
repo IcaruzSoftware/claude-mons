@@ -13,6 +13,8 @@ export interface LocalState {
     userId: string | null;
     nickname: string | null;
     nation: Nation | null;
+    /** Linked email (account linking), or null while the account is still anonymous-only */
+    email: string | null;
   };
   pet: {
     speciesId: string | null;
@@ -91,7 +93,7 @@ export function defaultState(): LocalState {
   return {
     schemaVersion: 1,
     device: { id: randomBytes(8).toString('hex'), createdAt: Date.now() },
-    profile: { userId: null, nickname: null, nation: null },
+    profile: { userId: null, nickname: null, nation: null, email: null },
     pet: { speciesId: null, seed: randomBytes(4).readUInt32LE(0) },
     progress: { localXp: 0, serverXp: null, stage: 'egg', hatchedAt: null, evolvedAt: {} },
     ledger: { credited: [], pending: [], lastSyncAt: null, batchId: null },
@@ -143,5 +145,15 @@ function addWaterReminder(state: Record<string, unknown>): Record<string, unknow
   };
 }
 
+/** v3 -> v4: adds the linked-email field for account linking (null = still anonymous-only). */
+function addProfileEmail(state: Record<string, unknown>): Record<string, unknown> {
+  const profile = (state.profile as Record<string, unknown> | undefined) ?? {};
+  return { ...state, profile: { ...profile, email: null } };
+}
+
 /** migrations[i] upgrades version i+1 -> i+2. Add new ones at the end; never edit old ones. */
-export const MIGRATIONS: readonly Migration[] = [addHookEndpoint, addWaterReminder];
+export const MIGRATIONS: readonly Migration[] = [
+  addHookEndpoint,
+  addWaterReminder,
+  addProfileEmail,
+];

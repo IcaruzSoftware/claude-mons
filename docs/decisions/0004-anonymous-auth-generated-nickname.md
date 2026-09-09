@@ -1,14 +1,15 @@
 ---
 doc_type: decision
-purpose: "Read this when asked why players have no sign-up step and where the account-linking gap is tracked."
+purpose: "Read this when asked why players have no sign-up step, or why the nickname is server-generated instead of OAuth-provided."
 audience: both
-last_verified: 2026-09-05
-last_verified_commit: d7db9c0
+last_verified: 2026-09-09
+last_verified_commit: b0a0308
 related_files:
   - supabase/functions/create-profile/index.ts
   - packages/shared/src/game/nickname.ts
   - apps/desktop/src/main/net/SupabaseClient.ts
   - docs/ROADMAP.md
+  - docs/decisions/0016-email-otp-account-linking.md
 adr_status: accepted
 ---
 
@@ -43,8 +44,10 @@ renamable in Settings, subject to the cooldown documented in `supabase/README.md
   recovery path, since there is no email or OAuth identity to reattach it to.
 - Nicknames need their own moderation surface (reserved names, a leetspeak-aware blocklist) that an
   OAuth-provided display name would not have needed.
-- Account linking (email or GitHub, to survive a reinstall) is deferred, not solved: it is tracked
-  as a v1.1 item in `docs/ROADMAP.md` rather than built now.
+- Account linking (to survive a reinstall or move to a second machine) was deferred at the time of
+  this decision; it has since shipped as optional email OTP linking rather than GitHub OAuth — see
+  [ADR 0016](0016-email-otp-account-linking.md). GitHub OAuth itself is still not built (tracked in
+  `docs/ROADMAP.md`'s "Later" section).
 
 ## Status
 

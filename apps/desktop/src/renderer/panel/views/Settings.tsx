@@ -1,7 +1,9 @@
 import { useState } from 'preact/hooks';
 import { NATION_INFO, validateNickname } from '@claude-mons/shared';
 import type { UiSnapshot, UpdateStatusValue } from '../../../common/ipc.ts';
+import { AccountEmailCode } from '../../ui/AccountEmailCode.tsx';
 import { HOOK_STATUS_LABEL, hookStatusDotClass, isHookConnected } from '../../ui/hookStatus.ts';
+import { accountCopy } from '../accountCopy.ts';
 
 function updateLabel(u: UpdateStatusValue): string {
   switch (u.kind) {
@@ -20,6 +22,109 @@ function updateLabel(u: UpdateStatusValue): string {
     case 'error':
       return `Update check failed: ${u.message}`;
   }
+}
+
+/** Link an email (anonymous account), sign in on a different account, or sign out (linked). */
+function AccountSection({ s }: { s: UiSnapshot }) {
+  const [switching, setSwitching] = useState(false);
+  const [confirmedSwitch, setConfirmedSwitch] = useState(false);
+  const [signOutConfirm, setSignOutConfirm] = useState(false);
+  const [signingOut, setSigningOut] = useState(false);
+
+  if (!s.online.configured) return null;
+
+  if (!s.account.anonymous) {
+    return (
+      <div class="section">
+        <h3>Account</h3>
+        <div class="kv">
+          <span>Email</span>
+          <span>{s.account.email}</span>
+        </div>
+        {signOutConfirm ? (
+          <div class="row" style={{ marginTop: 8 }}>
+            <div class="hint">{accountCopy.linked.signOutConfirm}</div>
+            <div style={{ display: 'flex', gap: 6 }}>
+              <button disabled={signingOut} onClick={() => setSignOutConfirm(false)}>
+                {accountCopy.switchAccount.cancelCta}
+              </button>
+              <button
+                class="primary"
+                disabled={signingOut}
+                onClick={async () => {
+                  setSigningOut(true);
+                  await window.monsUi.account.signout();
+                  setSigningOut(false);
+                }}
+              >
+                {signingOut ? 'Signing out…' : accountCopy.linked.signOutCta}
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div style={{ marginTop: 8 }}>
+            <button onClick={() => setSignOutConfirm(true)}>{accountCopy.linked.signOutCta}</button>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div class="section">
+      <h3>Account</h3>
+      <div class="row">
+        <div>
+          {accountCopy.link.title}
+          <div class="hint">{accountCopy.link.hint}</div>
+        </div>
+      </div>
+      <AccountEmailCode
+        sendCta={accountCopy.link.sendCta}
+        verifyCta={accountCopy.link.verifyCta}
+        resendCta={accountCopy.link.resendCta}
+        codePlaceholder={accountCopy.link.codePlaceholder}
+        onRequestCode={(email) => window.monsUi.account.linkStart(email)}
+        onVerify={(email, code) => window.monsUi.account.linkVerify(email, code)}
+      />
+      {!switching ? (
+        <div style={{ marginTop: 8 }}>
+          <a
+            href="#"
+            onClick={(e) => {
+              e.preventDefault();
+              setSwitching(true);
+            }}
+          >
+            {accountCopy.switchAccount.link}
+          </a>
+        </div>
+      ) : !confirmedSwitch ? (
+        <div class="row" style={{ marginTop: 8 }}>
+          <div class="hint">{accountCopy.switchAccount.warning}</div>
+          <div style={{ display: 'flex', gap: 6 }}>
+            <button onClick={() => setSwitching(false)}>
+              {accountCopy.switchAccount.cancelCta}
+            </button>
+            <button class="primary" onClick={() => setConfirmedSwitch(true)}>
+              {accountCopy.switchAccount.confirmCta}
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div style={{ marginTop: 8 }}>
+          <AccountEmailCode
+            sendCta={accountCopy.link.sendCta}
+            verifyCta={accountCopy.link.verifyCta}
+            resendCta={accountCopy.link.resendCta}
+            codePlaceholder={accountCopy.link.codePlaceholder}
+            onRequestCode={(email) => window.monsUi.account.signinStart(email)}
+            onVerify={(email, code) => window.monsUi.account.signinVerify(email, code)}
+          />
+        </div>
+      )}
+    </div>
+  );
 }
 
 export function SettingsView({ s }: { s: UiSnapshot }) {
@@ -225,6 +330,8 @@ export function SettingsView({ s }: { s: UiSnapshot }) {
           </div>
         )}
       </div>
+
+      <AccountSection s={s} />
 
       <div class="section">
         <h3>About</h3>

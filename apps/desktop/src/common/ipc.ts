@@ -55,6 +55,11 @@ export const IPC = {
   uiSyncNow: 'ui:sync-now',
   uiSetWaterEnabled: 'ui:set-water-enabled',
   uiSetWaterInterval: 'ui:set-water-interval',
+  accountLinkStart: 'account:link-start',
+  accountLinkVerify: 'account:link-verify',
+  accountSigninStart: 'account:signin-start',
+  accountSigninVerify: 'account:signin-verify',
+  accountSignout: 'account:signout',
 
   // renderer(reminder) -> main (invoke)
   waterDone: 'water:done',
@@ -161,6 +166,7 @@ export interface UiSnapshot {
   /** `--dev-onboarding-step <n>` (dev builds only): open the wizard on step n for a capture/screenshot. */
   devOnboardingStep: number | null;
   profile: { nickname: string | null; nation: Nation | null; userId: string | null };
+  account: { email: string | null; anonymous: boolean };
   pet: { speciesId: string | null; stage: Stage; state: PetState };
   progress: LevelProgress & { serverXp: number | null; streakDays: number };
   hooks: {
@@ -200,6 +206,12 @@ export type UpdateStatusValue =
   | { kind: 'up-to-date' }
   | { kind: 'unsupported'; reason: string }
   | { kind: 'error'; message: string };
+
+/** Result of an account-linking IPC call (`account:*`); `error` is a short, user-facing string. */
+export interface AccountOpResult {
+  ok: boolean;
+  error: string | null;
+}
 
 /** Leaderboard payload for the panel. */
 export interface LeaderboardPayload {

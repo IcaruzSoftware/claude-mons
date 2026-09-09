@@ -2,13 +2,14 @@
 doc_type: reference
 purpose: "Check this for what is shipping next and blocked work items for v1 and beyond."
 audience: both
-last_verified: 2026-09-05
-last_verified_commit: ab12392
+last_verified: 2026-09-09
+last_verified_commit: b0a0308
 related_files:
   - docs/history/v1-design-2026-09-04.md
   - docs/history/v1-handoff-2026-09-04.md
   - docs/CODE_SIGNING_POLICY.md
   - docs/decisions/0014-curl-script-mode-hook-fallback.md
+  - docs/decisions/0016-email-otp-account-linking.md
 ---
 
 # claude-mons — Product Roadmap
@@ -27,7 +28,6 @@ v1 is feature-complete and end-to-end tested on Windows 11. Below are the blocke
 
 ## Next (v1.1 features & UX)
 
-- **Account linking.** Email or GitHub OAuth so players can keep their pet and stats across device reinstalls; replaces anonymous-only session.
 - **Changing nation.** UI + server-side support for a one-time or cooldown nation swap (ties to leaderboard changes for nation stats).
 - **More species.** Add 2–3 per nation on top of the [current roster](design/species-and-nations.md) with new sprite sets and balancing.
 - **Seasonal nation events.** Nation-wide challenges with special battle mechanics, bonus XP, limited-time cosmetics.
@@ -35,6 +35,7 @@ v1 is feature-complete and end-to-end tested on Windows 11. Below are the blocke
 
 ## Later (non-blocking, nice-to-have)
 
+- **GitHub OAuth as a second linking option.** Email OTP linking shipped ([ADR 0016](decisions/0016-email-otp-account-linking.md)); OAuth was rejected for v1 (needs a registered app and a hosted redirect target) but could sit alongside it later.
 - **Native Wayland support.** Electron protocol forbids app-positioned always-on-top windows on native Wayland; XWayland works by design, so a Wayland rewrite is out of scope until Electron or Wayland evolves.
 - **Sounds.** SFX for battles, hatch, level-up, and ambient idle loops; requires asset pipeline and cross-platform audio API.
 - **Code-signing Linux artifacts.** AppImage and deb signing is not applicable; Linux users trust package managers or reproducible builds. Document this as the stance.
