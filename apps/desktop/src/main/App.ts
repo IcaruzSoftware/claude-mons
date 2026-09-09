@@ -428,6 +428,15 @@ export class App {
         return res;
       },
     );
+    ipcMain.handle(IPC.accountLinkRefresh, async (): Promise<AccountOpResult> => {
+      if (!this.api) return { ok: false, error: 'offline build' };
+      const email = await this.api.refreshLinkedEmail();
+      if (email) {
+        this.store.update((s) => (s.profile.email = email));
+        this.pushSnapshot();
+      }
+      return { ok: true, error: null, account: this.snapshot().account };
+    });
     ipcMain.handle(IPC.accountSigninStart, async (_e, email: unknown): Promise<AccountOpResult> => {
       if (!this.api) return { ok: false, error: 'offline build' };
       if (typeof email !== 'string' || !isValidEmailFormat(email)) {

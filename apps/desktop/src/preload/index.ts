@@ -88,6 +88,7 @@ const uiApi = {
       ipcRenderer.invoke(IPC.accountLinkStart, email),
     linkVerify: (email: string, code: string): Promise<AccountOpResult> =>
       ipcRenderer.invoke(IPC.accountLinkVerify, email, code),
+    linkRefresh: (): Promise<AccountOpResult> => ipcRenderer.invoke(IPC.accountLinkRefresh),
     signinStart: (email: string): Promise<AccountOpResult> =>
       ipcRenderer.invoke(IPC.accountSigninStart, email),
     signinVerify: (email: string, code: string): Promise<AccountOpResult> =>

@@ -6,6 +6,7 @@ import {
 } from '@supabase/supabase-js';
 import type { ApiError } from '@claude-mons/shared';
 import type { AccountOpResult } from '../../common/ipc.ts';
+import { resolveConfirmedEmail } from './account.ts';
 import type { BackendConfig } from './config.ts';
 
 const DEBUG = process.env.CLAUDE_MONS_DEBUG === '1';
@@ -136,6 +137,22 @@ export class SupabaseClient {
    */
   async verifyLinkCode(email: string, code: string): Promise<AccountResult> {
     return this.verifyWithFallback(email, code, ['email_change', 'signup', 'email']);
+  }
+
+  /**
+   * Fallback for the free-tier default mailer, which sends only a confirmation *link* for
+   * `linkEmail`'s email-change (no 6-digit code — `docs/runbooks/auth-email-config.md`). Clicking
+   * that link confirms the change server-side out from under the app, so the locally cached
+   * session doesn't know yet: `refreshSession()` (best-effort — a failure here, e.g. no session or
+   * a transient network error, just means the following `getUser()` works off the still-cached
+   * token instead) then `getUser()` round-trips to the Auth server and reflects a confirmation the
+   * player just completed in their mail client. Returns the confirmed email, or null while still
+   * anonymous or the change is still unconfirmed (see `resolveConfirmedEmail`).
+   */
+  async refreshLinkedEmail(): Promise<string | null> {
+    await this.client.auth.refreshSession().catch(() => {});
+    const { data } = await this.client.auth.getUser();
+    return resolveConfirmedEmail(data.user);
   }
 
   /** Requests a sign-in code for an *existing* linked account; never creates a new user. */

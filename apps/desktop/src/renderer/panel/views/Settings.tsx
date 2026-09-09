@@ -86,6 +86,14 @@ function AccountSection({ s }: { s: UiSnapshot }) {
         codePlaceholder={accountCopy.link.codePlaceholder}
         onRequestCode={(email) => window.monsUi.account.linkStart(email)}
         onVerify={(email, code) => window.monsUi.account.linkVerify(email, code)}
+        linkFallback={{
+          hint: accountCopy.link.fallbackHint,
+          buttonCta: accountCopy.link.fallbackCta,
+          checkingCta: accountCopy.link.fallbackChecking,
+          notYetMsg: accountCopy.link.fallbackNotYet,
+          linkedPrefix: accountCopy.link.linkedPrefix,
+          onRefresh: () => window.monsUi.account.linkRefresh(),
+        }}
       />
       {!switching ? (
         <div style={{ marginTop: 8 }}>
@@ -120,6 +128,7 @@ function AccountSection({ s }: { s: UiSnapshot }) {
             codePlaceholder={accountCopy.link.codePlaceholder}
             onRequestCode={(email) => window.monsUi.account.signinStart(email)}
             onVerify={(email, code) => window.monsUi.account.signinVerify(email, code)}
+            signinHint={accountCopy.signinFallbackHint}
           />
         </div>
       )}

@@ -3,10 +3,11 @@ doc_type: runbook
 purpose: "Read this when you need to change the Supabase auth email config (templates, site_url, manual linking) for account linking, or when a player reports never receiving a sign-in code."
 audience: both
 last_verified: 2026-09-09
-last_verified_commit: b0a0308
+last_verified_commit: c062864
 related_files:
   - scripts/supabase-auth-config.mjs
   - apps/desktop/src/main/net/SupabaseClient.ts
+  - apps/desktop/src/main/net/account.ts
   - docs/decisions/0016-email-otp-account-linking.md
   - docs/architecture/flows/account-linking.md
   - supabase/README.md
@@ -70,25 +71,65 @@ Practically: **players cannot see the 6-digit code in their email until this is 
 `docs/decisions/0016-email-otp-account-linking.md` Verification section calls this out again with the
 exact error text.
 
-**Fix:** configure custom SMTP (any provider — Resend, Postmark, SES) in **Project Settings → Auth →
-SMTP Settings** in the Supabase dashboard, then re-run this script with `--apply`; the mailer default's rate limit
-(a few emails per hour) is also lifted once a real SMTP provider is set.
+**With the default mailer today:**
+
+- **Linking an email** (Settings' Account section, anonymous → permanent) still works: clicking the
+  confirmation link in the default mailer's built-in mail confirms the change server-side directly,
+  no code needed. `apps/desktop/src/renderer/ui/AccountEmailCode.tsx`'s `linkFallback` shows an
+  "I clicked the link" button calling `IPC.accountLinkRefresh` (`SupabaseClient.refreshLinkedEmail`,
+  `apps/desktop/src/main/net/account.ts`'s `resolveConfirmedEmail`), and auto-polls the same call
+  every 5 s for up to 10 minutes so the panel notices the confirmation on its own — see
+  `docs/architecture/flows/account-linking.md`'s "Fallback" section for the exact mechanics.
+- **Signing in on a second device** still requires the typed code — `verifySignInCode` has no
+  link-based equivalent — so it stays blocked until custom SMTP is configured. The sign-in widgets
+  (Settings' "sign in instead", Onboarding's "Already have a mon? Sign in") show a one-line hint
+  saying so instead of a working flow.
+
+**Fix:** configure custom SMTP (any provider — Resend, Postmark, SES, or a personal Gmail account for
+a solo project) in **Project Settings → Auth → SMTP Settings** in the Supabase dashboard, then re-run
+this script with `--apply`; the mailer default's rate limit (a few emails per hour) is also lifted
+once a real SMTP provider is set.
+
+### Gmail app-password recipe
+
+A free option requiring no third-party signup, sufficient for a single-owner project:
+
+1. Turn on 2-step verification on the Google account, then create an app password at
+   [myaccount.google.com/apppasswords](https://myaccount.google.com/apppasswords) (name it
+   "claude-mons" or similar) — this yields a 16-character password, distinct from the account's own.
+2. In the Supabase dashboard's SMTP Settings, set:
+
+   | Field | Value |
+   |---|---|
+   | Host | `smtp.gmail.com` |
+   | Port | `587` |
+   | Username | the Gmail address |
+   | Password | the 16-character app password from step 1 |
+   | Sender email | the same Gmail address |
+   | Sender name | `claude-mons` |
+
+3. Save, then re-run `node scripts/supabase-auth-config.mjs --apply` (steps above) so the code-carrying
+   templates install now that the free-tier restriction no longer applies.
 
 ## Manual end-to-end test (requires a real, reachable inbox)
 
 The live-call verification in `docs/decisions/0016-email-otp-account-linking.md` only proves the API
 accepts the call; it deliberately uses a non-deliverable address and never reads mail. To actually see
-a code arrive:
+mail arrive:
 
 1. In the running app, open **Settings → Account → Send code** with a real email address you control.
-2. Check that inbox. Once custom SMTP is configured, the email's subject is "Confirm your new email
-   address" and the body shows a 6-digit code prominently.
-3. Type the code into the panel's code field and click **Verify**. Confirm `Settings → Account` now
-   shows that email as linked.
-4. On a second device (or `CLAUDE_MONS_OFFLINE=0` with a fresh `<userData>` profile, see
-   `docs/runbooks/reset-local-state.md`), open onboarding's **"Already have a mon? Sign in"**, enter
-   the same email, request a new code, and verify it. Confirm the adopted mon (species/stage/XP)
-   matches the first device's.
+2. Check that inbox.
+   - Before custom SMTP: the mail contains only a confirmation link (subject from the default
+     mailer's own template). Click it, then in the panel click **I clicked the link** (or just wait —
+     the panel auto-polls and picks it up on its own within 5 s). Confirm `Settings → Account` now
+     shows that email as linked.
+   - After custom SMTP + `--apply`: the subject is "Confirm your new email address" and the body
+     shows a 6-digit code prominently. Type it into the panel's code field and click **Verify**;
+     confirm `Settings → Account` shows that email as linked.
+3. On a second device (or `CLAUDE_MONS_OFFLINE=0` with a fresh `<userData>` profile, see
+   `docs/runbooks/reset-local-state.md`), open onboarding's **"Already have a mon? Sign in"**. This
+   step needs custom SMTP already configured — request a code, verify it, and confirm the adopted mon
+   (species/stage/XP) matches the first device's.
 
 ## Acceptance
 
@@ -97,4 +138,5 @@ a code arrive:
   `security_manual_linking_enabled`, and `mailer_autoconfirm` matching the table above.
 - Either the template `PATCH` succeeds (custom SMTP configured), or the script's warning about the
   free-tier limitation is still accurate — re-verify by re-running with `--apply` after any plan change.
-- The manual end-to-end test above has been run at least once by a human with a real inbox.
+- The manual end-to-end test above has been run at least once by a human with a real inbox, covering
+  both the link-click fallback (default mailer) and, once custom SMTP is set up, the typed code.

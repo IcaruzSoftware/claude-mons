@@ -4,6 +4,7 @@ import {
   buildAdoptedProfile,
   isValidEmailFormat,
   resetToAnonymousProfile,
+  resolveConfirmedEmail,
 } from '../src/main/net/account.ts';
 import { describeAuthError } from '../src/main/net/SupabaseClient.ts';
 import { defaultState } from '../src/main/persistence/state.ts';
@@ -82,6 +83,37 @@ describe('buildAdoptedProfile', () => {
       lastBattleAt: null,
       today: { day: '', count: 0 },
     });
+  });
+});
+
+describe('resolveConfirmedEmail', () => {
+  it('returns null for a missing user or one still anonymous', () => {
+    expect(resolveConfirmedEmail(null)).toBeNull();
+    expect(resolveConfirmedEmail(undefined)).toBeNull();
+    expect(resolveConfirmedEmail({ is_anonymous: true, email: 'trainer@example.com' })).toBeNull();
+  });
+
+  it('returns the confirmed email once the account is permanent and nothing is pending', () => {
+    expect(resolveConfirmedEmail({ is_anonymous: false, email: 'trainer@example.com' })).toBe(
+      'trainer@example.com',
+    );
+  });
+
+  it('returns null while a `new_email` change is still pending, even if `is_anonymous` already flipped', () => {
+    // Clicking the confirmation link flips `is_anonymous` and the email atomically, but a
+    // stale/cached user object could still carry a pending `new_email` for a moment; that must
+    // never be surfaced as the confirmed address (`docs/runbooks/auth-email-config.md`).
+    expect(
+      resolveConfirmedEmail({
+        is_anonymous: false,
+        email: 'old@example.com',
+        new_email: 'new@example.com',
+      }),
+    ).toBeNull();
+  });
+
+  it('treats a missing email as unconfirmed', () => {
+    expect(resolveConfirmedEmail({ is_anonymous: false })).toBeNull();
   });
 });
 

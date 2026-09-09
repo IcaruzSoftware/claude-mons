@@ -3,7 +3,7 @@ doc_type: architecture
 purpose: "Read this when tracing what happens linking an email to the anonymous account, signing in with it on a second device, or signing out back to anonymous."
 audience: agent
 last_verified: 2026-09-09
-last_verified_commit: b0a0308
+last_verified_commit: c062864
 related_files:
   - apps/desktop/src/main/net/SupabaseClient.ts
   - apps/desktop/src/main/net/account.ts
@@ -13,6 +13,7 @@ related_files:
   - apps/desktop/src/renderer/ui/AccountEmailCode.tsx
   - apps/desktop/src/common/ipc.ts
   - docs/decisions/0016-email-otp-account-linking.md
+  - docs/runbooks/auth-email-config.md
 ---
 
 # Account linking
@@ -33,6 +34,36 @@ nothing about `players`/`mons` changes yet. On verify, `SupabaseClient.verifyLin
 `verifyOtp` with `type: 'email_change'` first (confirmed correct against @supabase/auth-js's
 GoTrueClient docs — see the ADR), falling back to `signup`/`email` only if that fails. Success just
 sets `LocalState.profile.email` locally; the server-side profile is untouched.
+
+### Fallback: confirmation-link click instead of a typed code
+
+`linkEmail` always makes GoTrue generate a real code, but the project's free-tier default mailer can
+only send its *built-in* templates (`docs/runbooks/auth-email-config.md`), and those carry a
+confirmation **link**, not the code — so the code field in the widget above has nothing to receive
+until custom SMTP is configured. Clicking that link confirms the email change server-side for the
+existing (anonymous → now permanent) user directly, with no code involved at all, so linking still
+works today:
+
+- `SupabaseClient.refreshLinkedEmail()` calls `auth.refreshSession()` (best-effort — failure is
+  ignored) then `auth.getUser()`, which round-trips to the Auth server and so observes a confirmation
+  the player just completed in their mail client, unlike the locally cached session. It returns the
+  confirmed email via the pure `resolveConfirmedEmail(user)` (`apps/desktop/src/main/net/account.ts`),
+  which returns null while `user.is_anonymous` is still true *or* `user.new_email` shows a change is
+  still pending — a stale/cached user object must never surface that pending value as confirmed.
+- `IPC.accountLinkRefresh` (`account:link-refresh`) has no arguments; `App.registerUiIpc`'s handler
+  calls `refreshLinkedEmail()`, and if it resolves to an email, persists `LocalState.profile.email`
+  and pushes a snapshot exactly like a successful `accountLinkVerify`. The result always carries the
+  post-check `UiSnapshot.account` (`AccountOpResult.account`) so the caller can tell immediately
+  whether the link was actually clicked, without waiting for the next snapshot push.
+- `AccountEmailCode`'s `linkFallback` prop (used only by the link widget in Settings, not by either
+  sign-in widget) renders a hint plus an "I clicked the link" button calling `account:link-refresh`,
+  and auto-polls the same call every 5 s for up to 10 minutes while the code step is visible — so the
+  UI completes itself as soon as the click lands, with no button press required. Both the button and
+  the poll stop once `account.anonymous` comes back false.
+- Signing in on a second device has **no** equivalent fallback: `verifySignInCode` only ever accepts
+  a typed code, so that path still requires custom SMTP; `AccountEmailCode`'s `signinHint` prop shows
+  a one-line explanation next to both sign-in widgets (Settings' "sign in instead" and Onboarding's
+  "Already have a mon? Sign in") instead of a new flow.
 
 ## Sign in on a new (or different) device
 

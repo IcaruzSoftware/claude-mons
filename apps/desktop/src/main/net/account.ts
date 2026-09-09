@@ -4,6 +4,7 @@
  * anonymous profile on sign-out). Kept free of Electron/Supabase so they are unit-testable without
  * either — `apps/desktop/src/main/App.ts` is what wires them to `SupabaseClient`/`GameService`.
  */
+import type { User } from '@supabase/supabase-js';
 import type { CreateProfileResponse } from '@claude-mons/shared';
 import type { LocalState } from '../persistence/state.ts';
 
@@ -12,6 +13,23 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export function isValidEmailFormat(email: string): boolean {
   return EMAIL_RE.test(email.trim()) && email.trim().length <= 254;
+}
+
+/**
+ * The confirmed linked email for a Supabase Auth user, or null while still anonymous, or while an
+ * email-change is still awaiting confirmation. Backs `SupabaseClient.refreshLinkedEmail` — the
+ * fallback for the free-tier default mailer's confirmation-*link* email (no 6-digit code,
+ * `docs/runbooks/auth-email-config.md`): once the player clicks that link, GoTrue confirms the
+ * change and flips `is_anonymous` to false server-side, but a stale/cached user object can still
+ * carry a pending `new_email` — that pending value must never be surfaced as if it were already
+ * confirmed, so `email` is only trusted once `new_email` is gone.
+ */
+export function resolveConfirmedEmail(
+  user: Pick<User, 'email' | 'is_anonymous' | 'new_email'> | null | undefined,
+): string | null {
+  if (!user || user.is_anonymous) return null;
+  if (user.new_email) return null;
+  return user.email ?? null;
 }
 
 /** The subset of `LocalState` an adopt/sign-out replaces; everything else (device, settings, hooks, UI, water, behavior) is left untouched. */

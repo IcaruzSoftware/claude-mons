@@ -11,6 +11,17 @@ export const accountCopy = {
     verifyCta: 'Verify',
     resendCta: 'Send a new code',
     codePlaceholder: '6-digit code',
+    /**
+     * Fallback for the free-tier default mailer, which sends only a confirmation link, not the
+     * code (`docs/runbooks/auth-email-config.md`). Shown next to the code field so linking still
+     * completes without custom SMTP.
+     */
+    fallbackHint:
+      'No code in the mail? Click the confirmation link inside it, then press "I clicked the link".',
+    fallbackCta: 'I clicked the link',
+    fallbackChecking: 'Checking…',
+    fallbackNotYet: 'Not confirmed yet — check the inbox, then try again.',
+    linkedPrefix: 'Linked to ',
   },
   linked: {
     signOutCta: 'Sign out on this device',
@@ -31,4 +42,13 @@ export const accountCopy = {
     lead: 'Enter the email you linked from another device — this skips choosing a nation.',
     back: 'Back',
   },
+  /**
+   * Shown next to the code field for both sign-in entry points (Settings' "sign in instead" and
+   * Onboarding's "Already have a mon? Sign in"): unlike linking, signing in has no confirmation-link
+   * fallback — `verifySignInCode` only ever accepts the typed code — so the free-tier default
+   * mailer's missing code blocks this path until custom SMTP is configured
+   * (`docs/runbooks/auth-email-config.md`).
+   */
+  signinFallbackHint:
+    'Signing in on a new device needs the 6-digit code by mail. With the default mailer that code is not delivered yet — ask the project owner to configure custom SMTP.',
 };

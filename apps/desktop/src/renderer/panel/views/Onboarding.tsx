@@ -106,6 +106,7 @@ function SignInSubStep({ onBack }: { onBack: () => void }) {
           codePlaceholder={accountCopy.link.codePlaceholder}
           onRequestCode={(email) => window.monsUi.account.signinStart(email)}
           onVerify={(email, code) => window.monsUi.account.signinVerify(email, code)}
+          signinHint={accountCopy.signinFallbackHint}
         />
       </div>
       <div class="onboard-nav">

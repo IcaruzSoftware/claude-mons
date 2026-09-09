@@ -57,6 +57,7 @@ export const IPC = {
   uiSetWaterInterval: 'ui:set-water-interval',
   accountLinkStart: 'account:link-start',
   accountLinkVerify: 'account:link-verify',
+  accountLinkRefresh: 'account:link-refresh',
   accountSigninStart: 'account:signin-start',
   accountSigninVerify: 'account:signin-verify',
   accountSignout: 'account:signout',
@@ -211,6 +212,13 @@ export type UpdateStatusValue =
 export interface AccountOpResult {
   ok: boolean;
   error: string | null;
+  /**
+   * Populated only by `account:link-refresh` (the confirmation-link fallback,
+   * `docs/architecture/flows/account-linking.md`): the account state right after checking, so the
+   * caller can tell whether the link was actually clicked without waiting for the next
+   * `UiSnapshot` push.
+   */
+  account?: UiSnapshot['account'];
 }
 
 /** Leaderboard payload for the panel. */
