@@ -3,13 +3,14 @@ doc_type: reference
 purpose: "Check this for what is shipping next and blocked work items for v1 and beyond."
 audience: both
 last_verified: 2026-09-09
-last_verified_commit: b0a0308
+last_verified_commit: 256f0c3
 related_files:
   - docs/history/v1-design-2026-09-04.md
   - docs/history/v1-handoff-2026-09-04.md
   - docs/CODE_SIGNING_POLICY.md
   - docs/decisions/0014-curl-script-mode-hook-fallback.md
   - docs/decisions/0016-email-otp-account-linking.md
+  - docs/decisions/0017-force-x11-backend-on-linux.md
 ---
 
 # claude-mons — Product Roadmap
@@ -36,6 +37,6 @@ v1 is feature-complete and end-to-end tested on Windows 11. Below are the blocke
 ## Later (non-blocking, nice-to-have)
 
 - **GitHub OAuth as a second linking option.** Email OTP linking shipped ([ADR 0016](decisions/0016-email-otp-account-linking.md)); OAuth was rejected for v1 (needs a registered app and a hosted redirect target) but could sit alongside it later.
-- **Native Wayland support.** Electron protocol forbids app-positioned always-on-top windows on native Wayland; XWayland works by design, so a Wayland rewrite is out of scope until Electron or Wayland evolves.
+- **Native Wayland via layer-shell.** Electron protocol forbids app-positioned always-on-top windows on native Wayland; see [ADR 0017](decisions/0017-force-x11-backend-on-linux.md). A Wayland rewrite using wlr-layer-shell is blocked on either Electron exposing the protocol or Wayland evolving to permit client window positioning. XWayland is the fallback for all Linux users today.
 - **Sounds.** SFX for battles, hatch, level-up, and ambient idle loops; requires asset pipeline and cross-platform audio API.
 - **Code-signing Linux artifacts.** AppImage and deb signing is not applicable; Linux users trust package managers or reproducible builds. Document this as the stance.

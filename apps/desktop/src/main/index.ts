@@ -56,6 +56,14 @@ if (!app.requestSingleInstanceLock()) {
 if (process.platform === 'linux') {
   // Transparent windows need this before `ready` on Linux (X11/XWayland).
   app.commandLine.appendSwitch('enable-transparent-visuals');
+  // Force the X11 backend (XWayland on Wayland sessions). Native Wayland (xdg-shell) gives a
+  // client no window positioning, no global cursor position and no always-on-top, which breaks
+  // every part of the overlay: spawn position, ground line, hover/click-through, z-order. This
+  // overrides the ELECTRON_OZONE_PLATFORM_HINT=auto that some distributions set system-wide.
+  // Set CLAUDE_MONS_NATIVE_WAYLAND=1 to experiment with native Wayland anyway.
+  if (process.env.CLAUDE_MONS_NATIVE_WAYLAND !== '1') {
+    app.commandLine.appendSwitch('ozone-platform', 'x11');
+  }
 }
 if (process.env.CLAUDE_MONS_DISABLE_GPU === '1') {
   app.disableHardwareAcceleration();

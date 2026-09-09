@@ -3,11 +3,12 @@ doc_type: reference
 purpose: "Understand the desktop app's process model, module map, IPC channels, and CLI flags."
 audience: agent
 last_verified: 2026-09-09
-last_verified_commit: b0a0308
+last_verified_commit: 256f0c3
 related_files:
   - apps/desktop/src/**
   - apps/desktop/IPC.md
   - docs/decisions/0014-curl-script-mode-hook-fallback.md
+  - docs/decisions/0017-force-x11-backend-on-linux.md
 ---
 
 # Desktop App Reference
@@ -72,7 +73,7 @@ All windows share one preload (`src/preload/index.ts`); four renderers (pet, pan
 | `src/main/persistence/state.ts` | LocalState shape, defaults, migration list |
 | `src/main/persistence/JsonStore.ts` | Atomic debounced JSON store with `.bak` recovery and versioned migrations |
 | `src/main/sim/ScriptRunner.ts` | Scripted stimulus timeline (dev aid); CLI arg parsers |
-| `src/main/tray/Tray.ts` | Tray icon, tooltip, context menu; pet right-click menu; while no nation is chosen the tooltip reads "claude-mons — choose your nation" and the menu is reduced to a single "Finish setup" item; "Bring pet back" (`PetHost.recenterOnPrimary`) re-anchors the pet to the primary display and recenters it if it ever walks out of frame |
+| `src/main/tray/Tray.ts` | Tray icon, tooltip, context menu; pet right-click menu; while no nation is chosen the tooltip reads "claude-mons — choose your nation" and the menu is reduced to a single "Finish setup" item; "Bring pet back" (`PetHost.recenterOnPrimary`) re-anchors the pet to the primary display and recenters it if it ever walks out of frame; "Battle now" initiates a battle without shaking |
 | `src/main/updater/Updater.ts` | electron-updater over GitHub Releases (unsupported in dev, on `.deb`) |
 | `src/main/updater/interop.ts` | Resolves electron-updater's `autoUpdater` from either the named or the CommonJS default export shape; maps update errors to one readable line | `pickAutoUpdater`, `describeUpdateError`, `UpdatePayload` |
 | `src/main/autostart/Autostart.ts` | Windows `setLoginItemSettings`; Linux `~/.config/autostart/claude-mons.desktop` |

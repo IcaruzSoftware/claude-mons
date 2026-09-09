@@ -10,6 +10,8 @@ export interface TrayActions {
   isPetVisible(): boolean;
   /** Recovery action: re-anchors the pet to the primary display and recenters it in its world. */
   bringPetBack(): void;
+  /** Starts a battle without the shake gesture (fallback for setups where dragging is unreliable). */
+  battleNow(): void;
   /** False until a nation is chosen; gates whether the full pet menu or "Finish setup" shows. */
   hasNation(): boolean;
   openPanel(): void;
@@ -108,6 +110,7 @@ export class AppTray {
         click: () => this.actions.togglePetVisible(),
       },
       { label: 'Bring pet back', click: () => this.actions.bringPetBack() },
+      { label: 'Battle now', click: () => this.actions.battleNow() },
       {
         label: 'Remind me to drink water',
         type: 'checkbox',

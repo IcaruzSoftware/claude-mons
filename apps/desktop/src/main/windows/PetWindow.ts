@@ -92,10 +92,11 @@ export class PetWindow {
     this.win.on('move', () => this.broadcastGeometry());
     this.win.on('resize', () => this.broadcastGeometry());
 
-    if (process.platform === 'win32') {
+    if (process.platform === 'win32' || process.platform === 'linux') {
       // Other topmost windows can cover us; re-asserting is cheap. moveTop() also helps on
       // Windows, where a non-focusable topmost window can still end up behind another topmost
-      // window depending on z-order history (see reassertTopmost()).
+      // window depending on z-order history (see reassertTopmost()). X11 window managers can
+      // likewise drop _NET_WM_STATE_ABOVE after focus changes, so Linux re-asserts too.
       this.topmostTimer = setInterval(() => {
         if (!this.win.isDestroyed() && this.win.isVisible()) this.reassertTopmost();
       }, 5000);

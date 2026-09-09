@@ -114,6 +114,7 @@ export class PetHost {
       togglePetVisible: () => this.togglePetVisible(),
       isPetVisible: () => this.petVisible,
       bringPetBack: () => this.recenterOnPrimary(),
+      battleNow: () => this.callbacks.onBattleRequest(),
       hasNation: () => this.state.nation !== null,
       openPanel: () => this.callbacks.onPanel(),
       hookStatus: () => this.callbacks.hooks.status(),

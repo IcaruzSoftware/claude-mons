@@ -2,8 +2,8 @@
 doc_type: runbook
 purpose: "Verify that claude-mons works correctly on Linux (X11/Wayland, graphics, tray, autostart, updates, hook binary)."
 audience: both
-last_verified: 2026-09-05
-last_verified_commit: d7db9c0
+last_verified: 2026-09-09
+last_verified_commit: 256f0c3
 related_files:
   - docs/history/v1-handoff-2026-09-04.md
   - apps/desktop/src/main/index.ts
@@ -13,11 +13,27 @@ related_files:
   - apps/desktop/src/main/updater/Updater.ts
   - apps/desktop/electron-builder.yml
   - packages/hook-cli/README.md
+  - docs/decisions/0017-force-x11-backend-on-linux.md
 ---
 
 # Verify Linux builds
 
-First Linux verification of the desktop app: obtain the AppImage or deb from a release workflow, run the app under X11 and XWayland (native Wayland is unsupported), and confirm graphics, interactivity, tray, autostart, updates, and hook binary behavior match the Windows desktop build.
+First Linux verification of the desktop app: obtain the AppImage or deb from a release workflow, run the app under X11 and XWayland, and confirm graphics, interactivity, tray, autostart, updates, and hook binary behavior match the Windows desktop build.
+
+## Preamble: X11 backend by design
+
+claude-mons forces the X11 backend via XWayland on all Linux distributions, even those running
+native Wayland sessions (see [ADR 0017](../decisions/0017-force-x11-backend-on-linux.md)). This
+is necessary because native Wayland cannot provide window positioning, cursor polling, or
+always-on-top semantics — all required for the pet overlay to function. XWayland is present on
+all mainstream distributions (GNOME, KDE, Sway with xwayland enabled).
+
+**Confirm the app runs under XWayland:** check for an X11 window with `xprop` on the window or
+`xlsclients` in the terminal; debug logs (`CLAUDE_MONS_DEBUG=1 claude-mons`) show "X11 backend forced"
+at startup. To experiment with native Wayland (currently unsupported), set `CLAUDE_MONS_NATIVE_WAYLAND=1`
+and expect the failures listed in steps 1–8 below (issues #1–#8): window spawns centred, sprite
+lands below ground, sprite drifts past horizontal bounds, pet disappears from top z-order, and
+hover/right-click/shake stop working altogether.
 
 ## Prerequisites
 
@@ -73,6 +89,7 @@ First Linux verification of the desktop app: obtain the AppImage or deb from a r
    Verify:
    - Pet window renders with transparent background (not opaque black; if black, compositor issue; see note below)
    - Pet sprite visible and animated (walking, idle)
+   - **Pet window spawns on the bottom edge of the screen** (issue #1; if centred, this indicates native Wayland)
    - Panel and hover card open on left-click
 
 4. **Verify Wayland/XWayland session**
@@ -84,7 +101,9 @@ First Linux verification of the desktop app: obtain the AppImage or deb from a r
    # Should print wayland-0 or similar
    ```
 
-   Launch the app as in step 3. Verify the same rendering and interaction. XWayland is the compatibility layer; native Wayland is not supported (see `apps/desktop/src/main/index.ts` for the `enable-transparent-visuals` switch).
+   Launch the app as in step 3. Verify the same rendering and interaction. The app forces XWayland
+   (X11 backend) so behavior should be identical to step 3. If you see the native Wayland failures
+   (below), the `CLAUDE_MONS_NATIVE_WAYLAND=1` override was accidentally set.
 
 5. **Test transparency fallback**
 
@@ -98,21 +117,23 @@ First Linux verification of the desktop app: obtain the AppImage or deb from a r
 
 6. **Verify click-through and interaction**
 
-   - Move the mouse over the pet but not the sprite itself → click the desktop/taskbar behind it (click-through works)
-   - Move the mouse over the sprite → left-click opens the panel (sprite is clickable)
-   - Right-click the sprite → context menu appears (menu is set in `apps/desktop/src/main/tray/Tray.ts`)
-   - Drag the pet with left-click + drag → pet follows; release and pet falls (drag streaming works; covered in `apps/desktop/test/CursorTracker.test.ts`)
+   - Move the mouse over the pet but not the sprite itself → click the desktop/taskbar behind it (click-through works; issue #7)
+   - Move the mouse over the sprite → left-click opens the panel (sprite is clickable; issue #7)
+   - Right-click the sprite → context menu appears (issue #7; menu is set in `apps/desktop/src/main/tray/Tray.ts`)
+   - **Drag the pet with left-click + drag** → pet follows the cursor within bounds (issue #5 if sprite drifts past edges; issue #4 if window doesn't reposition); release and pet falls to ground (issue #2 if sprite lands below ground line)
+   - **Shake the pet side-to-side** → after ~1 s of shaking, the pet enters battle (issue #7 if shake doesn't register; the tray "Battle now" menu item is an alternative if shaking fails)
 
 7. **Test multi-monitor drag**
 
-   (If only one display, skip.) Connect a second display or use virtual desktops. Drag the pet to the edge, re-anchor on the other monitor, and verify the window stays on-screen (anchor memory from `apps/desktop/src/main/display.ts`).
+   (If only one display, skip.) Connect a second display or use virtual desktops. Drag the pet to the edge and onto the other monitor. Verify the window re-anchors and stays on-screen (anchor memory from `apps/desktop/src/main/display.ts`; issue #5 if sprite drifts past monitor edge).
 
 8. **Verify tray icon and fallback**
 
    Top-right corner (GNOME/KDE) or bottom-right (other DMs):
    - Tray icon shows the pet sprite (size 22px on Linux vs 16px on Windows; see `apps/desktop/src/main/tray/Tray.ts`)
    - Left-click opens the panel
-   - Right-click shows the context menu (Connect Claude, Hide pet, Sprite size, Quit)
+   - Right-click shows the context menu: Connect Claude, Hide pet, Sprite size, **Battle now**, Quit
+   - **"Battle now"** is a fallback to trigger a battle without shaking (issue #8; useful if shake input fails)
    - If tray icon does not appear: no StatusNotifier host detected; right-click the pet sprite directly for the same menu
 
    Record in `docs/ROADMAP.md` under "Linux Desktop Environment" which DMs show a working tray.

@@ -2,8 +2,8 @@
 doc_type: architecture
 purpose: "Read this when changing the pet overlay window, click-through detection, drag/shake gestures, or hover-card timing."
 audience: agent
-last_verified: 2026-09-05
-last_verified_commit: 91c68e5
+last_verified: 2026-09-09
+last_verified_commit: 256f0c3
 related_files:
   - apps/desktop/src/main/windows/PetWindow.ts
   - apps/desktop/src/main/input/CursorTracker.ts
@@ -15,6 +15,7 @@ related_files:
   - packages/shared/src/behavior/reducer.ts
   - apps/desktop/test/CursorTracker.test.ts
   - apps/desktop/test/display.test.ts
+  - docs/decisions/0017-force-x11-backend-on-linux.md
 ---
 
 # Overlay window and input
@@ -49,7 +50,7 @@ Window flags, all set in the `PetWindow` constructor unless noted:
 |---|---|---|
 | `transparent` | `true` | |
 | `frame` | `false` | |
-| `alwaysOnTop` | `true` | re-set via `setAlwaysOnTop(true, 'screen-saver')`; re-asserted every 5 s on win32, and (with `moveTop()`) after every mode switch and on `show()` — see "Z-order re-assertion" below |
+| `alwaysOnTop` | `true` | re-set via `setAlwaysOnTop(true, 'screen-saver')`; re-asserted every 5 s on win32 and Linux, and (with `moveTop()`) after every mode switch and on `show()` — see "Z-order re-assertion" below |
 | `skipTaskbar` | `true` | |
 | `resizable` / `movable` | `false` | bounds are only ever changed programmatically |
 | `minimizable` / `maximizable` / `fullscreenable` | `false` | |
@@ -266,15 +267,22 @@ falling back to `screen.getPrimaryDisplay()`.
 
 ## Linux specifics
 
-`apps/desktop/src/main/index.ts` appends the `enable-transparent-visuals` Chromium switch before
-`app.whenReady()` on Linux (required for transparent windows under X11/XWayland) and, after
-`ready`, waits 300 ms before creating any window — a workaround for a known Electron/Linux race
-where a transparent window created immediately after `ready` renders as an opaque black square.
-`PetWindow` and `HoverCardWindow` both set `focusable: false` → not applied (`PetWindow`'s
-`focusable` is instead forced to `false` on Linux by `PetHost`'s constructor call) and
-`type: 'toolbar'` only on Linux, since some window managers otherwise break always-on-top for
-unfocusable windows. The native-Wayland limitation (XWayland required) is tracked in
-`docs/ROADMAP.md`; this doc does not restate it.
+`apps/desktop/src/main/index.ts` appends the `ozone-platform x11` Chromium switch before
+`app.whenReady()` on all Linux distributions, forcing XWayland even on native Wayland sessions
+(unless `CLAUDE_MONS_NATIVE_WAYLAND=1` is set). Native Wayland cannot provide window positioning,
+global cursor polling, or always-on-top; see [ADR 0017](../decisions/0017-force-x11-backend-on-linux.md).
+Additionally, `enable-transparent-visuals` is appended (required for transparent windows under
+X11/XWayland) and, after `ready`, the app waits 300 ms before creating any window — a workaround
+for a known Electron/Linux race where a transparent window created immediately after `ready` renders
+as an opaque black square.
+
+`PetWindow` and `HoverCardWindow` both set `focusable: false` (actually forced to `false` for
+`PetWindow` by `PetHost`'s constructor on Linux) and `type: 'toolbar'` only on Linux, since some
+X11 window managers otherwise break always-on-top for unfocusable windows.
+
+`PetWindow.reassertTopmost()` runs every 5 s on Linux (as well as Windows) since some X11 window
+managers drop `_NET_WM_STATE_ABOVE` after focus changes; this is triggered by the always-on-top
+re-assertion timer (not just mode switches as on Windows).
 
 ## Test coverage
 

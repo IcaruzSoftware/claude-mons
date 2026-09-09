@@ -2,11 +2,12 @@
 doc_type: decision
 purpose: "Read this when questioning why the pet lives in a small always-on-top window instead of a full-screen transparent overlay layer."
 audience: both
-last_verified: 2026-09-05
-last_verified_commit: d7db9c0
+last_verified: 2026-09-09
+last_verified_commit: 256f0c3
 related_files:
   - apps/desktop/src/main/windows/PetWindow.ts
   - apps/desktop/src/main/display.ts
+  - docs/decisions/0017-force-x11-backend-on-linux.md
 adr_status: accepted
 ---
 
@@ -53,6 +54,8 @@ always-on-top windows.
 - Switching between strip and follow mode is a real mode transition the window and its caller must track
   (`enterStrip`/`enterFollow`/`followTo`), which is extra state that a single always-present full-screen
   layer would not have needed.
+- On Linux, native Wayland cannot provide window positioning or always-on-top; XWayland via X11
+  backend is forced by default to ensure the overlay works (see [ADR 0017](0017-force-x11-backend-on-linux.md)).
 
 ## Status
 
