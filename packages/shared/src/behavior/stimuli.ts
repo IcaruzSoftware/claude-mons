@@ -32,6 +32,8 @@ export type Stimulus =
   | { type: 'game:levelup'; level: number }
   | { type: 'game:hatch' }
   | { type: 'game:evolve'; stage: Stage }
+  /** Small celebration with no progress attached (e.g. the water reminder's "Done" button). */
+  | { type: 'game:cheer' }
   | { type: 'battle:play' }
   | { type: 'battle:attack' }
   | { type: 'battle:hit' }

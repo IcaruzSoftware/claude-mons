@@ -2,8 +2,8 @@
 doc_type: design
 purpose: "Read this when you need to change pet behavior states, priorities, stimuli, or how hook/input events drive the pet."
 audience: agent
-last_verified: 2026-09-05
-last_verified_commit: 6d99ae3
+last_verified: 2026-09-09
+last_verified_commit: 9635b29
 related_files:
   - packages/shared/src/behavior/states.ts
   - packages/shared/src/behavior/priorities.ts
@@ -82,7 +82,7 @@ celebration/error/hatch/evolve fixed lengths, plus `SCHEDULE.IDLE_TO_WALK`, `SCH
 | Hook events | `hook:prompt`, `hook:tool_start`, `hook:tool_end`, `hook:stop`, `hook:notification`, `hook:session_start`, `hook:session_end` |
 | Activity snapshot | `activity:update` (`inFlightTools`, `midTurnSessions`, `lastEventAt`) |
 | Pointer input | `input:grab`, `input:drag`, `input:release`, `input:shake-progress`, `input:shake`, `input:click`, `input:any` |
-| Game events | `game:levelup`, `game:hatch`, `game:evolve` |
+| Game events | `game:levelup`, `game:hatch`, `game:evolve`, `game:cheer` (celebration with no progress attached, e.g. the water reminder's "Done" button — `apps/desktop/src/main/reminders/WaterReminder.ts`) |
 | Battle playback | `battle:play`, `battle:attack`, `battle:hit`, `battle:win`, `battle:lose`, `battle:done` |
 | World/host | `world:bounds`, `stage:set` |
 

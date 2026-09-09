@@ -2,8 +2,8 @@
 doc_type: reference
 purpose: "Look up IPC channel names and payload types for renderer-to-main and main-to-renderer communication."
 audience: agent
-last_verified: 2026-09-05
-last_verified_commit: ab12392
+last_verified: 2026-09-09
+last_verified_commit: 9635b29
 related_files:
   - apps/desktop/src/common/ipc.ts
   - apps/desktop/README.md
@@ -38,7 +38,7 @@ Handled by `PetHost.registerIpc`, sender-guarded.
 | `pet:world` | shared `World` | World bounds and display list (used by BattlePlayer to position opponent) |
 | `pet:battle-play` | `BattlePlayMessage` | Resolved battle data: id, result, both snapshots, reward XP, isBot flag |
 
-## Panel/hover card renderer → main (`ipcRenderer.invoke`)
+## Panel/hover card/reminder renderer → main (`ipcRenderer.invoke`)
 
 Handled by `App.registerUiIpc`.
 
@@ -58,8 +58,12 @@ Handled by `App.registerUiIpc`.
 | `ui:get-leaderboard` | — | `LeaderboardPayload` | Fetch leaderboard (30 s cache) |
 | `ui:set-nickname` | `string` | `{ok, error}` | Set profile nickname |
 | `ui:sync-now` | — | `UiSnapshot` | Force sync of pending XP buckets |
+| `ui:set-water-enabled` | `boolean` | `UiSnapshot` | Turn the water reminder on/off (mirrored by the tray checkbox) |
+| `ui:set-water-interval` | `number` (one of 30\|45\|60\|90\|120, validated by `isWaterIntervalMin`) | `UiSnapshot` | Change the reminder interval |
+| `water:done` | — | `UiSnapshot` | Reminder card "Done": hides the card, records the sip, sends a `game:cheer` celebration stimulus to the pet (no XP) |
+| `water:snooze` | — | `UiSnapshot` | Reminder card "Snooze 10 min": hides the card, re-arms in 10 minutes |
 
-## Main → panel/hover card renderer (`App.pushSnapshot()`)
+## Main → panel/hover card/reminder renderer (`App.pushSnapshot()`)
 
 | Channel | Payload type | Purpose |
 |---|---|---|
@@ -77,6 +81,7 @@ Handled by `App.registerUiIpc`.
 - **StimulusMessage:** = shared Stimulus (union type from @claude-mons/shared).
 - **BattlePlayMessage:** id, result (BattleResult), me/opponent (MonSnapshot), reward XP, isBot.
 - **BattleSummary:** id, at (timestamp), won, xp, isBot, turns, reason, me stats, opponent (nickname, nation, stats).
-- **UiSnapshot:** version, isDev, profile (nickname, nation, userId), pet (speciesId, stage, state), progress (localXp, serverXp, streakDays), hooks (status, mode, effectiveMode, probe), settings (scale, autostart), online (connected, lastSyncAt, lastError, configured), update status, notifications, battles (history, cooldownUntil, remainingToday).
+- **UiSnapshot:** version, isDev, profile (nickname, nation, userId), pet (speciesId, stage, state), progress (localXp, serverXp, streakDays), hooks (status, mode, effectiveMode, probe), settings (scale, autostart), online (connected, lastSyncAt, lastError, configured), update status, notifications, battles (history, cooldownUntil, remainingToday), water (enabled, intervalMin, todayCount, nextDueAt).
+- **`water:done`/`water:snooze` are bridged as `window.monsUi.water.done()`/`window.monsUi.water.snooze()`** (a nested object on the shared `uiApi`, alongside the flat `setWaterEnabled`/`setWaterInterval` methods), used only by `src/renderer/reminder/main.tsx`.
 - **hooks.status:** `'installed-binary' | 'installed-script' | 'partial' | 'not-installed' | 'unreadable' | 'no-binary'`. **hooks.mode:** the configured preference (`'auto' | 'binary' | 'script'`). **hooks.effectiveMode:** what `'auto'` resolved to (`'binary' | 'script'`). **hooks.probe:** last `probeBinary()` result (`'ok' | 'blocked' | 'missing' | null`).
 - **LeaderboardPayload:** nations rows, alltime rows, weekly rows, myRank, fetchedAt, error.

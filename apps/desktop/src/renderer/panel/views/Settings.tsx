@@ -116,6 +116,41 @@ export function SettingsView({ s }: { s: UiSnapshot }) {
       </div>
 
       <div class="section">
+        <h3>Water reminder</h3>
+        <div class="row">
+          <div>
+            Remind me to drink water
+            <div class="hint">
+              Shows a small card next to the pet every so often, skipped while it's asleep or
+              battling. Today: {s.water.todayCount} {s.water.todayCount === 1 ? 'sip' : 'sips'}.
+            </div>
+          </div>
+          <button
+            class={s.water.enabled ? 'active' : ''}
+            onClick={() => void window.monsUi.setWaterEnabled(!s.water.enabled)}
+          >
+            {s.water.enabled ? 'On' : 'Off'}
+          </button>
+        </div>
+        <div class="row">
+          <div>Remind every</div>
+          <select
+            value={s.water.intervalMin}
+            disabled={!s.water.enabled}
+            onChange={(e) =>
+              void window.monsUi.setWaterInterval(Number((e.target as HTMLSelectElement).value))
+            }
+          >
+            {[30, 45, 60, 90, 120].map((m) => (
+              <option key={m} value={m}>
+                {m} min
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
+
+      <div class="section">
         <h3>System</h3>
         <div class="row">
           <div>

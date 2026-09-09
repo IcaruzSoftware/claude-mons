@@ -15,6 +15,9 @@ export interface TrayActions {
   openPanel(): void;
   hookStatus(): HookStatus;
   toggleHooks(): void;
+  /** Mirrors `settings.waterReminder.enabled`. */
+  waterReminderEnabled(): boolean;
+  toggleWaterReminder(): void;
   progressLine(): string;
   quit(): void;
 }
@@ -105,6 +108,12 @@ export class AppTray {
         click: () => this.actions.togglePetVisible(),
       },
       { label: 'Bring pet back', click: () => this.actions.bringPetBack() },
+      {
+        label: 'Remind me to drink water',
+        type: 'checkbox',
+        checked: this.actions.waterReminderEnabled(),
+        click: () => this.actions.toggleWaterReminder(),
+      },
       {
         label: 'Sprite size',
         submenu: [2, 3, 4].map((s) => ({

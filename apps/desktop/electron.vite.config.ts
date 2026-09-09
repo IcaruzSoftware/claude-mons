@@ -32,6 +32,7 @@ export default defineConfig({
           pet: resolve(__dirname, 'src/renderer/pet/index.html'),
           panel: resolve(__dirname, 'src/renderer/panel/index.html'),
           hovercard: resolve(__dirname, 'src/renderer/hovercard/index.html'),
+          reminder: resolve(__dirname, 'src/renderer/reminder/index.html'),
         },
       },
     },

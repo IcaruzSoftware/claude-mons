@@ -2,8 +2,8 @@
 doc_type: reference
 purpose: "Understand the desktop app's process model, module map, IPC channels, and CLI flags."
 audience: agent
-last_verified: 2026-09-05
-last_verified_commit: eefd2a2
+last_verified: 2026-09-09
+last_verified_commit: 9635b29
 related_files:
   - apps/desktop/src/**
   - apps/desktop/IPC.md
@@ -12,7 +12,7 @@ related_files:
 
 # Desktop App Reference
 
-The Electron app consists of three windows (pet overlay, main panel, hover card), a preload script, and three renderer entries. The main process owns all services: pet host, game logic, battle rules, hook endpoint, sync queue, and updater. Data persists in `<userData>/state.json`; IPC channel names live in `src/common/ipc.ts`.
+The Electron app consists of four windows (pet overlay, main panel, hover card, water reminder card), a preload script, and four renderer entries. The main process owns all services: pet host, game logic, battle rules, hook endpoint, sync queue, water reminder scheduler, and updater. Data persists in `<userData>/state.json`; IPC channel names live in `src/common/ipc.ts`.
 
 ## Process model
 
@@ -29,6 +29,8 @@ src/main/App.ts (composition root)
     │
     ├─ HoverCardWindow (240×92 delayed stat card)
     │
+    ├─ ReminderWindow (260×110 water reminder card) + WaterReminder (scheduling)
+    │
     ├─ GameService (XP → level-ups, hatch/evolve)
     ├─ BattleService (cooldown, daily cap, offline fallback)
     ├─ JsonStore (atomic persistence)
@@ -39,7 +41,7 @@ src/main/App.ts (composition root)
     └─ Updater + Autostart
 ```
 
-All windows share one preload (`src/preload/index.ts`); three renderers (pet, panel, hovercard) each carry CSP `default-src 'self'`. Renderers access main via `window.mons` (pet) and `window.monsUi` (panel/hovercard). Persistence uses `<userData>/state.json`.
+All windows share one preload (`src/preload/index.ts`); four renderers (pet, panel, hovercard, reminder) each carry CSP `default-src 'self'`. Renderers access main via `window.mons` (pet) and `window.monsUi` (panel/hovercard/reminder; `window.monsUi.water.done()`/`.snooze()` for the reminder card). Persistence uses `<userData>/state.json`.
 
 ## Module map
 
@@ -50,10 +52,11 @@ All windows share one preload (`src/preload/index.ts`); three renderers (pet, pa
 | `src/main/PetHost.ts` | Pet window, tray, cursor tracking; drag/shake/click; world bounds; stimulus forwarding; withholds the window and stimuli until a nation is chosen (`canRevealPet`/`canStimulatePet`) |
 | `src/main/petGate.ts` | Pure `canRevealPet`/`canStimulatePet` helpers deciding whether the pet window may be shown or animated before onboarding picks a nation |
 | `src/main/display.ts` | Pure geometry (strip/follow bounds, anchor memory, display lookup); `toIntPoint`/`toIntRect` round-and-validate coordinates before any `BrowserWindow.setBounds`/`setPosition` call |
-| `src/main/windows/*` | PetWindow (strip/follow, geo broadcast; every bounds/position change goes through the integer-safe `setBoundsSafe`/`setPositionSafe`; re-asserts always-on-top + z-order via `reassertTopmost()` on every mode switch), PanelWindow (lazy, remembered pos), HoverCardWindow (delayed card) |
+| `src/main/windows/*` | PetWindow (strip/follow, geo broadcast; every bounds/position change goes through the integer-safe `setBoundsSafe`/`setPositionSafe`; re-asserts always-on-top + z-order via `reassertTopmost()` on every mode switch), PanelWindow (lazy, remembered pos), HoverCardWindow (delayed card), ReminderWindow (interactive water reminder card; same family as HoverCardWindow but not click-through, since it has Done/Snooze buttons) |
 | `src/main/game/GameService.ts` | Hook events → provisional XP, buckets, daily bonus/streak, level-ups, hatch/evolve |
 | `src/main/game/BattleService.ts` | Cooldown/daily cap, remote or offline wild battle, battle history |
 | `src/main/game/species.ts` | Species lookup per nation (offline hatching only) |
+| `src/main/reminders/WaterReminder.ts` | Electron-free water reminder scheduler: `nextDueAt`/`todayCount` pure helpers plus a `WaterReminder` class (`tick`/`done`/`snooze`/`onConfigChanged`/`devForceDueInSeconds`) with an injected clock, so it is unit-testable without a running app |
 | `src/main/hooks/HookServer.ts` | HTTP endpoint: `/event` (bearer token, Go binary) and `/hook` (stable header token, script mode); 64 KB cap; port persisted with +1..+20 fallback |
 | `src/main/hooks/rawHook.ts` | `rawHookToEnvelope`: reduces raw Claude Code hook JSON to the same whitelist as `packages/hook-cli/main.go:buildEnvelope`, for the `/hook` route |
 | `src/main/hooks/mode.ts` | `probeBinary` (exec-time check) and `computeEffectiveMode` (`auto`/`binary`/`script`) |
@@ -85,6 +88,7 @@ All windows share one preload (`src/preload/index.ts`); three renderers (pet, pa
 | `src/renderer/panel/onboardingSteps.ts` | Pure step arithmetic (`nextOnboardingStep`/`prevOnboardingStep`/`canGoBack`/`canGoNext`) for the onboarding wizard |
 | `src/renderer/panel/views/*` | Onboarding (5-step wizard: welcome, what-is, controls, connect Claude Code, nation picker), Mon, Battles, Leaderboard, Settings |
 | `src/renderer/hovercard/main.tsx` | Hover card entry: compact stat card |
+| `src/renderer/reminder/main.tsx` | Water reminder card entry: nation-tinted sprite (or a 💧 glyph before hatch) + "Time for a sip of water" + Done/Snooze buttons; always renders the same content since the window is only shown while due |
 | `src/renderer/ui/useSnapshot.ts` | Shared snapshot signal + one-time feed subscription |
 | `src/renderer/ui/SpriteView.tsx` | Animated sprite preview (nation-tinted) |
 | `src/renderer/ui/hookStatus.ts` | Shared `HookStatusValue` label/dot-class helpers (Settings hook row + onboarding Connect step) |
@@ -106,25 +110,27 @@ All channel names and payload types live in `src/common/ipc.ts`. See `apps/deskt
 | `streak` | `{ streakDays, lastActiveDay }` |
 | `bonusXp` / `battleXp` | Cumulative rewards |
 | `behavior` | `{ anchor }` (display ID + fractional X for remembered position) |
-| `settings` | `{ spriteScale: 2\|3\|4, autostart, focusable, disableGpu }` |
+| `settings` | `{ spriteScale: 2\|3\|4, autostart, focusable, disableGpu, waterReminder: { enabled, intervalMin: 30\|45\|60\|90\|120 } }` |
 | `hooks` | `{ installedAt, port, token, mode }` — `port`/`token` are the persisted `/hook` endpoint (script mode); `mode` is `'auto' \| 'binary' \| 'script'` |
 | `ui` | `{ panel }` (window position or null) |
 | `auth` | `{ session }` (serialized supabase-js session) |
 | `battles` | `{ history (≤50), lastBattleAt, today }` |
+| `water` | `{ lastDoneAt, snoozedUntil, todayCount, todayKey }` — `snoozedUntil` is reused both for an explicit "Snooze 10 min" and to re-arm after an ignored card auto-hides; see `src/main/reminders/WaterReminder.ts` |
 
-**Migrations:** `MIGRATIONS[i]` upgrades version i+1 → i+2; run in order. `MIGRATIONS[0]` (v1 → v2) adds `hooks.port`/`hooks.token`/`hooks.mode`. JsonStore uses 500 ms debounce; loads fall back to backup or defaults when unparsable.
+**Migrations:** `MIGRATIONS[i]` upgrades version i+1 → i+2; run in order. `MIGRATIONS[0]` (v1 → v2) adds `hooks.port`/`hooks.token`/`hooks.mode`. `MIGRATIONS[1]` (v2 → v3) adds `settings.waterReminder` (on by default, 60 min) and the top-level `water` state. JsonStore uses 500 ms debounce; loads fall back to backup or defaults when unparsable.
 
 ## Dev CLI flags (parsed in `src/main/App.ts`)
 
 | Flag | Development only | Effect |
 |---|---|---|
 | `--simulate <script.json>` | No | Load SimScript (shared with `pnpm sim`), start timeline 1.5 s after boot |
-| `--capture <path.png>` | No | Screenshot pet window 3 s after boot; also `<path>.panel.png` if visible |
+| `--capture <path.png>` | No | Screenshot pet window 3 s after boot (later if `--dev-water-in` is set, to give the reminder time to appear); also `<path>.panel.png` if the panel is visible and `<path>.reminder.png` if the water reminder card is visible |
 | `--dev-nation <water\|fire\|earth\|air>` | Yes | Auto-choose nation after 1 s |
 | `--dev-battle` | Yes | Trigger `onBattleRequest()` after 2.5 s |
 | `--dev-xp <n>` | Yes | Grant XP via `game.grantXp(n, 'server')` after 2 s |
 | `--dev-install-hooks` | Yes | Install hooks (`toggleHooks()`) 1.5 s after boot, in the effective mode; used for manual testing against `CLAUDE_CONFIG_DIR` |
 | `--dev-onboarding-step <n>` | Yes | Open the onboarding wizard on step n (via `UiSnapshot.devOnboardingStep`) instead of step 0; for capturing a specific step |
+| `--dev-water-in <seconds>` | Yes | Force the water reminder due N seconds after start (`WaterReminder.devForceDueInSeconds`), so the card appears quickly for manual testing or `--capture` instead of waiting out a full interval |
 | `--autostart` | No | Marker for installer (not read by app) |
 
 ## Environment variables
@@ -144,7 +150,7 @@ All channel names and payload types live in `src/common/ipc.ts`. See `apps/deskt
 
 ## Build config
 
-- **Vite config** (`electron.vite.config.ts`): Main input `src/main/index.ts` (excludes shared/sprites from externalization); preload input forced to CJS format; renderer uses Preact vite preset with three HTML entries (pet, panel, hovercard).
+- **Vite config** (`electron.vite.config.ts`): Main input `src/main/index.ts` (excludes shared/sprites from externalization); preload input forced to CJS format; renderer uses Preact vite preset with four HTML entries (pet, panel, hovercard, reminder).
 - **electron-builder** (`electron-builder.yml`): appId `dev.claude-mons.desktop`; publishes to GitHub releases (IcaruzSoftware/claude-mons). Win: NSIS x64, per-user, changeable install dir. Linux: AppImage + deb x64; deb depends libgtk-3, libnotify, libnss3, libxss, libxtst, xdg-utils, libatspi, libuuid, libsecret.
 - **Bundled binary:** Hook CLI (Go) copied from `packages/hook-cli/dist/` into `<bin>` with sha256 verify.
 
@@ -163,3 +169,4 @@ All channel names and payload types live in `src/common/ipc.ts`. See `apps/deskt
 | `test/hooks.test.ts` | HookServer `/event` and `/hook` auth, port persistence/fallback, SpoolDrainer junk skip, ActivityTracker collapsing/pruning |
 | `test/petGate.test.ts` | `canRevealPet`/`canStimulatePet`: withheld until nation + window-ready + user-visible, refused while any is missing |
 | `test/onboardingSteps.test.ts` | Onboarding wizard step clamping (`nextOnboardingStep`/`prevOnboardingStep`) and Back/Next availability at the edges |
+| `test/WaterReminder.test.ts` | `nextDueAt` derivation, `tick`/`done`/`snooze`/auto-hide re-arm, skip-while-asleep and skip-while-in-battle, daily sip counter rollover across a UTC day boundary, `onConfigChanged`, `devForceDueInSeconds` |

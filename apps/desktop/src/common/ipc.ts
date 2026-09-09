@@ -53,8 +53,14 @@ export const IPC = {
   uiGetLeaderboard: 'ui:get-leaderboard',
   uiSetNickname: 'ui:set-nickname',
   uiSyncNow: 'ui:sync-now',
+  uiSetWaterEnabled: 'ui:set-water-enabled',
+  uiSetWaterInterval: 'ui:set-water-interval',
 
-  // main -> renderer(panel / hovercard)
+  // renderer(reminder) -> main (invoke)
+  waterDone: 'water:done',
+  waterSnooze: 'water:snooze',
+
+  // main -> renderer(panel / hovercard / reminder)
   uiSnapshot: 'ui:snapshot',
 } as const;
 
@@ -167,6 +173,14 @@ export interface UiSnapshot {
     probe: HookProbeValue;
   };
   settings: { spriteScale: number; autostart: boolean };
+  water: {
+    enabled: boolean;
+    intervalMin: number;
+    /** Sips recorded today (resets across a UTC day boundary). */
+    todayCount: number;
+    /** Cached next-due timestamp, or null while disabled. */
+    nextDueAt: number | null;
+  };
   online: {
     connected: boolean;
     lastSyncAt: number | null;

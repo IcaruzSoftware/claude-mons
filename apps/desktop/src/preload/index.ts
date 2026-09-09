@@ -74,6 +74,14 @@ const uiApi = {
   setNickname: (nickname: string): Promise<{ ok: boolean; error: string | null }> =>
     ipcRenderer.invoke(IPC.uiSetNickname, nickname),
   syncNow: (): Promise<UiSnapshot> => ipcRenderer.invoke(IPC.uiSyncNow),
+  setWaterEnabled: (enabled: boolean): Promise<UiSnapshot> =>
+    ipcRenderer.invoke(IPC.uiSetWaterEnabled, enabled),
+  setWaterInterval: (intervalMin: number): Promise<UiSnapshot> =>
+    ipcRenderer.invoke(IPC.uiSetWaterInterval, intervalMin),
+  water: {
+    done: (): Promise<UiSnapshot> => ipcRenderer.invoke(IPC.waterDone),
+    snooze: (): Promise<UiSnapshot> => ipcRenderer.invoke(IPC.waterSnooze),
+  },
 };
 
 export type PetApi = typeof petApi;

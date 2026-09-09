@@ -49,6 +49,7 @@ export interface PetHostCallbacks {
   onPanel: () => void;
   onBattleRequest: () => void;
   hooks: { status: () => HookStatus; toggle: () => void };
+  water: { enabled: () => boolean; toggle: () => void };
   progressLine: () => string;
 }
 
@@ -117,6 +118,8 @@ export class PetHost {
       openPanel: () => this.callbacks.onPanel(),
       hookStatus: () => this.callbacks.hooks.status(),
       toggleHooks: () => this.callbacks.hooks.toggle(),
+      waterReminderEnabled: () => this.callbacks.water.enabled(),
+      toggleWaterReminder: () => this.callbacks.water.toggle(),
       progressLine: () => this.callbacks.progressLine(),
       quit: () => app.quit(),
     });
@@ -216,6 +219,11 @@ export class PetHost {
 
   currentState(): StateMessage | null {
     return this.lastState;
+  }
+
+  /** True while a battle is animating in the renderer; used by `WaterReminder` to defer the card. */
+  isInBattle(): boolean {
+    return this.inBattle;
   }
 
   /** Anchor plus the sprite's top edge (world DIPs), for positioning UI next to the pet. */

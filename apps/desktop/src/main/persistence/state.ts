@@ -2,6 +2,7 @@ import { randomBytes } from 'node:crypto';
 import type { CreditedMinute, MinuteBucket, Nation, Stage, StreakState } from '@claude-mons/shared';
 import type { BattleSummary } from '../../common/ipc.ts';
 import type { AnchorMemory } from '../display.ts';
+import type { WaterIntervalMin } from '../reminders/WaterReminder.ts';
 import type { Migration } from './JsonStore.ts';
 
 export interface LocalState {
@@ -47,6 +48,7 @@ export interface LocalState {
     /** Linux: whether the pet window may take focus (some WMs need it for always-on-top) */
     focusable: boolean | null;
     disableGpu: boolean;
+    waterReminder: { enabled: boolean; intervalMin: WaterIntervalMin };
   };
   hooks: {
     /** set after a successful install so we can re-verify on start */
@@ -71,6 +73,15 @@ export interface LocalState {
     /** UTC day key and count, for the local daily cap while offline */
     today: { day: string; count: number };
   };
+  water: {
+    /** Last time the player clicked "Done" on the water reminder card, or null. */
+    lastDoneAt: number | null;
+    /** Deferred-until timestamp: set by "Snooze 10 min" and reused to re-arm after an ignored card auto-hides. */
+    snoozedUntil: number | null;
+    /** Sips recorded on `todayKey` (UTC day key). */
+    todayCount: number;
+    todayKey: string;
+  };
 }
 
 /** Default preferred bind port for HookServer's localhost endpoint (falls back to +1..+20 if taken). */
@@ -88,7 +99,13 @@ export function defaultState(): LocalState {
     bonusXp: 0,
     battleXp: 0,
     behavior: { anchor: null },
-    settings: { spriteScale: 3, autostart: false, focusable: null, disableGpu: false },
+    settings: {
+      spriteScale: 3,
+      autostart: false,
+      focusable: null,
+      disableGpu: false,
+      waterReminder: { enabled: true, intervalMin: 60 },
+    },
     hooks: {
       installedAt: null,
       port: DEFAULT_HOOK_PORT,
@@ -98,6 +115,7 @@ export function defaultState(): LocalState {
     ui: { panel: null },
     auth: { session: null },
     battles: { history: [], lastBattleAt: null, today: { day: '', count: 0 } },
+    water: { lastDoneAt: null, snoozedUntil: null, todayCount: 0, todayKey: '' },
   };
 }
 
@@ -115,5 +133,15 @@ function addHookEndpoint(state: Record<string, unknown>): Record<string, unknown
   };
 }
 
+/** v2 -> v3: adds the water reminder (on by default, 60 min) and its daily-sip counter. */
+function addWaterReminder(state: Record<string, unknown>): Record<string, unknown> {
+  const settings = (state.settings as Record<string, unknown> | undefined) ?? {};
+  return {
+    ...state,
+    settings: { ...settings, waterReminder: { enabled: true, intervalMin: 60 } },
+    water: { lastDoneAt: null, snoozedUntil: null, todayCount: 0, todayKey: '' },
+  };
+}
+
 /** migrations[i] upgrades version i+1 -> i+2. Add new ones at the end; never edit old ones. */
-export const MIGRATIONS: readonly Migration[] = [addHookEndpoint];
+export const MIGRATIONS: readonly Migration[] = [addHookEndpoint, addWaterReminder];

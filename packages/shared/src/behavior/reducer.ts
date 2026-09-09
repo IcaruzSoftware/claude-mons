@@ -398,6 +398,7 @@ function applyStimulus(
       return m;
 
     case 'game:levelup':
+    case 'game:cheer':
       return go(m, 'celebrate', now, effects);
 
     case 'game:hatch':

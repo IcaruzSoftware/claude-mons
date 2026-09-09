@@ -2,8 +2,8 @@
 doc_type: reference
 purpose: "Release notes and version history; check this when seeing claude-mons updates or deciding what version to expect features in."
 audience: both
-last_verified: 2026-09-05
-last_verified_commit: 91c68e5
+last_verified: 2026-09-09
+last_verified_commit: 9635b29
 related_files:
   - docs/history/v1-handoff-2026-09-04.md
   - docs/README.md
@@ -26,6 +26,7 @@ All notable changes to claude-mons are documented here. See [Keep a Changelog](h
 - APT repository: `scripts/build-apt-repo.sh` publishes a signed APT repository to GitHub Pages from the `apt` job in `.github/workflows/release.yml`; `curl -fsSL https://icaruzsoftware.github.io/claude-mons/install.sh | sudo bash` then `sudo apt upgrade` installs and updates claude-mons on Debian/Ubuntu. See `docs/runbooks/apt-repository.md`.
 - Script-mode hook fallback: on machines where Windows Smart App Control blocks the unsigned Go hook binary, the app now installs a `curl`/`curl.exe` command instead, posting raw Claude Code hook events to a new `/hook` endpoint (`apps/desktop/src/main/hooks/HookServer.ts`) that reduces them with the same metadata whitelist as the binary. Mode is auto-detected by actually probing the binary at start (`apps/desktop/src/main/hooks/mode.ts`), with a manual override in Settings; see `docs/decisions/0014-curl-script-mode-hook-fallback.md`.
 - Onboarding wizard: `apps/desktop/src/renderer/panel/views/Onboarding.tsx` is now a 5-step wizard (welcome, what-is-claude-mons, controls reference, connect Claude Code, nation picker) with Back/Next buttons and step dots, replacing the bare nation-picker screen; copy lives in one `onboardingCopy` constant and step transitions go through pure helpers in `apps/desktop/src/renderer/panel/onboardingSteps.ts`. The new "Connect Claude Code" step calls the same hook-toggle IPC as Settings (via the shared `apps/desktop/src/renderer/ui/hookStatus.ts` helpers) and never installs hooks without a click; the nation-picker step was also re-tuned (smaller cards, clamped blurbs) and the wizard's scrollbar hidden so the four-nation grid fits the 440×660 panel without scrolling.
+- Water reminder: on by default, nags every 30/45/60/90/120 minutes (configurable in Settings and mirrored by a tray checkbox) with a small 260×110 card next to the pet (`apps/desktop/src/main/windows/ReminderWindow.ts`, `apps/desktop/src/renderer/reminder/`) showing the nation-tinted sprite (or a 💧 glyph before hatch), "Time for a sip of water", and **Done**/**Snooze 10 min** buttons. The card is skipped while the pet is asleep or mid-battle, auto-hides after 5 minutes if ignored and re-arms for the normal interval, and never shows more than one at a time. Scheduling is a pure, Electron-free `WaterReminder` class (`apps/desktop/src/main/reminders/WaterReminder.ts`) with an injected clock, covered by `apps/desktop/test/WaterReminder.test.ts`. **Done** records a daily sip counter (UTC day key, shown in Settings as "Today: N sips") and plays a small celebration via a new `game:cheer` behavior stimulus (`packages/shared/src/behavior/stimuli.ts`) — no XP is awarded. `LocalState` gains `settings.waterReminder` and a top-level `water` key (`MIGRATIONS[1]`, schema v2 → v3).
 
 ### Fixed
 - Battle HUD rendering: `PetHost.playBattle` now switches the pet window into a new, generously-sized

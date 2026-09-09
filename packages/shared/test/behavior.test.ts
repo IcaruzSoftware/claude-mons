@@ -75,6 +75,20 @@ describe('priority gating', () => {
   });
 });
 
+describe('game events', () => {
+  it('game:cheer celebrates like game:levelup, with no progress attached', () => {
+    const { model, effects } = stepBehavior(baby(), [{ type: 'game:cheer' }], 10);
+    expect(model.state).toBe('celebrate');
+    expect(effects).toContainEqual({ type: 'state-changed', from: 'idle', to: 'celebrate' });
+  });
+
+  it('game:cheer outranks working, same as game:levelup (celebrate priority 60 > working 40)', () => {
+    const { model: working } = stepBehavior(baby(), [{ type: 'hook:tool_start' }], 10);
+    const { model } = stepBehavior(working, [{ type: 'game:cheer' }], 20);
+    expect(model.state).toBe('celebrate');
+  });
+});
+
 describe('decay chain', () => {
   it('working -> thinking -> idle with a fake clock', () => {
     const t = 1000;

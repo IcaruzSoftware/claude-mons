@@ -87,6 +87,15 @@ export function parseDevOnboardingStepArg(argv: readonly string[]): number | nul
   return Number.isFinite(v) && v >= 0 ? v : null;
 }
 
+/**
+ * `--dev-water-in <seconds>`: force the water reminder to become due this many seconds after start
+ * (development only), for capturing the reminder card without waiting out a full interval.
+ */
+export function parseDevWaterInArg(argv: readonly string[]): number | null {
+  const v = Number(parseArg(argv, '--dev-water-in'));
+  return Number.isFinite(v) && v > 0 ? v : null;
+}
+
 function parseArg(argv: readonly string[], flag: string): string | null {
   const i = argv.indexOf(flag);
   if (i >= 0 && argv[i + 1]) return argv[i + 1]!;

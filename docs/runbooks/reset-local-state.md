@@ -2,8 +2,8 @@
 doc_type: runbook
 purpose: "Reset or recover local game state when testing or troubleshooting the desktop app."
 audience: both
-last_verified: 2026-09-05
-last_verified_commit: d7db9c0
+last_verified: 2026-09-09
+last_verified_commit: 9635b29
 related_files:
   - apps/desktop/src/main/persistence/state.ts
   - apps/desktop/src/main/persistence/JsonStore.ts
@@ -78,7 +78,8 @@ claude-mons --dev-nation water --dev-xp 10
 | `--dev-nation <water\|fire\|earth\|air>` | Auto-choose nation after 1 s (development only) |
 | `--dev-xp <n>` | Grant XP via `game.grantXp(n, 'server')` after 2 s |
 | `--dev-battle` | Trigger a wild battle after 2.5 s |
-| `--capture <path.png>` | Screenshot pet window 3 s after boot |
+| `--dev-water-in <seconds>` | Force the water reminder due N seconds after start, for testing the card without waiting out a full interval |
+| `--capture <path.png>` | Screenshot pet window 3 s after boot (also `<path>.reminder.png` if the water reminder card is visible) |
 
 Set environment variables for offline testing:
 

@@ -38,19 +38,24 @@ import { SyncQueue } from './net/SyncQueue.ts';
 import { backendConfig } from './net/config.ts';
 import { JsonStore } from './persistence/JsonStore.ts';
 import { MIGRATIONS, defaultState, type LocalState } from './persistence/state.ts';
+import { isWaterIntervalMin, todayCount, WaterReminder } from './reminders/WaterReminder.ts';
 import {
   ScriptRunner,
   parseCaptureArg,
   parseDevNationArg,
   parseDevOnboardingStepArg,
+  parseDevWaterInArg,
   parseDevXpArg,
   parseSimulateArg,
 } from './sim/ScriptRunner.ts';
 import { Updater } from './updater/Updater.ts';
 import { HoverCardWindow } from './windows/HoverCardWindow.ts';
 import { PanelWindow } from './windows/PanelWindow.ts';
+import { ReminderWindow } from './windows/ReminderWindow.ts';
 
 const HOVER_DELAY_MS = 1000;
+/** How often `WaterReminder.tick()` is polled; short enough that "due" and "asleep/battle ends" feel prompt. */
+const WATER_TICK_MS = 5000;
 const DEBUG = process.env.CLAUDE_MONS_DEBUG === '1';
 
 /** Wires all main-process services together. One instance per app. */
@@ -69,8 +74,11 @@ export class App {
     (m) => this.store.update((s) => (s.ui.panel = m)),
   );
   readonly hoverCard = new HoverCardWindow();
+  readonly reminderWindow = new ReminderWindow();
   readonly updater = new Updater();
   readonly autostart = new Autostart();
+  water!: WaterReminder;
+  private waterTimer: NodeJS.Timeout | null = null;
   private autostartEnabled = false;
   private api: SupabaseClient | null = null;
   private sync: SyncQueue | null = null;
@@ -140,6 +148,10 @@ export class App {
           status: () => (this.hookStatus === 'no-binary' ? 'not-installed' : this.hookStatus),
           toggle: () => void this.toggleHooks(),
         },
+        water: {
+          enabled: () => this.store.get().settings.waterReminder.enabled,
+          toggle: () => this.toggleWaterReminder(),
+        },
         progressLine: () => this.progressLine(),
       },
     );
@@ -148,6 +160,7 @@ export class App {
     this.host.onBattleDone((id) => this.onBattleDone(id));
     this.host.start();
     this.wireGameEvents();
+    this.wireWaterReminder();
 
     // Hooks: endpoint + spool + binary + mode probe + installer.
     // The port and the script-mode token are persisted (LocalState.hooks) so a script-mode hook
@@ -188,6 +201,7 @@ export class App {
       this.sim = ScriptRunner.fromFile(simPath)?.withSender((s) => this.host.stimulate(s)) ?? null;
       setTimeout(() => this.sim?.start(), 1500);
     }
+    let devWaterIn: number | null = null;
     if (!app.isPackaged) {
       const devNation = parseDevNationArg(process.argv);
       if (devNation) setTimeout(() => this.chooseNation(devNation), 1000);
@@ -202,9 +216,15 @@ export class App {
       if (process.argv.includes('--dev-install-hooks')) {
         setTimeout(() => void this.toggleHooks(), 1500);
       }
+      devWaterIn = parseDevWaterInArg(process.argv);
+      if (devWaterIn) setTimeout(() => this.water.devForceDueInSeconds(devWaterIn!), 500);
     }
     const capturePath = parseCaptureArg(process.argv);
     if (capturePath) {
+      // Give the water reminder tick loop (WATER_TICK_MS) enough time to notice a forced due date
+      // (armed 500 ms after start, see --dev-water-in below) and actually show the card before the
+      // screenshot is taken.
+      const captureDelay = devWaterIn ? 500 + devWaterIn * 1000 + WATER_TICK_MS + 2000 : 3000;
       setTimeout(async () => {
         try {
           const img = await this.host.window.win.webContents.capturePage();
@@ -218,10 +238,16 @@ export class App {
             await writeFile(capturePath.replace(/\.png$/, '.panel.png'), pimg.toPNG());
             console.info('--capture: wrote panel capture');
           }
+          const reminderWin = this.reminderWindow.browserWindow();
+          if (reminderWin && reminderWin.isVisible()) {
+            const rimg = await reminderWin.webContents.capturePage();
+            await writeFile(capturePath.replace(/\.png$/, '.reminder.png'), rimg.toPNG());
+            console.info('--capture: wrote reminder capture');
+          }
         } catch (err) {
           console.error('--capture failed:', err);
         }
-      }, 3000);
+      }, captureDelay);
     }
 
     app.on('before-quit', () => {
@@ -266,6 +292,12 @@ export class App {
         probe: this.probeResult,
       },
       settings: { spriteScale: s.settings.spriteScale, autostart: this.autostartEnabled },
+      water: {
+        enabled: s.settings.waterReminder.enabled,
+        intervalMin: s.settings.waterReminder.intervalMin,
+        todayCount: todayCount(s.water, Date.now()),
+        nextDueAt: this.water.getDueAt(),
+      },
       online: {
         connected: sync?.connected ?? false,
         lastSyncAt: s.ledger.lastSyncAt,
@@ -353,6 +385,32 @@ export class App {
         const msg = err instanceof ApiCallError ? `${err.code}: ${err.message}` : String(err);
         return { ok: false, error: msg };
       }
+    });
+    ipcMain.handle(IPC.uiSetWaterEnabled, (_e, enabled: unknown) => {
+      if (typeof enabled === 'boolean') {
+        this.store.update((s) => (s.settings.waterReminder.enabled = enabled));
+        this.water.onConfigChanged();
+        this.host.tray.refreshMenu();
+      }
+      return this.snapshot();
+    });
+    ipcMain.handle(IPC.uiSetWaterInterval, (_e, intervalMin: unknown) => {
+      if (isWaterIntervalMin(intervalMin)) {
+        this.store.update((s) => (s.settings.waterReminder.intervalMin = intervalMin));
+        this.water.onConfigChanged();
+      }
+      return this.snapshot();
+    });
+    ipcMain.handle(IPC.waterDone, () => {
+      this.water.done();
+      this.host.stimulate({ type: 'game:cheer' }); // little celebration; no XP for drinking water
+      this.pushSnapshot();
+      return this.snapshot();
+    });
+    ipcMain.handle(IPC.waterSnooze, () => {
+      this.water.snooze();
+      this.pushSnapshot();
+      return this.snapshot();
     });
   }
 
@@ -476,6 +534,40 @@ export class App {
     }, 1000);
   }
 
+  // --- water reminder ---------------------------------------------------------------------------
+
+  private wireWaterReminder(): void {
+    this.water = new WaterReminder({
+      now: () => Date.now(),
+      getState: () => {
+        const s = this.store.get();
+        return {
+          enabled: s.settings.waterReminder.enabled,
+          intervalMin: s.settings.waterReminder.intervalMin,
+          lastDoneAt: s.water.lastDoneAt,
+          snoozedUntil: s.water.snoozedUntil,
+          todayCount: s.water.todayCount,
+          todayKey: s.water.todayKey,
+        };
+      },
+      update: (fn) => this.store.update((s) => fn(s.water)),
+      isAsleep: () => this.host.currentState()?.state === 'sleep',
+      isInBattle: () => this.host.isInBattle(),
+      onShow: () => this.reminderWindow.show(this.host.spriteAnchorInfo()),
+      onHide: () => this.reminderWindow.hide(),
+    });
+    this.waterTimer = setInterval(() => this.water.tick(), WATER_TICK_MS);
+  }
+
+  private toggleWaterReminder(): void {
+    this.store.update(
+      (s) => (s.settings.waterReminder.enabled = !s.settings.waterReminder.enabled),
+    );
+    this.water.onConfigChanged();
+    this.host.tray.refreshMenu();
+    this.pushSnapshot();
+  }
+
   private progressLine(): string {
     if (!this.store.get().profile.nation) return 'claude-mons — choose your nation';
     const p = this.game.snapshot();
@@ -564,6 +656,8 @@ export class App {
     this.sync?.stop();
     this.spool?.stop();
     this.hoverCard.hide();
+    if (this.waterTimer) clearInterval(this.waterTimer);
+    this.reminderWindow.hide();
     await this.hookServer?.stop().catch(() => {});
     await this.store.flush().catch(() => {});
   }
