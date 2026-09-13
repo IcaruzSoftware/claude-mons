@@ -65,7 +65,13 @@ if (process.platform === 'linux') {
     app.commandLine.appendSwitch('ozone-platform', 'x11');
   }
 }
-if (process.env.CLAUDE_MONS_DISABLE_GPU === '1') {
+// Linux: transparent frameless windows are most reliable with software compositing, and the GPU
+// process was seen segfaulting (exit 139) on AMD radeonsi under XWayland (issue #9). Off by default
+// there; CLAUDE_MONS_ENABLE_GPU=1 opts back in. Other platforms keep the GPU unless asked otherwise.
+const gpuOff =
+  process.env.CLAUDE_MONS_DISABLE_GPU === '1' ||
+  (process.platform === 'linux' && process.env.CLAUDE_MONS_ENABLE_GPU !== '1');
+if (gpuOff) {
   app.disableHardwareAcceleration();
 }
 

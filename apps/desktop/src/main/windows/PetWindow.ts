@@ -1,11 +1,11 @@
 import { join } from 'node:path';
 import { BrowserWindow, screen, type Display } from 'electron';
 import { IPC, type WindowGeometry } from '../../common/ipc.ts';
-import { battleBounds, followBounds, stripBounds, toIntPoint, toIntRect } from '../display.ts';
+import { battleBounds, compactBounds, needsHop, toIntRect } from '../display.ts';
 
 const DEBUG = process.env.CLAUDE_MONS_DEBUG === '1';
 
-export type PetWindowMode = 'strip' | 'follow' | 'battle';
+export type PetWindowMode = 'follow' | 'battle';
 
 export interface PetWindowOptions {
   spriteScale: number;
@@ -13,10 +13,16 @@ export interface PetWindowOptions {
   focusable: boolean;
 }
 
-/** Height of the strip window in grid pixels (before scaling): room for an adult + FX above it. */
-export const STRIP_HEIGHT_GRID = 80;
-/** Side length of the follow window in grid pixels. */
-export const FOLLOW_SIZE_GRID = 80;
+/**
+ * Compact window size in grid pixels (before scaling): about 3 sprite-widths by 2.5 sprite-heights
+ * of the biggest sprite grid (48, adults; see `packages/sprites/src/types.ts:SpriteDef.size`), with
+ * room for FX above the sprite. Replaces the old full-work-area-width "strip" window (removed) —
+ * see `docs/architecture/overlay-and-input.md` and ADR 0018 for why a compact window is part of the
+ * fail-closed click-through design: even a stuck-open click-through state can only ever capture
+ * clicks within this small box, not the whole screen width.
+ */
+export const COMPACT_WIDTH_GRID = 144;
+export const COMPACT_HEIGHT_GRID = 120;
 /**
  * Size of the battle arena window in grid pixels (before scaling). Generous enough to fit both
  * mons (opponent placed up to `BattlePlayer`'s `GAP_GRID` (56) plus half a 48-grid-px sprite away
@@ -28,28 +34,49 @@ export const BATTLE_WIDTH_GRID = 220;
 export const BATTLE_HEIGHT_GRID = 150;
 
 /**
- * The transparent always-on-top window the pet lives in.
+ * The transparent always-on-top window the pet lives in. Always compact (see `COMPACT_WIDTH_GRID`/
+ * `COMPACT_HEIGHT_GRID`) except during a battle, when it grows to the arena size
+ * (`BATTLE_WIDTH_GRID`/`BATTLE_HEIGHT_GRID`) and shrinks back afterward.
  *
  * Two modes:
- * - strip: spans the work-area width along the bottom edge; the pet walks inside without the
- *   window moving (no hop glitches, hit-testing stays trivial).
- * - follow: a small square that is moved by the main process every frame while the pet is dragged
- *   or falling, so the pet can leave the strip.
+ * - follow: the one normal-mode compact window, always present; `PetHost` hops it (via `followTo`)
+ *   whenever the sprite drifts far enough from the window's center, or immediately while dragging,
+ *   falling, or landing.
+ * - battle: a generously-sized box entered by `PetHost.playBattle` and left again on
+ *   `IPC.petBattleDone`.
  */
 export class PetWindow {
   readonly win: BrowserWindow;
-  private mode: PetWindowMode = 'strip';
+  private mode: PetWindowMode = 'follow';
   private display: Display;
   private readonly opts: PetWindowOptions;
   private topmostTimer: NodeJS.Timeout | null = null;
+  /**
+   * Bumped on every successful `setBoundsSafe` call (i.e. every hop, mode switch, or resize).
+   * Echoed to the renderer via `WindowGeometry.geometryVersion` and back by the renderer on every
+   * `HitboxMessage`; `CursorTracker` discards a hitbox whose version doesn't match this window's
+   * current version instead of trusting stale window-local coordinates. See "Geometry versions" in
+   * `docs/architecture/overlay-and-input.md`.
+   */
+  private geometryVersion = 0;
+  /** Last anchor passed to `enterFollow`/`followTo`/`enterBattle`; replayed by `reapplyBounds`. */
+  private lastAnchor: { x: number; y: number };
 
-  constructor(display: Display, opts: PetWindowOptions) {
+  constructor(display: Display, anchor: { x: number; y: number }, opts: PetWindowOptions) {
     this.display = display;
     this.opts = opts;
+    this.lastAnchor = anchor;
     // Falls back to a small on-screen rect in the pathological case where the display's work area
     // itself comes back non-finite; BrowserWindow's constructor cannot be skipped like the other
     // setBounds/setPosition calls below can.
-    const bounds = toIntRect(stripBounds(display, STRIP_HEIGHT_GRID * opts.spriteScale)) ?? {
+    const bounds = toIntRect(
+      compactBounds(
+        anchor,
+        COMPACT_WIDTH_GRID * opts.spriteScale,
+        COMPACT_HEIGHT_GRID * opts.spriteScale,
+        display,
+      ),
+    ) ?? {
       x: 0,
       y: 0,
       width: 800,
@@ -128,38 +155,49 @@ export class PetWindow {
     return this.display;
   }
 
-  /** Re-anchor the strip to a display (after a drop on another monitor or display changes). */
+  getGeometryVersion(): number {
+    return this.geometryVersion;
+  }
+
+  /**
+   * Re-anchor to a display (after a drop on another monitor, or a display-added/removed/
+   * metrics-changed event). Only stores the new display; callers always follow up with
+   * `followTo(anchor, { force: true })` or `enterBattle(anchor)` using a freshly recomputed anchor,
+   * so there is no stale-anchor window to reposition here.
+   */
   setDisplay(display: Display): void {
     this.display = display;
-    if (this.mode === 'strip') this.applyStrip();
   }
 
   setSpriteScale(scale: number): void {
     this.opts.spriteScale = scale;
-    if (this.mode === 'strip') this.applyStrip();
+    this.reapplyBounds();
   }
 
-  enterStrip(): void {
-    this.mode = 'strip';
-    this.applyStrip();
-    this.reassertTopmost();
-  }
-
-  /** Switch to follow mode around the given anchor (world DIPs). */
+  /** Switch to (or stay in) follow mode, positioned at the given anchor (world DIPs). */
   enterFollow(anchor: { x: number; y: number }): void {
     this.mode = 'follow';
-    this.setBoundsSafe(followBounds(anchor, FOLLOW_SIZE_GRID * this.opts.spriteScale));
+    this.lastAnchor = anchor;
+    this.setBoundsSafe(
+      compactBounds(
+        anchor,
+        COMPACT_WIDTH_GRID * this.opts.spriteScale,
+        COMPACT_HEIGHT_GRID * this.opts.spriteScale,
+        this.display,
+      ),
+    );
     this.reassertTopmost();
   }
 
   /**
    * Switch to the battle arena around the given anchor (world DIPs) for the duration of a battle
    * playback. Sized by `battleBounds`/`BATTLE_WIDTH_GRID`/`BATTLE_HEIGHT_GRID` (see there) instead
-   * of the small `follow` square, so the opponent, hp bars, popups and banner all land inside the
+   * of the small compact window, so the opponent, hp bars, popups and banner all land inside the
    * window instead of being clipped or drawn over whatever is behind the (too-small) window.
    */
   enterBattle(anchor: { x: number; y: number }): void {
     this.mode = 'battle';
+    this.lastAnchor = anchor;
     this.setBoundsSafe(
       battleBounds(
         anchor,
@@ -172,18 +210,30 @@ export class PetWindow {
   }
 
   /**
-   * Move the follow window so that its bottom-center is at the anchor. Called once per drag
-   * frame; only ever repositions (never resizes) so there is nothing for the OS to redraw beyond
-   * a plain move.
+   * Re-center the compact window on `anchor` (world DIPs) — a "hop". Only ever called in `follow`
+   * mode (a no-op in `battle`). By default only actually repositions when `needsHop` says the
+   * sprite has drifted too far from the window's current center (so a smoothly walking pet doesn't
+   * make the window visibly jump every frame); `force` (drag/fall/landing) always repositions
+   * immediately, matching the old per-frame follow behavior for those cases.
    */
-  followTo(anchor: { x: number; y: number }): void {
+  followTo(anchor: { x: number; y: number }, opts: { force?: boolean } = {}): void {
     if (this.mode !== 'follow') return;
-    const b = followBounds(anchor, FOLLOW_SIZE_GRID * this.opts.spriteScale);
-    if (!this.setPositionSafe(b)) return;
+    this.lastAnchor = anchor;
+    const current = this.win.getBounds();
+    if (!opts.force && !needsHop(anchor, current)) return;
+    const b = compactBounds(
+      anchor,
+      COMPACT_WIDTH_GRID * this.opts.spriteScale,
+      COMPACT_HEIGHT_GRID * this.opts.spriteScale,
+      this.display,
+    );
+    // setBounds rather than setPosition: compactBounds can shrink the rect when clamping to a
+    // small/secondary display, so size may legitimately change alongside position.
+    if (!this.setBoundsSafeQuiet(b)) return;
     // Broadcast the geometry we just *commanded* synchronously, rather than waiting for the
-    // native 'move' event: that event can lag a frame behind the actual OS move, during which the
-    // renderer would otherwise paint against last frame's window origin while the window itself
-    // has already moved, producing a one-frame offset/flicker.
+    // native 'move'/'resize' event: that event can lag a frame behind the actual OS move, during
+    // which the renderer would otherwise paint against last frame's window origin while the
+    // window itself has already moved, producing a one-frame offset/flicker.
     this.send(IPC.petWindowMoved, this.geometryFor(b));
   }
 
@@ -201,13 +251,14 @@ export class PetWindow {
     if (!this.win.isDestroyed()) this.win.webContents.send(channel, payload);
   }
 
-  private applyStrip(): void {
-    this.setBoundsSafe(stripBounds(this.display, STRIP_HEIGHT_GRID * this.opts.spriteScale));
+  private reapplyBounds(): void {
+    if (this.mode === 'follow') this.enterFollow(this.lastAnchor);
+    else this.enterBattle(this.lastAnchor);
   }
 
   private geometryFor(b: { x: number; y: number; width: number; height: number }): WindowGeometry {
     const d = screen.getDisplayMatching(b);
-    return { ...b, scaleFactor: d.scaleFactor };
+    return { ...b, scaleFactor: d.scaleFactor, geometryVersion: this.geometryVersion };
   }
 
   private broadcastGeometry(): void {
@@ -216,30 +267,34 @@ export class PetWindow {
   }
 
   /**
-   * Every `setBounds`/`setPosition`/`setSize` call on `this.win` must go through one of these two
+   * Every `setBounds`/`setPosition`/`setSize` call on `this.win` must go through one of these
    * helpers (bug: a fractional or non-finite coordinate reaching Electron's native binding throws
    * "Error processing argument at index 0, conversion failure" and crashes the whole process —
-   * see docs/architecture/overlay-and-input.md). Both round to the nearest integer and skip the
-   * call (logging in debug builds) instead of ever forwarding a bad value.
+   * see docs/architecture/overlay-and-input.md). All round to the nearest integer and skip the
+   * call (logging in debug builds) instead of ever forwarding a bad value; all bump
+   * `geometryVersion` on success so `CursorTracker` can tell a hitbox tagged with an older version
+   * apart from one computed against the bounds actually in effect now.
    */
   private setBoundsSafe(rect: { x: number; y: number; width: number; height: number }): boolean {
+    if (!this.setBoundsSafeQuiet(rect)) return false;
+    this.broadcastGeometry();
+    return true;
+  }
+
+  /** Same as `setBoundsSafe` but the caller broadcasts geometry itself (see `followTo`). */
+  private setBoundsSafeQuiet(rect: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  }): boolean {
     const r = toIntRect(rect);
     if (!r) {
       if (DEBUG) console.warn('[pet] skipped setBounds: non-finite rect', JSON.stringify(rect));
       return false;
     }
     this.win.setBounds(r, false);
-    this.broadcastGeometry();
-    return true;
-  }
-
-  private setPositionSafe(point: { x: number; y: number }): boolean {
-    const p = toIntPoint(point);
-    if (!p) {
-      if (DEBUG) console.warn('[pet] skipped setPosition: non-finite point', JSON.stringify(point));
-      return false;
-    }
-    this.win.setPosition(p.x, p.y, false);
+    this.geometryVersion++;
     return true;
   }
 

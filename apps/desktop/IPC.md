@@ -2,12 +2,13 @@
 doc_type: reference
 purpose: "Look up IPC channel names and payload types for renderer-to-main and main-to-renderer communication."
 audience: agent
-last_verified: 2026-09-09
-last_verified_commit: b0a0308
+last_verified: 2026-09-13
+last_verified_commit: 5363066
 related_files:
   - apps/desktop/src/common/ipc.ts
   - apps/desktop/README.md
   - docs/decisions/0014-curl-script-mode-hook-fallback.md
+  - docs/decisions/0018-compact-window-and-fail-closed-click-through.md
 ---
 
 # IPC Channels
@@ -21,7 +22,7 @@ Handled by `PetHost.registerIpc`, sender-guarded.
 | Channel | Payload type | Purpose |
 |---|---|---|
 | `pet:ready` | — | Triggers `sendConfig()` with initial pet state |
-| `pet:hitbox` | `Hitbox` (`{x,y,w,h}\|null`, window-local) | Reports sprite bounds for click-through toggle |
+| `pet:hitbox` | `HitboxMessage` (`{hitbox: Hitbox, geometryVersion: number}`, window-local) | Reports sprite bounds + the geometry version they were computed against, for click-through toggle |
 | `pet:pointer` | `PointerMessage` | Pointer events (down/up/move/enter/leave/contextmenu) |
 | `pet:state` | `StateMessage` | Current pet state + anchor position (world DIPs) |
 | `pet:request-battle` | — | Shake gesture triggered; asks main to start battle |
@@ -33,7 +34,7 @@ Handled by `PetHost.registerIpc`, sender-guarded.
 | Channel | Payload type | Purpose |
 |---|---|---|
 | `pet:config` | `PetConfig` | Sprite scale, version, stage, species, nation, world bounds, x, seed, debug flag |
-| `pet:window-moved` | `WindowGeometry` | Window bounds (x, y, width, height) and display scale factor |
+| `pet:window-moved` | `WindowGeometry` | Window bounds (x, y, width, height), display scale factor, and `geometryVersion` |
 | `pet:stimulus` | `StimulusMessage` (= shared `Stimulus`) | Hook event converted to stimulus (hook:prompt, hook:tool_start, etc.) or internal stimulus (input:shake, activity:update) |
 | `pet:world` | shared `World` | World bounds and display list (used by BattlePlayer to position opponent) |
 | `pet:battle-play` | `BattlePlayMessage` | Resolved battle data: id, result, both snapshots, reward XP, isBot flag |
@@ -79,8 +80,9 @@ Handled by `App.registerUiIpc`.
 ## Payload type reference
 
 - **PetConfig:** Sprite scale (2, 3, 4), version, stage, speciesId, nation, world bounds, x position, seed (PRNG stable per install), debug flag.
-- **WindowGeometry:** x, y, width, height in world DIPs, plus display scaleFactor.
+- **WindowGeometry:** x, y, width, height in world DIPs, plus display scaleFactor and `geometryVersion` (bumped by `PetWindow` on every bounds/position change; see `docs/architecture/overlay-and-input.md`).
 - **Hitbox:** `{x, y, w, h}` (window-local) or null when nothing drawn.
+- **HitboxMessage:** `{hitbox: Hitbox, geometryVersion: number}` — the geometry version the renderer had in hand when it computed the hitbox, so `CursorTracker` can discard one computed against a since-superseded window position/size.
 - **PointerMessage:** type (down/up/move/enter/leave/contextmenu), button, x, y (window-local).
 - **StateMessage:** pet state, stage, x/y (world DIPs).
 - **StimulusMessage:** = shared Stimulus (union type from @claude-mons/shared).

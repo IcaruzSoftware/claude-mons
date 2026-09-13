@@ -133,7 +133,10 @@ export class PetLoop {
       const hitbox = this.renderer.draw(this.model, now);
       if (this.renderer.hitboxChanged(hitbox, this.lastHitbox)) {
         this.lastHitbox = hitbox;
-        window.mons.sendHitbox(hitbox);
+        // Tagged with the geometry version this hitbox was computed against (see PetRenderer's
+        // `geometry` field), so the main process can discard it if a hop/mode switch/resize has
+        // moved the window on since — see docs/architecture/overlay-and-input.md.
+        window.mons.sendHitbox({ hitbox, geometryVersion: this.renderer.getGeometryVersion() });
       }
     }
 

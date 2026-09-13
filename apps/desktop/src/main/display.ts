@@ -41,32 +41,50 @@ export function worldForDisplay(display: DisplayLike, spriteWidth: number): Worl
 }
 
 /**
- * Bounds of the "strip" window: full work-area width, `height` DIPs tall, sitting on the bottom
- * edge of the work area. The pet walks inside this window without the window ever moving.
+ * Bounds of the pet's one normal-mode ("follow") window: a compact rect, `width` × `height` DIPs,
+ * whose bottom-center sits at the anchor (world DIPs) with a little slack below it (matches
+ * `battleBounds`'s slack idea, scaled for a much smaller box) so the sprite's foot row isn't drawn
+ * on the very last pixel of the window. Clamped into the display's work area via
+ * `clampRectToArea` so the window can never hang off (or leave) the display — see
+ * `docs/architecture/overlay-and-input.md`'s "Compact window" section for why this replaced the
+ * old full-work-area-width "strip" window: a stuck-open click-through bug used to be able to
+ * capture clicks anywhere along the whole screen width; a compact window bounds the blast radius
+ * to a few sprite-widths regardless of what click-through does.
  */
-export function stripBounds(
-  display: DisplayLike,
+export function compactBounds(
+  anchor: { x: number; y: number },
+  width: number,
   height: number,
+  display: DisplayLike,
 ): { x: number; y: number; width: number; height: number } {
-  const wa = roundRect(display.workArea);
-  const h = Math.min(Math.round(height), wa.height);
-  return { x: wa.x, y: wa.y + wa.height - h, width: wa.width, height: h };
+  const slack = Math.round(height * 0.15);
+  const raw = {
+    x: Math.round(anchor.x - width / 2),
+    y: Math.round(anchor.y - height + slack),
+    width: Math.round(width),
+    height: Math.round(height),
+  };
+  return clampRectToArea(raw, roundRect(display.workArea));
 }
 
 /**
- * Bounds of the "follow" window: a square of `size` DIPs whose bottom-center sits at the anchor.
- * Used while the pet is dragged or falling, when it may leave the strip.
+ * True once the anchor has drifted more than `thresholdFraction` of the window's width from the
+ * window's horizontal center — the trigger for `PetWindow.followTo` to hop (reposition) the compact
+ * window instead of leaving the sprite to walk off-canvas. Also true whenever the anchor's vertical
+ * distance from the window's own bottom edge changes enough that the sprite could be drawn outside
+ * the window (covers a fall inside a not-yet-repositioned window). Pure so it's unit-testable
+ * without a real `BrowserWindow`.
  */
-export function followBounds(
+export function needsHop(
   anchor: { x: number; y: number },
-  size: number,
-): { x: number; y: number; width: number; height: number } {
-  return {
-    x: Math.round(anchor.x - size / 2),
-    y: Math.round(anchor.y - size + Math.round(size * 0.15)),
-    width: size,
-    height: size,
-  };
+  bounds: { x: number; y: number; width: number; height: number },
+  thresholdFraction = 1 / 3,
+): boolean {
+  const centerX = bounds.x + bounds.width / 2;
+  if (Math.abs(anchor.x - centerX) > bounds.width * thresholdFraction) return true;
+  // Vertical: the window is bottom-anchored with ~15% slack (see compactBounds); if the anchor
+  // rises above the window's top edge or sinks below its bottom edge, a reposition is overdue.
+  return anchor.y < bounds.y || anchor.y > bounds.y + bounds.height;
 }
 
 /**
@@ -86,10 +104,10 @@ export function clampRectToArea(
 }
 
 /**
- * Bounds of the "battle" window: like `followBounds`, centered horizontally on the anchor with its
- * bottom edge at the anchor (so both mons stand on the same ground line as strip/follow mode), but
- * sized generously enough to fit both mons, hp bars and popups without depending on banner text
- * width — the banner instead wraps/shrinks to fit whatever width it is given, see
+ * Bounds of the "battle" window: like `compactBounds`, centered horizontally on the anchor with its
+ * bottom edge at the anchor (so both mons stand on the same ground line as the compact `follow`
+ * window), but sized generously enough to fit both mons, hp bars and popups without depending on
+ * banner text width — the banner instead wraps/shrinks to fit whatever width it is given, see
  * `apps/desktop/src/renderer/pet/bannerFit.ts`. Clamped into the display's work area (`clampRectToArea`)
  * so the window never has to exceed it, e.g. on a small secondary display.
  */
@@ -99,7 +117,7 @@ export function battleBounds(
   height: number,
   display: DisplayLike,
 ): { x: number; y: number; width: number; height: number } {
-  // A little slack below the anchor (same idea as `followBounds`'s 0.15 factor, scaled down since
+  // A little slack below the anchor (same idea as `compactBounds`'s 0.15 factor, scaled down since
   // this box is much taller than a single sprite) so the sprite's foot row isn't drawn on the very
   // last pixel of the window.
   const slack = Math.round(height * 0.04);

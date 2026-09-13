@@ -2,13 +2,17 @@
 doc_type: reference
 purpose: "Understand the desktop app's process model, module map, IPC channels, and CLI flags."
 audience: agent
-last_verified: 2026-09-09
-last_verified_commit: 256f0c3
+last_verified: 2026-09-13
+last_verified_commit: 5363066
 related_files:
   - apps/desktop/src/**
   - apps/desktop/IPC.md
+  - apps/desktop/electron-builder.yml
+  - apps/desktop/scripts/after-pack.mjs
   - docs/decisions/0014-curl-script-mode-hook-fallback.md
   - docs/decisions/0017-force-x11-backend-on-linux.md
+  - docs/decisions/0018-compact-window-and-fail-closed-click-through.md
+  - docs/runbooks/release.md
 ---
 
 # Desktop App Reference
@@ -22,7 +26,7 @@ src/main/index.ts (single-instance lock, transparency switch, GPU disable flag)
     ↓
 src/main/App.ts (composition root)
     ├─ PetHost (owns PetWindow, tray, cursor tracking; broadcasts stimulus)
-    │   ├─ PetWindow (strip/follow overlay)
+    │   ├─ PetWindow (compact follow / battle-arena overlay)
     │   ├─ AppTray (context menu, tooltip)
     │   └─ CursorTracker (cursor polling, click-through toggle)
     │
@@ -52,8 +56,8 @@ All windows share one preload (`src/preload/index.ts`); four renderers (pet, pan
 | `src/main/App.ts` | Composition root; IPC; snapshot feed; nation choice; battle request/finish; hook fan-out |
 | `src/main/PetHost.ts` | Pet window, tray, cursor tracking; drag/shake/click; world bounds; stimulus forwarding; withholds the window and stimuli until a nation is chosen (`canRevealPet`/`canStimulatePet`) |
 | `src/main/petGate.ts` | Pure `canRevealPet`/`canStimulatePet` helpers deciding whether the pet window may be shown or animated before onboarding picks a nation |
-| `src/main/display.ts` | Pure geometry (strip/follow bounds, anchor memory, display lookup); `toIntPoint`/`toIntRect` round-and-validate coordinates before any `BrowserWindow.setBounds`/`setPosition` call |
-| `src/main/windows/*` | PetWindow (strip/follow, geo broadcast; every bounds/position change goes through the integer-safe `setBoundsSafe`/`setPositionSafe`; re-asserts always-on-top + z-order via `reassertTopmost()` on every mode switch), PanelWindow (lazy, remembered pos), HoverCardWindow (delayed card), ReminderWindow (interactive water reminder card; same family as HoverCardWindow but not click-through, since it has Done/Snooze buttons) |
+| `src/main/display.ts` | Pure geometry (`compactBounds`/`battleBounds`, `needsHop` hop threshold, anchor memory, display lookup); `toIntPoint`/`toIntRect` round-and-validate coordinates before any `BrowserWindow.setBounds`/`setPosition` call |
+| `src/main/windows/*` | PetWindow (compact `follow` / `battle` arena, geometry-version counter + geo broadcast; every bounds/position change goes through the integer-safe `setBoundsSafe`; re-asserts always-on-top + z-order via `reassertTopmost()` on every mode switch), PanelWindow (lazy, remembered pos), HoverCardWindow (delayed card), ReminderWindow (interactive water reminder card; same family as HoverCardWindow but not click-through, since it has Done/Snooze buttons) |
 | `src/main/game/GameService.ts` | Hook events → provisional XP, buckets, daily bonus/streak, level-ups, hatch/evolve |
 | `src/main/game/BattleService.ts` | Cooldown/daily cap, remote or offline wild battle, battle history |
 | `src/main/game/species.ts` | Species lookup per nation (offline hatching only) |
@@ -77,7 +81,7 @@ All windows share one preload (`src/preload/index.ts`); four renderers (pet, pan
 | `src/main/updater/Updater.ts` | electron-updater over GitHub Releases (unsupported in dev, on `.deb`) |
 | `src/main/updater/interop.ts` | Resolves electron-updater's `autoUpdater` from either the named or the CommonJS default export shape; maps update errors to one readable line | `pickAutoUpdater`, `describeUpdateError`, `UpdatePayload` |
 | `src/main/autostart/Autostart.ts` | Windows `setLoginItemSettings`; Linux `~/.config/autostart/claude-mons.desktop` |
-| `src/main/input/CursorTracker.ts` | OS cursor polling (60 Hz hot / 12 Hz cold); click-through toggle; drag streams |
+| `src/main/input/CursorTracker.ts` | OS cursor polling (60 Hz hot / 12 Hz cold); fail-closed, self-healing click-through toggle (freshness + geometry-version checks, re-asserted every tick); drag streams |
 | `src/main/util/png.ts` | PNG encoder + RGBA scale/crop (no dependencies) |
 | `src/preload/index.ts` | ContextBridge APIs: `window.mons` (PetApi), `window.monsUi` (UiApi) |
 | `src/renderer/pet/main.ts` | Pet entry: pointer binding, wires listeners to PetLoop |
@@ -155,7 +159,7 @@ All channel names and payload types live in `src/common/ipc.ts`. See `apps/deskt
 ## Build config
 
 - **Vite config** (`electron.vite.config.ts`): Main input `src/main/index.ts` (excludes shared/sprites from externalization); preload input forced to CJS format; renderer uses Preact vite preset with four HTML entries (pet, panel, hovercard, reminder).
-- **electron-builder** (`electron-builder.yml`): appId `dev.claude-mons.desktop`; publishes to GitHub releases (IcaruzSoftware/claude-mons). Win: NSIS x64, per-user, changeable install dir. Linux: AppImage + deb x64; deb depends libgtk-3, libnotify, libnss3, libxss, libxtst, xdg-utils, libatspi, libuuid, libsecret.
+- **electron-builder** (`electron-builder.yml`): appId `dev.claude-mons.desktop`; publishes to GitHub releases (IcaruzSoftware/claude-mons); `extraMetadata.name: claude-mons` overrides the packaging metadata name (package.json's own `name` is the pnpm workspace name @claude-mons/desktop, which would otherwise give electron-builder-derived values like `updaterCacheDirName` a scope-mangled value). Win: NSIS x64, per-user, changeable install dir. Linux: AppImage + deb x64; deb depends libgtk-3, libnotify, libnss3, libxss, libxtst, xdg-utils, libatspi, libuuid, libsecret. `scripts/after-pack.mjs` (`afterPack:` hook) writes the packaged app-update.yml (e.g. `apps/desktop/release/win-unpacked/resources/app-update.yml`) when electron-builder's own packaging pass skipped it (the `--dir` + `--prepackaged` two-step CI uses to sign in between); see [docs/runbooks/release.md](../../docs/runbooks/release.md).
 - **Bundled binary:** Hook CLI (Go) copied from `packages/hook-cli/dist/` into `<bin>` with sha256 verify.
 
 ## Tests
@@ -163,13 +167,13 @@ All channel names and payload types live in `src/common/ipc.ts`. See `apps/deskt
 | File | Coverage |
 |---|---|
 | `test/BattleService.test.ts` | Offline wild mon, egg refusal, cross-nation opponent, cooldown/daily cap, busy refusal |
-| `test/CursorTracker.test.ts` | Click-through toggle, hitbox inflation, drag streaming, poll-rate switch, non-finite cursor sample dropped |
+| `test/CursorTracker.test.ts` | Fail-closed/self-healing click-through (re-asserted every tick), hitbox inflation, hitbox/cursor freshness, geometry-version mismatch discarded, `forceIgnore`, exception-forces-closed, `isPointAccepted`, drag streaming, poll-rate switch, non-finite cursor sample dropped |
 | `test/GameService.test.ts` | Provisional XP, bucket fill, local hatch, daily bonus, spooled events |
 | `test/HookInstaller.test.ts` | Hook merge/remove (both modes), purity + idempotence, partial/mixed-mode status, fs install/uninstall, mode-switch reinstall, backup rotation |
 | `test/rawHook.test.ts` | `rawHookToEnvelope` whitelist parity with `buildEnvelope`, cwd hashing, unknown event → null |
 | `test/mode.test.ts` | `probeBinary` classification (ok/blocked/missing/timeout) via injected spawn, `computeEffectiveMode` |
 | `test/JsonStore.test.ts` | Atomic write, `.bak` recovery, corrupt recovery, ordered migrations, debouncing |
-| `test/display.test.ts` | Strip/follow bounds (incl. fractional-work-area rounding), displayContaining, fractional anchor memory, `toIntPoint`/`toIntRect` |
+| `test/display.test.ts` | `compactBounds`/`battleBounds` (incl. fractional-work-area rounding, clamping to a small display), `needsHop` threshold, displayContaining, fractional anchor memory, `toIntPoint`/`toIntRect` |
 | `test/hooks.test.ts` | HookServer `/event` and `/hook` auth, port persistence/fallback, SpoolDrainer junk skip, ActivityTracker collapsing/pruning |
 | `test/petGate.test.ts` | `canRevealPet`/`canStimulatePet`: withheld until nation + window-ready + user-visible, refused while any is missing |
 | `test/onboardingSteps.test.ts` | Onboarding wizard step clamping (`nextOnboardingStep`/`prevOnboardingStep`) and Back/Next availability at the edges |

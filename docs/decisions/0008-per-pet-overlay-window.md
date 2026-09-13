@@ -2,12 +2,13 @@
 doc_type: decision
 purpose: "Read this when questioning why the pet lives in a small always-on-top window instead of a full-screen transparent overlay layer."
 audience: both
-last_verified: 2026-09-09
-last_verified_commit: 256f0c3
+last_verified: 2026-09-13
+last_verified_commit: 5363066
 related_files:
   - apps/desktop/src/main/windows/PetWindow.ts
   - apps/desktop/src/main/display.ts
   - docs/decisions/0017-force-x11-backend-on-linux.md
+  - docs/decisions/0018-compact-window-and-fail-closed-click-through.md
 adr_status: accepted
 ---
 
@@ -34,13 +35,13 @@ The full-screen layer was rejected on several grounds:
 ## Decision
 
 Each pet gets its own small, always-on-top, frameless, transparent `BrowserWindow`
-(`apps/desktop/src/main/windows/PetWindow.ts`). It runs in one of two modes: **strip** (spans the work-area
-width along the bottom edge, sized to `STRIP_HEIGHT_GRID` scaled by sprite scale, so the pet walks inside it
-without the window itself moving) or **follow** (a small square, sized to `FOLLOW_SIZE_GRID`, that the main
-process repositions every frame while the pet is being dragged or is falling). Click-through is toggled with
-`setIgnoreMouseEvents`, re-asserted per platform rather than relying on a single cross-platform mouse-forward
-mode. On Windows, `alwaysOnTop` is re-asserted on a timer to survive "topmost wars" with other
-always-on-top windows.
+(`apps/desktop/src/main/windows/PetWindow.ts`). It runs in one of two modes: **follow** (originally a small
+square repositioned only during a drag/fall; since [ADR 0018](0018-compact-window-and-fail-closed-click-through.md)
+a compact rect that is always the pet's normal window, hopped whenever the sprite drifts far enough from
+its center) or **battle** (a generously-sized arena entered for the duration of a battle, then shrunk back).
+Click-through is toggled with `setIgnoreMouseEvents`, re-asserted per platform rather than relying on a
+single cross-platform mouse-forward mode. On Windows, `alwaysOnTop` is re-asserted on a timer to survive
+"topmost wars" with other always-on-top windows.
 
 ## Consequences
 
@@ -51,11 +52,18 @@ always-on-top windows.
   (bigger particle effects, wide FX like celebration bursts) needs the window itself padded or resized for
   that effect, rather than simply drawing into already-available full-screen space — this constrains sprite
   and FX authoring in `packages/sprites`.
-- Switching between strip and follow mode is a real mode transition the window and its caller must track
-  (`enterStrip`/`enterFollow`/`followTo`), which is extra state that a single always-present full-screen
+- Switching between follow and battle mode is a real mode transition the window and its caller must track
+  (`enterFollow`/`enterBattle`/`followTo`), which is extra state that a single always-present full-screen
   layer would not have needed.
 - On Linux, native Wayland cannot provide window positioning or always-on-top; XWayland via X11
   backend is forced by default to ensure the overlay works (see [ADR 0017](0017-force-x11-backend-on-linux.md)).
+- **Update, [ADR 0018](0018-compact-window-and-fail-closed-click-through.md):** the original design had a
+  third mode, **strip**, that spanned the full work-area width so the pet could walk without the window
+  moving. That mode was removed: a click-through bug that got stuck "accepting input" while the window was
+  a full-width strip let any click along the bottom of the screen reach the pet window. The window is now
+  always compact (a few sprite-widths), bounding the damage of any future click-through bug to that small
+  footprint regardless of what caused it; see ADR 0018 for the fail-closed click-through design that went
+  with it.
 
 ## Status
 

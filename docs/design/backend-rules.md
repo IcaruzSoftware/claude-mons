@@ -2,8 +2,8 @@
 doc_type: design
 purpose: "Read this when you need to know why the Supabase backend rejects, clamps or flags a client's claimed activity."
 audience: agent
-last_verified: 2026-09-05
-last_verified_commit: 6d99ae3
+last_verified: 2026-09-13
+last_verified_commit: 5363066
 related_files:
   - supabase/functions/_shared/pipeline.ts
   - supabase/functions/ingest-xp/index.ts
@@ -11,6 +11,7 @@ related_files:
   - packages/shared/src/game/nickname.ts
   - packages/shared/src/game/xp.ts
   - supabase/migrations/20260904000000_init.sql
+  - supabase/migrations/20260913000000_suspicion_and_nations_filter.sql
   - supabase/README.md
 ---
 
@@ -73,17 +74,39 @@ replaying the same batch never credits XP twice. `ingest_batches` rows are prune
 
 ## Suspicion heuristic
 
-After a batch is credited, `ingest-xp` compares the XP the client claimed (`out.claimedXp`, credited
-XP plus everything dropped) against the XP actually dropped: if `out.claimedXp > 0` and
-`droppedXp * 2 > out.claimedXp` — more than half the claimed XP was rejected — the player's
-`players.suspicion` counter is incremented by one. This is a blunt, cheap signal: it does not try to
-prove cheating, only that this batch looked implausible often enough to be worth counting.
+After a batch is credited, `supabase/functions/_shared/pipeline.ts:runIngestPipeline` computes
+`out.suspicious`, and `ingest-xp` increments `players.suspicion` by one only when it is true. A batch
+is `suspicious` when **both**:
+
+- it claimed at least `SUSPICION_MIN_CLAIMED_XP` (100) XP — tiny batches never count, whatever
+  fraction of them was dropped, and
+- more than half of that claimed XP was dropped for a **non-cap** reason: `stale`, `future`,
+  `implausible` or `no_prompt_context` (`NON_CAP_DROP_REASONS` in
+  `supabase/functions/_shared/pipeline.ts`).
+
+Cap drops (`cap_minute`, `cap_hour`, `cap_day`) never count toward suspicion, in either direction —
+they are the normal, expected shape of a legitimate heavy-usage day (30 tool XP/min, 400/h, 2000/day
+work caps) and spooled replays after an offline period, not a sign of implausible activity. This is a
+deliberate fix for a false positive: a heavy user hitting caps on busy days used to accumulate
+suspicion just as fast as someone submitting fabricated buckets, because the old heuristic counted
+`droppedXp` (every reason) against `claimedXp` with no minimum batch size. The client's `dropped[]`
+response detail is unaffected by this — it still reports every reason, cap or not; only the
+suspicion side-effect changed.
+
+**Decay.** `apply_xp` (`supabase/migrations/20260904000000_init.sql`, patched by
+`supabase/migrations/20260913000000_suspicion_and_nations_filter.sql`) decrements `suspicion` by one
+(floor 0) every time a batch activates a new day — the same "day activated" signal
+(`p_deltas ->> 'streak_days' is not null`) already used to pay the daily/streak bonus. A player who
+keeps playing normally after being flagged recovers roughly one point per active day; nothing else
+currently lowers `suspicion`.
 
 The counter's only effect is exclusion, not punishment: `leaderboard_alltime`, `leaderboard_weekly`
-and `leaderboard_nations` all filter `suspicion < 10`, and `pick_opponent` excludes players with
-`suspicion >= 10` from matchmaking. A flagged player keeps playing normally — hatching, leveling,
-battling — they just stop appearing on leaderboards or as an opponent once the counter reaches 10.
-Nothing currently lowers `suspicion` once raised.
+and `leaderboard_nations` all filter `suspicion < 10` — for `leaderboard_nations`, every aggregated
+column (`members`, `hatched_members`, `total_xp`, `weekly_xp`, `avg_level`) is computed only over
+non-suspicious players, not just the ones read from the `members` CTE — and `pick_opponent` excludes
+players with `suspicion >= 10` from matchmaking. A flagged player keeps playing normally — hatching,
+leveling, battling — they just stop appearing on leaderboards or as an opponent once the counter
+reaches 10.
 
 ## Server-side species roll
 

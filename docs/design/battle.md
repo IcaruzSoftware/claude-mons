@@ -2,8 +2,8 @@
 doc_type: design
 purpose: "Read this when changing battle math, matchmaking, rewards, or the battle log shape."
 audience: agent
-last_verified: 2026-09-05
-last_verified_commit: 6d99ae3
+last_verified: 2026-09-13
+last_verified_commit: 5363066
 related_files:
   - packages/shared/src/battle/battle.ts
   - packages/shared/src/battle/rng.ts
@@ -11,6 +11,7 @@ related_files:
   - packages/shared/test/battle.test.ts
   - packages/shared/test/balance.test.ts
   - supabase/migrations/20260904000000_init.sql
+  - supabase/migrations/20260913010000_battle_limits.sql
   - supabase/functions/battle-request/index.ts
 ---
 
@@ -124,15 +125,21 @@ since there is no real player behind the snapshot.
 
 ## Cooldown and daily caps
 
-`packages/shared/src/battle/battle.ts:BATTLE_RULES`: `cooldownMs = 5 minutes`, `challengesPerDay = 10`,
-`defensesPerDay = 10`. These are enforced server-side, not just advisory client constants:
+`packages/shared/src/battle/battle.ts:BATTLE_RULES`: `cooldownMs = 10 minutes`, `challengesPerDay = 50`,
+`defensesPerDay = 10`. `defensesPerDay` is its own constant, independent of `challengesPerDay` — raising
+the challenger-side cap does not change how many defenses pay XP per day. There is no separate cap on
+battle XP itself: challenger/defender rewards (see Rewards above) are not subject to the work-XP daily
+caps in `packages/shared/src/game/xp.ts`, and that remains true at the new 50/day challenge limit. These
+rules are enforced server-side, not just advisory client constants:
 
-- `claim_battle_slot` (`supabase/migrations/20260904000000_init.sql`) atomically rejects a challenge with
+- `claim_battle_slot` (`supabase/migrations/20260904000000_init.sql`, superseded by
+  `supabase/migrations/20260913010000_battle_limits.sql`) atomically rejects a challenge with
   `reason: 'no_mon' | 'egg' | 'cooldown' | 'daily_cap'` before any battle is simulated, and otherwise stamps
   `mons.last_battle_at` and increments `xp_daily.battles_started` for the day (UTC).
 - `settle_battle` pays the defender only while `xp_daily.battles_defended` for that UTC day is `< 10`; past
   the cap, a `battle_notifications` row is still inserted (the defender is told about every battle, even
-  once defender-XP for the day is exhausted), but `opponent_xp_paid` is 0.
+  once defender-XP for the day is exhausted), but `opponent_xp_paid` is 0. This defender-side cap is
+  unrelated to `challengesPerDay` and was left unchanged.
 
 ## Matchmaking (`battle-request` Edge Function)
 

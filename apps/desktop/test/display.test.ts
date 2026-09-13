@@ -2,11 +2,11 @@ import { describe, expect, it } from 'vitest';
 import {
   battleBounds,
   clampRectToArea,
+  compactBounds,
   displayContaining,
-  followBounds,
+  needsHop,
   rememberAnchor,
   restoreAnchorX,
-  stripBounds,
   toIntPoint,
   toIntRect,
   worldForDisplay,
@@ -35,20 +35,60 @@ describe('display geometry', () => {
     expect(w.maxX - w.minX).toBeGreaterThan(1500);
   });
 
-  it('strip spans the work area width along its bottom', () => {
-    const b = stripBounds(secondary, 240);
-    expect(b).toEqual({ x: 1920, y: -200 + 1400 - 240, width: 2560, height: 240 });
-  });
-
-  it('follow window is centered on the anchor with a little room below', () => {
-    const b = followBounds({ x: 500, y: 400 }, 240);
+  it('compact window is centered on the anchor with a little room below', () => {
+    const b = compactBounds({ x: 500, y: 400 }, 240, 200, primary);
     expect(b.width).toBe(240);
+    expect(b.height).toBe(200);
     expect(b.x).toBe(380);
     expect(b.y + b.height).toBeGreaterThan(400); // anchor is inside, near the bottom
     expect(b.y).toBeLessThan(400);
   });
 
-  it('battle arena is centered on the anchor with its bottom edge near it, like followBounds', () => {
+  it('compact window clamps into the work area instead of hanging off a small display', () => {
+    const tiny: DisplayLike = {
+      id: 5,
+      bounds: { x: 0, y: 0, width: 300, height: 200 },
+      workArea: { x: 0, y: 0, width: 300, height: 180 },
+      scaleFactor: 1,
+    };
+    const b = compactBounds({ x: 10, y: 180 }, 440, 300, tiny);
+    expect(b.x).toBeGreaterThanOrEqual(0);
+    expect(b.y).toBeGreaterThanOrEqual(0);
+    expect(b.x + b.width).toBeLessThanOrEqual(300);
+    expect(b.y + b.height).toBeLessThanOrEqual(180);
+  });
+
+  it('compact window near the right edge of a display stays fully inside it', () => {
+    const b = compactBounds({ x: 1900, y: 1032 }, 144 * 2, 120 * 2, primary);
+    expect(b.x).toBeGreaterThanOrEqual(0);
+    expect(b.x + b.width).toBeLessThanOrEqual(1920);
+  });
+
+  describe('needsHop', () => {
+    const bounds = { x: 380, y: 200, width: 240, height: 200 }; // center x = 500
+
+    it('is false while the anchor stays near the window center', () => {
+      expect(needsHop({ x: 520, y: 300 }, bounds)).toBe(false);
+    });
+
+    it('is true once the anchor drifts past the threshold fraction of the window width', () => {
+      // more than 1/3 of 240 (=80) away from center (500)
+      expect(needsHop({ x: 590, y: 300 }, bounds)).toBe(true);
+      expect(needsHop({ x: 410, y: 300 }, bounds)).toBe(true);
+    });
+
+    it('respects a custom threshold fraction', () => {
+      expect(needsHop({ x: 520, y: 300 }, bounds, 0.05)).toBe(true);
+    });
+
+    it('is true once the anchor moves above or below the window vertically', () => {
+      expect(needsHop({ x: 500, y: 150 }, bounds)).toBe(true); // above the window's top edge
+      expect(needsHop({ x: 500, y: 450 }, bounds)).toBe(true); // below the window's bottom edge
+      expect(needsHop({ x: 500, y: 250 }, bounds)).toBe(false); // inside vertically
+    });
+  });
+
+  it('battle arena is centered on the anchor with its bottom edge near it, like compactBounds', () => {
     const b = battleBounds({ x: 500, y: 1032 }, 440, 300, primary);
     expect(b.width).toBe(440);
     expect(b.height).toBe(300);
@@ -128,7 +168,7 @@ describe('display geometry', () => {
     expect(restoreAnchorX(primary, null)).toBe(960);
   });
 
-  it('rounds a fractional work area (fractional Windows DPI scaling) before deriving world/strip bounds', () => {
+  it('rounds a fractional work area (fractional Windows DPI scaling) before deriving world/compact bounds', () => {
     // Electron has been observed to hand back non-integer workArea values under 125%/150%/175%
     // Windows scaling; both computations must still land on integers.
     const fractional: DisplayLike = {
@@ -142,11 +182,11 @@ describe('display geometry', () => {
     expect(Number.isInteger(world.minX)).toBe(true);
     expect(Number.isInteger(world.maxX)).toBe(true);
 
-    const strip = stripBounds(fractional, 240);
-    expect(Number.isInteger(strip.x)).toBe(true);
-    expect(Number.isInteger(strip.y)).toBe(true);
-    expect(Number.isInteger(strip.width)).toBe(true);
-    expect(Number.isInteger(strip.height)).toBe(true);
+    const compact = compactBounds({ x: 768, y: 833.6 }, 240, 200, fractional);
+    expect(Number.isInteger(compact.x)).toBe(true);
+    expect(Number.isInteger(compact.y)).toBe(true);
+    expect(Number.isInteger(compact.width)).toBe(true);
+    expect(Number.isInteger(compact.height)).toBe(true);
   });
 });
 

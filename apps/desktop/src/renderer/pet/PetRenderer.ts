@@ -42,7 +42,14 @@ const FX_IDS: Record<FxName, string> = {
 export class PetRenderer {
   private readonly ctx: CanvasRenderingContext2D;
   private readonly cache = new SpriteCache();
-  private geometry: WindowGeometry = { x: 0, y: 0, width: 0, height: 0, scaleFactor: 1 };
+  private geometry: WindowGeometry = {
+    x: 0,
+    y: 0,
+    width: 0,
+    height: 0,
+    scaleFactor: 1,
+    geometryVersion: -1,
+  };
   private lastHitbox: Hitbox = null;
   private animStart = 0;
   private lastAnim: AnimName | null = null;
@@ -74,6 +81,16 @@ export class PetRenderer {
   setGeometry(g: WindowGeometry): void {
     this.geometry = g;
     this.resize();
+  }
+
+  /**
+   * The geometry version currently in hand, echoed back on every `Hitbox` report so the main
+   * process can tell a hitbox computed against the window's current bounds apart from one computed
+   * before a hop/mode switch/resize it hasn't heard about yet — see "Geometry versions" in
+   * docs/architecture/overlay-and-input.md.
+   */
+  getGeometryVersion(): number {
+    return this.geometry.geometryVersion;
   }
 
   resize(): void {

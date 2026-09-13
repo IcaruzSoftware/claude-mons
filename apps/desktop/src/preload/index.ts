@@ -8,7 +8,7 @@ import {
   IPC,
   type AccountOpResult,
   type BattlePlayMessage,
-  type Hitbox,
+  type HitboxMessage,
   type LeaderboardPayload,
   type PetConfig,
   type PointerMessage,
@@ -32,8 +32,8 @@ const petApi = {
   onWindowMoved: (cb: (g: WindowGeometry) => void) => on<WindowGeometry>(IPC.petWindowMoved, cb),
   onStimulus: (cb: (s: StimulusMessage) => void) => on<StimulusMessage>(IPC.petStimulus, cb),
   onWorld: (cb: (w: World) => void) => on<World>(IPC.petWorld, cb),
-  sendHitbox(hitbox: Hitbox): void {
-    ipcRenderer.send(IPC.petHitbox, hitbox);
+  sendHitbox(msg: HitboxMessage): void {
+    ipcRenderer.send(IPC.petHitbox, msg);
   },
   sendPointer(msg: PointerMessage): void {
     ipcRenderer.send(IPC.petPointer, msg);

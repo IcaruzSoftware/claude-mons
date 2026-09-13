@@ -1,6 +1,7 @@
 import { app, ipcMain, screen, type Display, type IpcMainEvent } from 'electron';
 import {
   createShakeState,
+  isAirborneState,
   pushShakeSample,
   type ShakeDetectorState,
   type Stage,
@@ -12,6 +13,7 @@ import {
   IPC,
   type BattlePlayMessage,
   type Hitbox,
+  type HitboxMessage,
   type PetConfig,
   type PointerMessage,
   type StateMessage,
@@ -90,7 +92,11 @@ export class PetHost {
     private readonly callbacks: PetHostCallbacks,
   ) {
     this.display = this.pickInitialDisplay();
-    this.window = new PetWindow(this.display, {
+    const initialAnchor = {
+      x: restoreAnchorX(this.display, state.anchorMemory),
+      y: worldForDisplay(this.display, this.spriteWidth()).groundY,
+    };
+    this.window = new PetWindow(this.display, initialAnchor, {
       spriteScale: state.spriteScale,
       focusable: process.platform !== 'linux',
     });
@@ -98,6 +104,7 @@ export class PetHost {
       {
         getBounds: () => this.window.win.getBounds(),
         setIgnoreMouse: (ignore) => this.window.setIgnoreMouse(ignore),
+        getGeometryVersion: () => this.window.getGeometryVersion(),
       },
       { getCursorScreenPoint: () => screen.getCursorScreenPoint() },
       {
@@ -106,8 +113,16 @@ export class PetHost {
           if (DEBUG) console.info('[pet] hover', hovering);
           this.callbacks.onHover(hovering, this.spriteAnchorInfo());
         },
+        onError: (err) => {
+          if (DEBUG) console.warn('[pet] cursor tracker tick failed, forced click-through:', err);
+        },
       },
+      { debug: DEBUG },
     );
+    // Fail-closed on focus loss or the window being hidden (see docs/architecture/overlay-and-input.md
+    // "Fail-closed click-through"): neither should be able to leave click-through wrongly disabled.
+    this.window.win.on('blur', () => this.tracker.forceIgnore());
+    this.window.win.on('hide', () => this.tracker.forceIgnore());
     this.tray = new AppTray({
       setSpriteScale: (s) => this.setSpriteScale(s),
       getSpriteScale: () => this.state.spriteScale,
@@ -160,13 +175,16 @@ export class PetHost {
   /**
    * Hand a resolved battle to the renderer for playback. Switches the window into the battle
    * arena (see `PetWindow.enterBattle`) so the opponent, hp bars, popups and banner have room —
-   * otherwise this can still be mid-drag (`follow` mode, a small square) or already back in
-   * `strip` mode, both too small/short for the battle HUD. Reverted in the `IPC.petBattleDone`
-   * handler below, once the renderer confirms the animation actually finished.
+   * otherwise this can still be a small compact `follow` window, too small/short for the battle
+   * HUD. Reverted in the `IPC.petBattleDone` handler below, once the renderer confirms the
+   * animation actually finished. `forceIgnore` clears click-through state immediately rather than
+   * waiting for the next tick to notice the geometry version changed (see
+   * docs/architecture/overlay-and-input.md "Fail-closed click-through").
    */
   playBattle(msg: BattlePlayMessage): void {
     this.inBattle = true;
     this.window.enterBattle(this.currentAnchor());
+    this.tracker.forceIgnore();
     this.window.send(IPC.petBattlePlay, msg);
   }
 
@@ -179,7 +197,9 @@ export class PetHost {
     const primary = screen.getPrimaryDisplay();
     this.display = primary;
     this.window.setDisplay(primary);
-    this.window.enterStrip();
+    const world = this.world();
+    this.window.enterFollow({ x: (world.minX + world.maxX) / 2, y: world.groundY });
+    this.tracker.forceIgnore();
     this.pushWorld();
     this.stimulate({ type: 'world:recenter' });
   }
@@ -303,19 +323,19 @@ export class PetHost {
       this.sendConfig();
     });
 
-    ipcMain.on(IPC.petHitbox, (e, hitbox: Hitbox) => {
+    ipcMain.on(IPC.petHitbox, (e, msg: HitboxMessage) => {
       if (!own(e)) return;
       if (DEBUG) {
         console.info(
           '[pet] hitbox',
-          JSON.stringify(hitbox),
+          JSON.stringify(msg),
           'window',
           JSON.stringify(this.window.win.getBounds()),
         );
-        this.assertHitboxWithinWindow(hitbox);
+        this.assertHitboxWithinWindow(msg.hitbox);
       }
-      this.lastHitbox = hitbox;
-      this.tracker.setHitbox(hitbox);
+      this.lastHitbox = msg.hitbox;
+      this.tracker.setHitbox(msg);
     });
 
     ipcMain.on(IPC.petState, (e, msg: StateMessage) => {
@@ -323,20 +343,24 @@ export class PetHost {
       if (DEBUG && msg.state !== this.lastState?.state)
         console.info('[pet] state', JSON.stringify(msg));
       this.lastState = msg;
-      if (this.window.getMode() === 'strip') {
-        this.callbacks.onAnchor(this.display, msg.x);
-      } else if (this.window.getMode() === 'follow') {
-        // Bug: after a release that starts a real fall (`above` in the reducer's `input:release`
-        // handler), nothing repositioned the follow window while the model fell — `followTo` was
-        // only ever called from `onDragMove`, which stops the moment the pointer is released. The
-        // window stayed wherever the drag left it while the sprite kept falling inside it, so the
-        // hitbox (and the sprite itself) drifted past the window's own bottom edge until landing
-        // (visible as `assertHitboxWithinWindow` firing repeatedly with a growing `hitbox.y`).
-        // Tracking every reported position here, drag or fall alike, keeps the window under the
-        // sprite the whole time; it's a harmless no-op duplicate of the drag-time call while
-        // `this.drag` is still set, since both compute the same anchor for the same frame.
-        this.window.followTo({ x: msg.x, y: msg.y });
-      }
+      if (this.window.getMode() !== 'follow') return;
+      // Persisted for restart/resolution-change restore regardless of whether this tick hops the
+      // window (see `AnchorMemory`/`rememberAnchor`).
+      this.callbacks.onAnchor(this.display, msg.x);
+      // Bug: after a release that starts a real fall (`above` in the reducer's `input:release`
+      // handler), nothing repositioned the follow window while the model fell — `followTo` was
+      // only ever called from `onDragMove`, which stops the moment the pointer is released. The
+      // window stayed wherever the drag left it while the sprite kept falling inside it, so the
+      // hitbox (and the sprite itself) drifted past the window's own bottom edge until landing
+      // (visible as `assertHitboxWithinWindow` firing repeatedly with a growing `hitbox.y`).
+      // Tracking every reported position here, drag or fall alike, keeps the window under the
+      // sprite the whole time; it's a harmless no-op duplicate of the drag-time call while
+      // `this.drag` is still set, since both compute the same anchor for the same frame. `force`
+      // keeps drag/fall glued to the anchor every frame (as before the compact window); an
+      // ordinary walk only hops once the sprite drifts far enough from the window's center (see
+      // `PetWindow.followTo`/`needsHop`).
+      const force = this.drag !== null || isAirborneState(msg.state);
+      this.window.followTo({ x: msg.x, y: msg.y }, { force });
     });
 
     ipcMain.on(IPC.petPointer, (e, msg: PointerMessage) => {
@@ -356,13 +380,15 @@ export class PetHost {
 
     ipcMain.on(IPC.petBattleDone, (e, id: unknown) => {
       if (!own(e)) return;
-      // Leave the battle arena the same way `onLanded` leaves `follow` mode: back to `strip`,
-      // re-anchored to whatever display we're on. The renderer forces the model back to `idle`
-      // for the same stimulus (`battle:done`, packages/shared/src/behavior/reducer.ts), so there
-      // is nothing mid-drag/mid-fall left to preserve here.
+      // Leave the battle arena the same way `onLanded` repositions `follow` mode: shrink back to
+      // the compact window, re-anchored to whatever display we're on. The renderer forces the
+      // model back to `idle` for the same stimulus (`battle:done`,
+      // packages/shared/src/behavior/reducer.ts), so there is nothing mid-drag/mid-fall left to
+      // preserve here.
       this.inBattle = false;
       this.window.setDisplay(this.display);
-      this.window.enterStrip();
+      this.window.enterFollow(this.currentAnchor());
+      this.tracker.forceIgnore();
       this.pushWorld();
       if (typeof id === 'string') for (const hook of this.onBattleDoneHooks) hook(id);
     });
@@ -401,6 +427,10 @@ export class PetHost {
       const still = displays.find((d) => d.id === this.display.id);
       this.display = still ?? screen.getPrimaryDisplay();
       this.window.setDisplay(this.display);
+      if (this.window.getMode() === 'follow') {
+        this.window.followTo(this.currentAnchor(), { force: true });
+      }
+      this.tracker.forceIgnore();
       this.pushWorld();
     };
     screen.on('display-added', reanchor);
@@ -414,6 +444,14 @@ export class PetHost {
     this.stimulate({ type: 'world:bounds', ...world });
   }
 
+  /**
+   * A pointer event only ever reaches the renderer while the window isn't ignoring mouse events —
+   * but that decision can have flipped in the instant between the tracker's last tick and the OS
+   * actually delivering the click (or, in the bug this guards against, been wrong to begin with).
+   * `down`/`contextmenu` are re-checked here against `CursorTracker.isPointAccepted` before acting,
+   * so a click that arrives after (or despite) a stuck-open state cannot begin a drag or pop the
+   * menu — see docs/architecture/overlay-and-input.md "Pointer handling".
+   */
   private onPointer(msg: PointerMessage): void {
     const g = this.window.win.getBounds();
     // For releases we trust the OS cursor (the message may come from a blur fallback).
@@ -421,12 +459,16 @@ export class PetHost {
       msg.type === 'up' ? screen.getCursorScreenPoint() : { x: g.x + msg.x, y: g.y + msg.y };
     if (DEBUG) console.info('[pet] pointer', msg.type, msg.button, JSON.stringify(worldPoint));
     if (msg.type === 'down' && msg.button === 0) {
-      this.beginDrag(worldPoint);
+      if (this.tracker.isPointAccepted(worldPoint)) this.beginDrag(worldPoint);
     } else if (msg.type === 'up' && msg.button === 0 && this.drag) {
       this.endDrag(worldPoint);
     } else if (msg.type === 'contextmenu' || (msg.type === 'down' && msg.button === 2)) {
-      if (this.drag) this.endDrag(worldPoint);
-      this.tray.popup();
+      if (this.drag) {
+        this.endDrag(worldPoint);
+        this.tray.popup();
+      } else if (this.tracker.isPointAccepted(worldPoint)) {
+        this.tray.popup();
+      }
     }
     this.stimulate({ type: 'input:any' });
   }
@@ -455,7 +497,7 @@ export class PetHost {
       this.drag.maxDist,
       Math.hypot(cursor.x - this.drag.cursorAtGrab.x, cursor.y - this.drag.cursorAtGrab.y),
     );
-    this.window.followTo(anchor);
+    this.window.followTo(anchor, { force: true });
     this.stimulate({ type: 'input:drag', x: cursor.x, y: cursor.y });
 
     const res = pushShakeSample(this.shake, { t, x: cursor.x, y: cursor.y });
@@ -471,6 +513,11 @@ export class PetHost {
       Date.now() - this.drag.startedAt < CLICK_MAX_MS && this.drag.maxDist < CLICK_MAX_DIST;
     this.drag = null;
     this.tracker.endDrag();
+    // The compact window hopped repeatedly during the drag (every frame, `force: true`); its
+    // geometry version has moved on from whatever hitbox the renderer last reported mid-drag, so
+    // the next tick would already fail closed on the version mismatch alone — forcing it here too
+    // is redundant but cheap, and keeps every drag/mode transition point behaving the same way.
+    this.tracker.forceIgnore();
     if (wasClick) this.callbacks.onClick();
     // The pet falls to the ground of whichever display it was dropped over.
     const target = displayContaining(screen.getAllDisplays(), cursor, this.display);
@@ -483,7 +530,8 @@ export class PetHost {
 
   private onLanded(): void {
     this.window.setDisplay(this.display);
-    this.window.enterStrip();
+    this.window.followTo(this.currentAnchor(), { force: true });
+    this.tracker.forceIgnore();
     this.pushWorld();
   }
 }

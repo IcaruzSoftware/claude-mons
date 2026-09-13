@@ -1,6 +1,8 @@
 import { app } from 'electron';
 import { describeUpdateError, pickAutoUpdater } from './interop.ts';
 
+const DEBUG = process.env.CLAUDE_MONS_DEBUG === '1';
+
 export type UpdateStatus =
   | { kind: 'idle' }
   | { kind: 'checking' }
@@ -81,6 +83,7 @@ export class Updater {
 
   private set(s: UpdateStatus): void {
     this.status = s;
+    if (DEBUG) console.info(`[updater] ${JSON.stringify(s)}`);
     for (const l of this.listeners) l(s);
   }
 }

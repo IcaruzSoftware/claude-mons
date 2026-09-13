@@ -47,7 +47,26 @@ export interface PipelineOutput {
   dayTotals: DayTotals;
   /** uncapped XP the client claimed, for the suspicion heuristic */
   claimedXp: number;
+  /**
+   * true when this batch should count toward `players.suspicion`: the batch claimed at least
+   * `SUSPICION_MIN_CLAIMED_XP` and more than half of that claimed XP was dropped for a reason that
+   * signals implausible/fabricated activity (`NON_CAP_DROP_REASONS`) rather than a heavy user simply
+   * running into a cap. Cap drops (`cap_minute`, `cap_hour`, `cap_day`) never count: they are the
+   * normal, expected shape of a legitimate heavy-usage day.
+   */
+  suspicious: boolean;
 }
+
+/** Drop reasons that indicate implausible/fabricated activity, as opposed to a normal cap. */
+const NON_CAP_DROP_REASONS: ReadonlySet<DropReason> = new Set([
+  'stale',
+  'future',
+  'implausible',
+  'no_prompt_context',
+]);
+
+/** Batches that claimed less than this much XP never count toward the suspicion heuristic. */
+export const SUSPICION_MIN_CLAIMED_XP = 100;
 
 export function emptyDayTotals(): DayTotals {
   return { prompts: 0, stops: 0, toolXp: 0, workXp: 0 };
@@ -62,6 +81,7 @@ export function runIngestPipeline(input: PipelineInput): PipelineOutput {
   const awarded = { prompt: 0, stop: 0, tool: 0, total: 0 };
   const dropped: PipelineOutput['dropped'] = [];
   let claimedXp = 0;
+  let nonCapDroppedXp = 0;
 
   for (const bucket of buckets) {
     const isToday = dayKey(bucket.minute) === today;
@@ -73,7 +93,10 @@ export function runIngestPipeline(input: PipelineInput): PipelineOutput {
       ...(isToday ? { dayTotals: day } : {}),
     });
     claimedXp += result.credited.total + result.dropped.reduce((s, d) => s + d.xp, 0);
-    for (const d of result.dropped) dropped.push(d);
+    for (const d of result.dropped) {
+      dropped.push(d);
+      if (NON_CAP_DROP_REASONS.has(d.reason)) nonCapDroppedXp += d.xp;
+    }
     const e = result.entry;
     if (e.prompts === 0 && e.stops === 0 && e.toolXp === 0) continue;
 
@@ -117,6 +140,7 @@ export function runIngestPipeline(input: PipelineInput): PipelineOutput {
     dayActivated,
     dayTotals: day,
     claimedXp,
+    suspicious: claimedXp >= SUSPICION_MIN_CLAIMED_XP && nonCapDroppedXp * 2 > claimedXp,
   };
 }
 

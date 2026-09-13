@@ -2,14 +2,15 @@
 doc_type: runbook
 purpose: "Create a new release of claude-mons with signed Windows binaries."
 audience: both
-last_verified: 2026-09-05
-last_verified_commit: ab12392
+last_verified: 2026-09-13
+last_verified_commit: 5363066
 related_files:
   - .github/workflows/release.yml
   - scripts/signpath-sign.ps1
   - scripts/refresh-latest-yml.mjs
   - scripts/build-apt-repo.sh
   - apps/desktop/electron-builder.yml
+  - apps/desktop/scripts/after-pack.mjs
   - apps/desktop/package.json
   - docs/runbooks/apt-repository.md
 ---
@@ -21,6 +22,57 @@ Use this runbook when shipping a new version. The workflow builds and signs Wind
 ## Prerequisites
 
 SignPath code signing requires one-time setup by a project owner; see the "Setup SignPath" section at the end. Without those secrets, releases build and publish unsigned Windows binaries. The release process itself is the same.
+
+## app-update.yml (electron-updater's manifest)
+
+Every packaged build must ship a resources/app-update.yml (NSIS install) or the AppImage/deb
+equivalent — electron-updater reads it at startup to know which GitHub repo to poll, and a missing
+file surfaces to the player as Settings → Updates → `Update check failed: ENOENT: no such file or
+directory, open '...\resources\app-update.yml'`.
+
+electron-builder normally writes this file itself from an internal `afterPack` listener, but that
+listener only fires when packaging emits the "afterPack" event for a target electron-updater can
+use. Two things suppress it, and both apply to how the Windows job packages here:
+
+- A bare `--dir` build packages with electron-builder's own "dir" no-op target, which fails the
+  listener's Windows suitability check (it only accepts `nsis`/`nsis-web`/an `electronUpdaterAware`
+  `appx`), so it silently skips the write.
+- A `--prepackaged <dir>` build (the second pass, building the NSIS installer from an
+  already-packaged directory) returns out of `PlatformPackager#doPack` before the "afterPack" event
+  is emitted at all — nothing hooked to it, native or custom, runs.
+
+`.github/workflows/release.yml`'s windows job packages in exactly that two-step sequence (`--win
+--dir --publish never` so the executables can be signed, then `--win --prepackaged
+release/win-unpacked --publish never` to build the installer around the signed files), so without
+a fix every installed build shipped with no app-update.yml at all.
+
+The fix is `apps/desktop/scripts/after-pack.mjs`, wired up from `apps/desktop/electron-builder.yml`'s
+`afterPack:` key. It runs on every packaging pass (including the `--dir` one, where "afterPack"
+still fires normally) and writes resources/app-update.yml itself, but only if the file is not
+already there — so it is a no-op wherever electron-builder's native writer already succeeded (a
+plain `electron-builder --win` build, or any Linux target, since the suitability check above is
+Windows/macOS-only). The content is derived from `apps/desktop/electron-builder.yml`'s `publish:`
+block (`provider`, `owner`, `repo`, `releaseType`) plus `packager.appInfo.updaterCacheDirName`.
+
+`apps/desktop/electron-builder.yml` also sets `extraMetadata.name: claude-mons`. electron-builder
+derives `updaterCacheDirName` from package.json's `name`, not `productName`; this project's `name`
+is the pnpm workspace name @claude-mons/desktop, which sanitizes to `@claude-monsdesktop` and would
+give app-update.yml (and electron-updater's on-disk cache directory) an ugly, scope-mangled value.
+`extraMetadata` overrides the metadata electron-builder computes packaging info from — package.json
+itself is untouched — so both the native writer and `apps/desktop/scripts/after-pack.mjs` end up
+with the intended `claude-mons-updater`.
+
+To verify locally: `pnpm --filter @claude-mons/desktop build`, then from `apps/desktop`,
+`node_modules/.bin/electron-builder --win --dir --publish never`, then check that
+`apps/desktop/release/win-unpacked/resources/app-update.yml` exists and reads:
+
+```yaml
+provider: github
+owner: IcaruzSoftware
+repo: claude-mons
+releaseType: release
+updaterCacheDirName: claude-mons-updater
+```
 
 ## Steps
 
@@ -129,6 +181,7 @@ Two artifact configurations with XML are needed to sign the executables (pass 1)
 - [ ] Signing steps completed (if secrets present): look for "Valid" in `signpath-sign:` log lines
 - [ ] Windows, Linux, and metadata files appear in GitHub Releases (for tag push) or Artifacts (for workflow_dispatch)
 - [ ] `publish apt repository` ran (`gh-pages` push) or logged a `::notice::` skip if secrets are missing — see [docs/runbooks/apt-repository.md](apt-repository.md)
+- [ ] The packaged Windows build's `apps/desktop/release/win-unpacked/resources/app-update.yml` exists and has the right `updaterCacheDirName` (see the "app-update.yml" section above)
 - [ ] (Post-release) electron-updater can fetch and verify the update: test from a prior version
 
 ## What signing does not fix

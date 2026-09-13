@@ -2,8 +2,8 @@
 doc_type: reference
 purpose: "Read this when deploying the backend, debugging database issues, or contributing to Edge Functions."
 audience: agent
-last_verified: 2026-09-09
-last_verified_commit: b0a0308
+last_verified: 2026-09-13
+last_verified_commit: 5363066
 related_files:
   - supabase/migrations/20260904000000_init.sql
   - supabase/config.toml
@@ -31,7 +31,9 @@ sync with `packages/shared/src/game/levels.ts` and `packages/shared/src/game/spe
 ```
 supabase/
   config.toml                             CLI config (anonymous sign-ins on, per-function verify_jwt)
-  migrations/20260904000000_init.sql      schema, views, RLS, RPCs
+  migrations/20260904000000_init.sql                            schema, views, RLS, RPCs
+  migrations/20260913000000_suspicion_and_nations_filter.sql     leaderboard_nations suspicion filter, apply_xp decay
+  migrations/20260913010000_battle_limits.sql                    claim_battle_slot: 10 min cooldown, 50 challenges/day
   functions/
     deno.json                             import map (@supabase/supabase-js)
     _shared/                              auth.ts db.ts http.ts monState.ts pipeline.ts queries.ts random.ts
@@ -76,7 +78,7 @@ supabase/
 
 - `leaderboard_alltime` (security_invoker): ranks players by total_xp, excludes eggs and suspicion ≥10
 - `leaderboard_weekly` (owned by postgres): ranks by this UTC week's work+bonus+battle XP
-- `leaderboard_nations` (owned by postgres): aggregates members, XP, level, and weekly battles per nation
+- `leaderboard_nations` (owned by postgres): aggregates members, XP, level, and weekly battles per nation, excluding suspicion ≥10 players from every aggregated column (not just `total_xp`)
 
 ## RLS policies
 
@@ -107,7 +109,7 @@ All error bodies are `{ error: { code, message, details? } }` (`ApiError` in `pa
 
 ## XP pipeline and suspicion
 
-`sanitizeBucket()` (in `supabase/functions/ingest-xp/index.ts`) coerces untrusted client buckets to safe `MinuteBucket` objects: floors minute to 60s granularity, drops non-positive counts, and rejects tool names >128 chars. The pure `runIngestPipeline()` (in `supabase/functions/_shared/pipeline.ts`) applies per-minute and daily caps. When `ingest-xp` completes, if >50% of claimed XP was dropped (overages, repeats, or invalid tools), the player's `suspicion` is incremented. Players with suspicion ≥10 are hidden from leaderboards and excluded from opponent matchmaking.
+`sanitizeBucket()` (in `supabase/functions/ingest-xp/index.ts`) coerces untrusted client buckets to safe `MinuteBucket` objects: floors minute to 60s granularity, drops non-positive counts, and rejects tool names >128 chars. The pure `runIngestPipeline()` (in `supabase/functions/_shared/pipeline.ts`) applies per-minute and daily caps and returns `out.suspicious`: true only when a batch claimed at least `SUSPICION_MIN_CLAIMED_XP` (100) XP *and* more than half of it was dropped for a non-cap reason (`stale`/`future`/`implausible`/`no_prompt_context`) — cap drops (`cap_minute`/`cap_hour`/`cap_day`) never count, since they are the normal shape of a heavy legitimate day. `ingest-xp` increments `players.suspicion` only when `out.suspicious`; `apply_xp` decays it by 1 (floor 0) every time a batch activates a new day. Players with suspicion ≥10 are hidden from leaderboards and excluded from opponent matchmaking. See `docs/design/backend-rules.md` for the full reasoning.
 
 ## Matchmaking and Wild Mons
 

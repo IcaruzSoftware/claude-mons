@@ -119,9 +119,11 @@ serve(async (req) => {
     events.push({ type: 'streak', days: out.streak.streakDays, bonus: out.bonus });
   }
 
-  // --- suspicion: more than half of the claimed XP was dropped -----------------------------------
-  const droppedXp = out.dropped.reduce((s, d) => s + d.xp, 0);
-  if (out.claimedXp > 0 && droppedXp * 2 > out.claimedXp) {
+  // --- suspicion: more than half of a meaningfully large batch's claimed XP was dropped for a
+  // non-cap reason (implausible/stale/future/no_prompt_context) -----------------------------------
+  // Cap drops (cap_minute/cap_hour/cap_day) are the normal, expected shape of a heavy legitimate
+  // user's batch and never count; see PipelineOutput['suspicious'] in _shared/pipeline.ts.
+  if (out.suspicious) {
     const { error: susError } = await db
       .from('players')
       .update({ suspicion: player.suspicion + 1 })

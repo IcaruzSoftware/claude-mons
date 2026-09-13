@@ -1,7 +1,12 @@
 // deno test --allow-read _shared/pipeline.test.ts   (run `pnpm sync:shared` first)
 import { assert, assertEquals } from 'jsr:@std/assert@1';
 import { BONUS, CAPS, EVENT_XP, emptyBucket, type MinuteBucket } from './game/game/xp.ts';
-import { emptyDayTotals, runIngestPipeline, type PipelineInput } from './pipeline.ts';
+import {
+  emptyDayTotals,
+  runIngestPipeline,
+  SUSPICION_MIN_CLAIMED_XP,
+  type PipelineInput,
+} from './pipeline.ts';
 
 const NOON = Date.UTC(2026, 8, 4, 12, 0, 0); // 2026-09-04 12:00Z
 const MIN = 60_000;
@@ -134,4 +139,57 @@ Deno.test('below the threshold nothing activates', () => {
   assertEquals(out.bonus, 0);
   assertEquals(out.dayActivated, null);
   assertEquals(out.streak, { streakDays: 0, lastActiveDay: null });
+});
+
+// --- suspicion heuristic ------------------------------------------------------------------------
+// Cap drops (cap_minute/cap_hour/cap_day) are the normal shape of a heavy legitimate day and must
+// never contribute to `suspicious`; only non-cap drops (stale/future/implausible/no_prompt_context)
+// on a batch that claimed at least SUSPICION_MIN_CLAIMED_XP do.
+
+Deno.test('a heavy day that only trips caps never counts toward suspicion', () => {
+  // Almost at the daily work cap already; this bucket's legitimate-looking activity mostly has no
+  // room left and is dropped as cap_day, not as anything implausible.
+  const out = runIngestPipeline(
+    input({
+      dayTotals: { prompts: 100, stops: 100, toolXp: 1150, workXp: 1990 },
+      buckets: [bucket(NOON, { prompts: 5, stops: 5, tools: { Edit: 20 } })],
+    }),
+  );
+  assert(out.claimedXp >= SUSPICION_MIN_CLAIMED_XP);
+  assert(out.dropped.length > 0);
+  assert(
+    out.dropped.every(
+      (d) => d.reason === 'cap_day' || d.reason === 'cap_hour' || d.reason === 'cap_minute',
+    ),
+  );
+  assertEquals(out.suspicious, false);
+});
+
+Deno.test('a batch mostly rejected as implausible/future counts toward suspicion', () => {
+  const now = NOON;
+  const out = runIngestPipeline(
+    input({
+      now,
+      buckets: [
+        // dropped in full as 'future' (non-cap): 3 prompts (15) + 70 run-class tool XP (70) = 85
+        bucket(now + CAPS.futureMs + MIN, { prompts: 3, tools: { Bash: 70 } }),
+        // credited normally: 5 (prompt) + 10 (tool) = 15
+        bucket(now, { prompts: 1, tools: { Edit: 5 } }),
+      ],
+    }),
+  );
+  assertEquals(out.claimedXp, 100);
+  assert(out.dropped.some((d) => d.reason === 'future'));
+  assertEquals(out.suspicious, true);
+});
+
+Deno.test('a tiny batch never counts toward suspicion even if fully dropped', () => {
+  const now = NOON;
+  const out = runIngestPipeline(
+    input({ now, buckets: [bucket(now + CAPS.futureMs + MIN, { prompts: 1 })] }),
+  );
+  assertEquals(out.claimedXp, EVENT_XP.prompt);
+  assert(out.claimedXp < SUSPICION_MIN_CLAIMED_XP);
+  assert(out.dropped.some((d) => d.reason === 'future'));
+  assertEquals(out.suspicious, false);
 });

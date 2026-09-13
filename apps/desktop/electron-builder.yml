@@ -1,6 +1,13 @@
 appId: dev.claude-mons.desktop
 productName: claude-mons
 copyright: Copyright © 2026 Gerrit Visser and claude-mons contributors
+# electron-builder derives updaterCacheDirName (and a few legacy fallbacks) from package.json's
+# "name", not "productName". Our package.json name is the pnpm workspace name "@claude-mons/desktop",
+# which sanitizes to "@claude-monsdesktop" and would give electron-updater a wrong/ugly cache dir.
+# Overriding it here (packaging metadata only, package.json is untouched) keeps updaterCacheDirName
+# in resources/app-update.yml as "claude-mons-updater". See docs/runbooks/release.md.
+extraMetadata:
+  name: claude-mons
 directories:
   output: release
   buildResources: resources
@@ -21,6 +28,13 @@ publish:
   owner: IcaruzSoftware
   repo: claude-mons
   releaseType: release
+# electron-builder only writes resources/app-update.yml from its own afterPack listener when the
+# packaging pass produces an updater-aware target (nsis) directly; it is skipped for a `--dir`
+# build (an internal "dir" no-op target) and for a `--prepackaged` build (afterPack never fires at
+# all). CI's Windows job packages in exactly that --dir + --prepackaged two-step, which otherwise
+# ships installs with no app-update.yml (ENOENT from electron-updater). See
+# scripts/after-pack.mjs and docs/runbooks/release.md.
+afterPack: scripts/after-pack.mjs
 
 win:
   target:

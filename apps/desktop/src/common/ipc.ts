@@ -94,17 +94,37 @@ export interface PetConfig {
   windowGeometry: WindowGeometry;
 }
 
-/** Window geometry in world DIPs plus the display's scale factor. */
+/**
+ * Window geometry in world DIPs plus the display's scale factor.
+ *
+ * `geometryVersion` is bumped by `PetWindow` on every `setBounds`/`setPosition`/mode change (see
+ * `apps/desktop/src/main/windows/PetWindow.ts`). The renderer echoes it back on every `Hitbox`
+ * report (`HitboxMessage`) so the main process can tell whether a reported hitbox was computed
+ * against the window's *current* geometry or a stale one from before a hop/mode switch/resize —
+ * see "Geometry versions" in `docs/architecture/overlay-and-input.md`.
+ */
 export interface WindowGeometry {
   x: number;
   y: number;
   width: number;
   height: number;
   scaleFactor: number;
+  geometryVersion: number;
 }
 
 /** Opaque sprite bounds in window-local coordinates, or null when nothing is drawn. */
 export type Hitbox = { x: number; y: number; w: number; h: number } | null;
+
+/**
+ * `pet:hitbox` payload: the hitbox tagged with the `WindowGeometry.geometryVersion` the renderer
+ * had in hand when it computed it. `CursorTracker` discards a hitbox whose version doesn't match
+ * the window's current geometry version instead of trusting window-local coordinates that may no
+ * longer correspond to the window's actual current bounds.
+ */
+export interface HitboxMessage {
+  hitbox: Hitbox;
+  geometryVersion: number;
+}
 
 export interface PointerMessage {
   type: 'down' | 'up' | 'move' | 'enter' | 'leave' | 'contextmenu';

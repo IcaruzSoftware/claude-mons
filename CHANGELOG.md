@@ -2,13 +2,14 @@
 doc_type: reference
 purpose: "Release notes and version history; check this when seeing claude-mons updates or deciding what version to expect features in."
 audience: both
-last_verified: 2026-09-09
-last_verified_commit: 256f0c3
+last_verified: 2026-09-13
+last_verified_commit: 5363066
 related_files:
   - docs/history/v1-handoff-2026-09-04.md
   - docs/README.md
   - docs/decisions/0016-email-otp-account-linking.md
   - docs/decisions/0017-force-x11-backend-on-linux.md
+  - docs/decisions/0018-compact-window-and-fail-closed-click-through.md
   - docs/runbooks/auth-email-config.md
 ---
 
@@ -23,10 +24,34 @@ All notable changes to claude-mons are documented here. See [Keep a Changelog](h
 - Confirmation-link fallback for linking an email on the free-tier default mailer, which cannot deliver the 6-digit code (only its own built-in link): `SupabaseClient.refreshLinkedEmail()` (`auth.refreshSession()` + `auth.getUser()`, resolved through the new pure `resolveConfirmedEmail` in `apps/desktop/src/main/net/account.ts`) detects a link the player clicked in their mail client, exposed as `IPC.accountLinkRefresh` (`account:link-refresh`). `apps/desktop/src/renderer/ui/AccountEmailCode.tsx` shows an "I clicked the link" button for the linking widget and auto-polls the same call every 5 s for up to 10 minutes so the panel notices on its own; the sign-in-on-a-new-device widgets show a one-line hint instead, since that path has no link-based equivalent and still needs custom SMTP. See `docs/architecture/flows/account-linking.md` and the updated `docs/runbooks/auth-email-config.md` (adds a Gmail app-password SMTP recipe).
 - "Battle now" tray/context menu item: initiates a battle without shaking the pet (alternative gesture on platforms where shake input fails).
 
+### Changed
+- Battle limits: `BATTLE_RULES` (`packages/shared/src/battle/battle.ts`) raises `challengesPerDay` 10 → 50 and `cooldownMs` 5 → 10 minutes; the client (`apps/desktop/src/main/game/BattleService.ts`, `apps/desktop/src/renderer/panel/views/Battles.tsx`) and server (`claim_battle_slot`, `supabase/functions/_shared/monState.ts`) already derived their gates/countdowns from this constant, so both sides move together. `supabase/migrations/20260913010000_battle_limits.sql` replaces `claim_battle_slot` with the new interval and cap. The defender-side cap (first 10 defenses/day pay XP, in `settle_battle`) is unchanged, and battle XP remains uncapped by the work-XP daily caps. See `docs/design/battle.md`.
+
 ### Fixed
 
+- **Pet overlay could get stuck accepting clicks across the whole screen width, or lose track of
+  the sprite's hitbox entirely.** The pet's normal window used to be a "strip" spanning the full
+  work-area width so the pet could walk without the window moving; if click-through ever got stuck
+  disabled (a stale/missing hitbox, a race between a mode switch and the next hitbox report), any
+  click along the bottom of the screen reached the pet window — reported live as "clicking a button
+  in Chrome randomly opens the claude-mons menu" and "the moment the pet walks around it can't be
+  dragged." The strip window is removed: the pet's one normal window (`follow`) is now always
+  compact (about 3 sprite-widths by 2.5 sprite-heights, `PetWindow.COMPACT_WIDTH_GRID`/
+  `COMPACT_HEIGHT_GRID`) and only hops (`PetWindow.followTo`/`apps/desktop/src/main/display.ts:needsHop`) once the sprite
+  drifts far enough from its center, or immediately during a drag/fall/landing/display change.
+  `CursorTracker` now defaults to click-through closed from construction, re-derives and
+  re-asserts that decision every tick instead of trusting a cached `hovering` flag, requires a
+  fresh cursor sample and a fresh hitbox tagged with the window's current `geometryVersion`
+  (`PetWindow`'s bounds-change counter, plumbed through `WindowGeometry`/`HitboxMessage`) before
+  accepting input, forces click-through closed on any tick exception, and `PetHost` forces it
+  closed outright on blur/hide/mode-switch/display-change and re-checks `isPointAccepted` before
+  acting on a pointerdown/context-menu. "Bring pet back" still works but should no longer be the
+  only fix. See [ADR 0018](docs/decisions/0018-compact-window-and-fail-closed-click-through.md) and
+  the rewritten `docs/architecture/overlay-and-input.md`.
+- **Suspicion false positive for legitimate heavy users.** `ingest-xp`'s suspicion heuristic used to increment `players.suspicion` whenever more than half of a batch's claimed XP was dropped for *any* reason, including the per-minute/hour/day caps that a heavy user (or a spooled offline replay) trips as a matter of course. `supabase/functions/_shared/pipeline.ts:runIngestPipeline` now returns `out.suspicious`, true only when a batch claimed at least 100 XP and more than half of it was dropped for a non-cap reason (`stale`/`future`/`implausible`/`no_prompt_context`); cap drops (`cap_minute`/`cap_hour`/`cap_day`) never count. `apply_xp` (`supabase/migrations/20260913000000_suspicion_and_nations_filter.sql`) also now decays `suspicion` by 1 (floor 0) every time a batch activates a new day, so a flagged player who keeps playing normally recovers. The same migration fixes `leaderboard_nations`, whose `weekly_xp` aggregate did not exclude suspicion ≥10 players even though its other columns did, so a flagged player's weekly XP still counted toward their nation while their personal entry had already dropped off `leaderboard_alltime`/`leaderboard_weekly`. See `docs/design/backend-rules.md`.
 - Update check no longer fails with "Cannot read properties of undefined (reading 'checkForUpdates')": electron-updater is CommonJS and its `autoUpdater` export is only reachable through the default export in the packaged ESM bundle. Update errors are now one readable line (e.g. no release published yet, offline).
 - **Linux overlay always stays on top.** The app now forces XWayland (X11 backend via `ozone-platform x11` switch) on all Linux distributions, even native Wayland sessions, because native Wayland cannot provide window positioning, cursor polling, or always-on-top semantics (see [ADR 0017](docs/decisions/0017-force-x11-backend-on-linux.md)). `PetWindow.reassertTopmost()` now runs every 5 s on Linux as well as Windows, since some X11 window managers drop the `_NET_WM_STATE_ABOVE` flag after focus changes. Set `CLAUDE_MONS_NATIVE_WAYLAND=1` to override and test native Wayland (currently unsupported).
+- **Update check failed with `ENOENT: no such file or directory, open '...\resources\app-update.yml'` on every installed Windows build.** electron-builder only writes that file from its own packaging pass when the pass produces an updater-aware target directly; CI's Windows job signs in between by packaging with `--dir` (target is an internal "dir" no-op, which fails electron-builder's Windows suitability check) and then `--prepackaged` (skips its packaging step, and the write, entirely) — so no installed build ever got the file. `apps/desktop/scripts/after-pack.mjs` (wired up via `apps/desktop/electron-builder.yml`'s new `afterPack:` key) now writes it itself whenever electron-builder's own writer skipped it. `apps/desktop/electron-builder.yml` also adds `extraMetadata.name: claude-mons`, since electron-builder derives `updaterCacheDirName` from package.json's `name` (the pnpm workspace name @claude-mons/desktop, which sanitizes to a scope-mangled value) rather than `productName`. See `docs/runbooks/release.md`.
 
 ### Added
 - Documentation tooling: `scripts/check-docs.mjs` script and CI job to validate doc structure and code references.

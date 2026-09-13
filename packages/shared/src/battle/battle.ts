@@ -183,8 +183,8 @@ export function simulateBattle(a: MonSnapshot, b: MonSnapshot, seed: string): Ba
 }
 
 export const BATTLE_RULES = {
-  cooldownMs: 5 * 60 * 1000,
-  challengesPerDay: 10,
+  cooldownMs: 10 * 60 * 1000,
+  challengesPerDay: 50,
   defensesPerDay: 10,
 } as const;
 
