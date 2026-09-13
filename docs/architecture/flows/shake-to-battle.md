@@ -3,7 +3,7 @@ doc_type: architecture
 purpose: "Read this when tracing how a shake gesture becomes a battle, from cursor drag to a history entry."
 audience: agent
 last_verified: 2026-09-13
-last_verified_commit: 1abb898
+last_verified_commit: b1bd8f1
 related_files:
   - apps/desktop/src/main/PetHost.ts
   - packages/shared/src/input/shake.ts
@@ -67,10 +67,14 @@ fixed order, short-circuiting on the first one that fails:
 | 4 | `cooldownUntil()` is in the future | `cooldown` |
 | 5 | `remainingToday()` is `0` | `daily_cap` |
 
-`mySnapshot()` also stamps `loadout: { stance: s.loadout.stance }` (default `bulwark`) onto the
+`mySnapshot()` also stamps `loadout: { stance: s.loadout.stance, moves: s.loadout.moves }` onto the
 `MonSnapshot` it builds, from `LocalState.loadout` (set by `IPC.battleSetStance` /
-`docs/design/progression.md` Stances) — this is what makes the chosen stance apply to both the
-offline `wildBattle` path and the snapshot sent to `battle-request`.
+`IPC.battleSetLoadout` — `docs/design/progression.md` Stances / Move pool and effects). `moves` is
+usually `undefined` locally (the client mostly relies on the server-computed default; the loadout
+editor sets it explicitly once the player saves one); either way `snapshotFor`
+(`packages/shared/src/battle/battle.ts`) fills in a level-appropriate default before the snapshot
+ever reaches `simulateBattle`, so both the offline `wildBattle` path and the snapshot sent to
+`battle-request` always battle with a complete 3-move loadout.
 
 Any refusal (`BattleOutcome` with `ok: false`) is shown the same way: `App.onBattleRequest` plays a
 short "hurt" pose (`this.host.stimulate({ type: 'hook:notification' })`) so the player learns the
@@ -161,9 +165,13 @@ Either way `App.onBattleDone` finishes with `pushSnapshot()`, and
 nickname and nation badge, an `Elite` badge when `isElite` (a Wild Mon that rolled the 10 % elite
 encounter, `docs/design/progression.md` Matchmaking and streaks), species/level/turns/reason, a
 `wild` tag when `isBot`, a `streak x<n>` note on a win that extends a streak past 1, and the XP
-reward. The Battles tab also has its own stance picker (three buttons, `IPC.battleSetStance`) and a
-"win streak" line fed by `UiSnapshot.battles.winStreak`/`.stance` — unrelated to the shake gesture
-itself, but sourced from the same `LocalState.battles`/`loadout` this flow reads and writes.
+reward. The Battles tab also shows the mon's loadout (3 move chips + stance) with an "Edit loadout"
+overlay (`IPC.battleSetLoadout`, moves + stance together) and a "win streak" line, fed by
+`UiSnapshot.battles.winStreak`/`.loadout`/`.unlockedMoveIds` — unrelated to the shake gesture itself,
+but sourced from the same `LocalState.battles`/`loadout` this flow reads and writes. During
+playback, `BattlePlayer` (above) reads each `BattleAction.effect`/`.charge` to show which effect
+fired in the banner (e.g. "Sparkit's Brushfire burns Pebblet") — see `docs/design/progression.md`
+Move pool and effects.
 
 ## Sequence
 

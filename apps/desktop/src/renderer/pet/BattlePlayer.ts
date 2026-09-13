@@ -90,6 +90,13 @@ export class BattlePlayer {
     for (const turn of this.msg.result.turns) {
       for (const action of turn.actions) {
         const at = t;
+        if (action.moveId === null) {
+          // synthetic end-of-turn effect tick (currently only a burn tick) -- no attack animation,
+          // just the banner + hp update.
+          this.steps.push({ at, run: () => this.burnTick(action, at) });
+          t += ACTION_MS;
+          continue;
+        }
         this.steps.push({ at, run: () => this.attack(action, at) });
         this.steps.push({ at: at + HIT_DELAY_MS, run: () => this.hit(action, at + HIT_DELAY_MS) });
         t += ACTION_MS;
@@ -110,16 +117,58 @@ export class BattlePlayer {
     this.endAt = t + OUTRO_MS;
   }
 
+  private name(side: Side): string {
+    return side === 'a' ? this.msg.me.nickname : this.msg.opponent.nickname;
+  }
+
   private attack(action: BattleAction, now: number): void {
-    const label = action.kind === 'special' ? `★ ${action.move}` : action.move;
+    const label =
+      action.charge === 'telegraph'
+        ? `${action.move} (charging...)`
+        : action.charge === 'release'
+          ? `★ ${action.move}!`
+          : action.move;
     if (action.actor === 'a') {
       this.emit({ type: 'battle:attack' });
-      this.view.banner = `${this.msg.me.nickname} used ${label}`;
     } else {
       this.view.opponentAnim = 'attack';
-      this.view.banner = `${this.msg.opponent.nickname} used ${label}`;
     }
+    this.view.banner = `${this.name(action.actor)} used ${label}`;
     void now;
+  }
+
+  /** One-line follow-up naming the effect this action applied, for the banner (task: "Battle
+   * banners show effect names", e.g. "Sparkit's Brushfire burns Pebblet"). Returns null when this
+   * action's effect has nothing visible to say (dodged, or an effect with no on-hit text). */
+  private effectBanner(action: BattleAction): string | null {
+    if (action.dodged) return null;
+    const target: Side = action.actor === 'a' ? 'b' : 'a';
+    const actor = this.name(action.actor);
+    const foe = this.name(target);
+    switch (action.effect) {
+      case 'burn':
+        return action.moveId === null
+          ? `${actor} takes burn damage`
+          : `${actor}'s ${action.move} burns ${foe}`;
+      case 'def_down':
+        return `${actor}'s ${action.move} weakens ${foe}'s defense`;
+      case 'drain':
+        return `${actor}'s ${action.move} drains ${foe}`;
+      case 'shield_first':
+        return `${actor}'s ${action.move} shields against the next hit`;
+      default:
+        return null;
+    }
+  }
+
+  /** Synthetic end-of-turn burn tick: no attack animation, just the banner + hp update. */
+  private burnTick(action: BattleAction, now: number): void {
+    const banner = this.effectBanner(action);
+    if (banner) this.view.banner = banner;
+    const color = '#ff5252';
+    this.view.popups.push({ side: action.actor, text: `-${action.damage}`, color, bornAt: now });
+    if (action.actor === 'a') this.view.hp.me = action.targetHpAfter;
+    else this.view.hp.opp = action.targetHpAfter;
   }
 
   private hit(action: BattleAction, now: number): void {
@@ -144,6 +193,8 @@ export class BattlePlayer {
           bornAt: now + 120,
         });
     }
+    const effectBanner = this.effectBanner(action);
+    if (effectBanner) this.view.banner = effectBanner;
     if (target === 'a') {
       this.view.hp.me = action.targetHpAfter;
       if (!action.dodged) this.emit({ type: 'battle:hit' });

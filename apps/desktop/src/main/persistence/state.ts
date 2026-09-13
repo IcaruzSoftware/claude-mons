@@ -85,8 +85,8 @@ export interface LocalState {
     /** consecutive-win streak; mirrors the server's `mons.win_streak` when online */
     streak: number;
   };
-  /** Prepared loadout (docs/design/progression.md); only `stance` exists before Phase B/C. */
-  loadout: { stance: Stance };
+  /** Prepared loadout (docs/design/progression.md); `tree` is reserved for Phase C. */
+  loadout: { stance: Stance; moves?: string[] };
   water: {
     /** Last time the player clicked "Done" on the water reminder card, or null. */
     lastDoneAt: number | null;

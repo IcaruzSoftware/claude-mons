@@ -25,6 +25,8 @@ function fakeResponse(
       stats: { hp: 1, atk: 1, def: 1, spd: 1 },
       streakDays: 7,
       winStreak: 0,
+      loadout: { stance: 'bulwark' },
+      unlockedMoveIds: [],
       battle: { cooldownUntil: null, remainingToday: 3 },
       ...overrides,
     },

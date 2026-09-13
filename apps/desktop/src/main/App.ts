@@ -5,6 +5,9 @@ import { app, dialog, ipcMain, shell } from 'electron';
 import {
   isNation,
   isStance,
+  speciesOf,
+  unlockedMoves,
+  validateLoadout,
   type BattleNotification,
   type CreateProfileResponse,
   type HookEnvelope,
@@ -16,6 +19,7 @@ import {
   type AccountOpResult,
   type HookStatusValue,
   type LeaderboardPayload,
+  type SetLoadoutPayload,
   type UiSnapshot,
 } from '../common/ipc.ts';
 import { PetHost } from './PetHost.ts';
@@ -317,7 +321,13 @@ export class App {
         cooldownUntil: this.battles.cooldownUntil(),
         remainingToday: this.battles.remainingToday(),
         winStreak: s.battles.streak,
-        stance: s.loadout.stance,
+        loadout: {
+          stance: s.loadout.stance,
+          ...(s.loadout.moves ? { moves: s.loadout.moves } : {}),
+        },
+        unlockedMoveIds: s.pet.speciesId
+          ? unlockedMoves(speciesOf(s.pet.speciesId), p.level).map((m) => m.id)
+          : [],
       },
     };
   }
@@ -401,6 +411,29 @@ export class App {
       if (this.api) {
         try {
           await this.api.invoke('set-loadout', { stance });
+        } catch (err) {
+          const msg = err instanceof ApiCallError ? `${err.code}: ${err.message}` : String(err);
+          return { ok: false, error: msg };
+        }
+      }
+      return { ok: true, error: null };
+    });
+    ipcMain.handle(IPC.battleSetLoadout, async (_e, payload: unknown) => {
+      const s = this.store.get();
+      const result = validateLoadout(payload as SetLoadoutPayload, {
+        level: this.game.snapshot().level,
+        nation: s.profile.nation ?? 'water',
+        speciesId: s.pet.speciesId,
+      });
+      if (!result.ok) return { ok: false, error: result.reason };
+      this.store.update((st) => {
+        if (result.loadout.stance !== undefined) st.loadout.stance = result.loadout.stance;
+        if (result.loadout.moves !== undefined) st.loadout.moves = result.loadout.moves;
+      });
+      this.pushSnapshot();
+      if (this.api) {
+        try {
+          await this.api.invoke('set-loadout', payload as SetLoadoutPayload);
         } catch (err) {
           const msg = err instanceof ApiCallError ? `${err.code}: ${err.message}` : String(err);
           return { ok: false, error: msg };

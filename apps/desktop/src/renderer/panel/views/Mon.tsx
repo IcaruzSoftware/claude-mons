@@ -103,12 +103,17 @@ export function MonView({ s }: { s: UiSnapshot }) {
         <div class="section">
           <h3>Moves</h3>
           <div class="kv">
-            <span>Normal</span>
-            <span>{species.moves.normal}</span>
-            <span>{info.name} move</span>
-            <span>{species.moves.typed}</span>
-            <span>Special</span>
-            <span>{species.moves.special}</span>
+            {species.movePool.map((m) => (
+              <>
+                <span key={m.id}>
+                  {m.name}
+                  {p.level < m.unlocksAt ? ` (Lv ${m.unlocksAt})` : ''}
+                </span>
+                <span>
+                  {m.power} pwr · {m.type === 'nation' ? info.name : 'neutral'}
+                </span>
+              </>
+            ))}
           </div>
         </div>
       )}

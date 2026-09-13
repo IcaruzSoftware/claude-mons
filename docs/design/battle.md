@@ -3,18 +3,21 @@ doc_type: design
 purpose: "Read this when changing battle math, matchmaking, rewards, or the battle log shape."
 audience: agent
 last_verified: 2026-09-13
-last_verified_commit: 1abb898
+last_verified_commit: b1bd8f1
 related_files:
   - packages/shared/src/battle/battle.ts
+  - packages/shared/src/battle/effects.ts
   - packages/shared/src/battle/rng.ts
   - packages/shared/src/game/levels.ts
   - packages/shared/src/game/progression.ts
+  - packages/shared/src/game/species.ts
   - packages/shared/test/battle.test.ts
   - packages/shared/test/balance.test.ts
   - supabase/migrations/20260904000000_init.sql
   - supabase/migrations/20260913010000_battle_limits.sql
   - supabase/migrations/20260913020000_progression_phase_a.sql
   - supabase/migrations/20260913030000_progression_tuning.sql
+  - supabase/migrations/20260913040000_progression_phase_b.sql
   - supabase/functions/battle-request/index.ts
   - docs/design/progression.md
 ---
@@ -57,39 +60,45 @@ For a turn where mon `M` acts on mon `F`, in `packages/shared/src/battle/battle.
 
 ```
 scale   = (avgLevel + 49) / 50            // avgLevel = (a.level + b.level) / 2, same curve as statAtLevel
-raw     = (POWER[kind] * M.atk / F.def) * scale / 4 * effectiveness * (crit ? 2 : 1) * variance
+raw     = (power * M.atk / F.def) * scale / 4 * effectiveness * (crit ? 2 : 1) * variance
 damage  = max(1, floor(raw))
 variance = 0.7 + rng() * 0.6              // uniform in [0.7, 1.3)
 ```
 
-- **Move power table** (`packages/shared/src/battle/battle.ts:POWER`): `normal = 45`, `typed = 40`,
-  `special = 75`.
-- **Effectiveness**: `typed` and `special` moves use `effectiveness(M.nation, F.nation)` (0.5, 1, or 2 —
-  see `packages/shared/src/game/nations.ts:effectiveness`); `normal` always uses `1`.
-- **Crit**: chance `clamp(0.08 + (M.spd - F.spd) / 250, 0.03, 0.30)`; a crit doubles `raw` before flooring.
+- **`power`**: the chosen move's own `power` (docs/design/progression.md Move pool and effects), not
+  a fixed per-kind table — every species has its own 6-move pool (`packages/shared/src/game/
+  species.ts:Move`) as of Phase B (`BATTLE_PROTOCOL_VERSION` 3). A `charge` move's release turn
+  multiplies `power` by `CHARGE_MULTIPLIER` (2.2), see progression.md.
+- **Effectiveness**: a `type: 'nation'` move uses `effectiveness(M.nation, F.nation)` (0.5, 1, or 2 —
+  see `packages/shared/src/game/nations.ts:effectiveness`); `type: 'neutral'` always uses `1`.
+- **Crit**: chance `clamp(0.08 + (M.spd - F.spd) / 250, 0.03, 0.30)`; a crit doubles `raw` before
+  flooring. A move with the `crit_up` effect adds a further bonus, capped by its own higher ceiling
+  rather than the 0.30 above (docs/design/progression.md Move pool and effects has the tuned
+  numbers).
 - **Dodge**: checked before crit/variance are rolled. Chance `clamp((F.spd - M.spd) / 250, 0, 0.20)` — i.e.
   clamped to `min(0.2, max(0, ...))` in code. A dodge deals 0 damage and skips the crit/variance rolls
-  entirely (they are not rolled on a dodged attack).
-
-### Move selection policy
-
-- **Special**: each side may use `special` at most once per battle, and it auto-triggers the moment that
-  side's own HP first drops to `≤ 50 %` of its max (checked at the start of `act`, before dodge). Once used,
-  `specialUsed[side]` is set and that side never uses `special` again in the battle.
-- **Normal vs. typed** (when special is not triggering): the "best" move is whichever of `typed`/`normal`
-  deals more (`POWER.typed * effectiveness > POWER.normal ? 'typed' : 'normal'`). The actor picks the best
-  move with probability `0.75`, otherwise the other one — so the AI is not perfectly predictable.
+  entirely (they are not rolled on a dodged attack). A move with the `true_hit` effect skips this roll
+  entirely (never dodged; no `rng()` call is made for it).
+- **`def_down`, `burn`, `drain`, `shield_first`, `priority`, `charge`**: the remaining 5 of the 8
+  move effects. Numbers, per-battle state, and the loadout policy that picks a move each turn all
+  live in docs/design/progression.md Move pool and effects / Loadout policy — this doc only notes
+  that they run inside the same `act()` this damage formula lives in
+  (`packages/shared/src/battle/effects.ts` has the magnitudes and per-side state shape).
 
 ## Turn order (as shipped)
 
-Turn order is **probabilistic by speed**, not a strict "faster always goes first" rule:
+Turn order is **probabilistic by speed**, not a strict "faster always goes first" rule, *unless*
+exactly one side's chosen move for this turn has the `priority` effect — that side always goes
+first, no `rng()` draw (docs/design/progression.md Move pool and effects). Otherwise:
 
 ```
 pFirstA = a.spd / (a.spd + b.spd)
 ```
 
-Each turn, one `rng()` draw picks who acts first using that probability; the second mon then acts if it is
-still alive. This means a one-point speed edge does not decide every turn (see History).
+one `rng()` draw picks who acts first using that probability; the second mon then acts if it is
+still alive. This means a one-point speed edge does not decide every turn (see History). Both sides'
+moves for the turn are chosen (via the loadout policy, docs/design/progression.md) before turn order
+is decided, since the `priority` check needs to know both.
 
 ## Max turns and timeout resolution
 
@@ -112,8 +121,13 @@ Fields only — see `packages/shared/src/battle/battle.ts` for exact types.
 | `finalHp` | `Record<Side, number>` | |
 | `maxHp` | `Record<Side, number>` | |
 
-`BattleAction`: `{ actor, move, kind, dodged, damage, crit, effectiveness, targetHpAfter }` — one per mon
-that acted that turn (the second actor's entry is omitted if the first action already reduced it to 0 HP).
+`BattleAction`: `{ actor, move, moveId, dodged, damage, crit, effectiveness, targetHpAfter, effect,
+charge? }` — one per mon that acted that turn (the second actor's entry is omitted if the first
+action already reduced it to 0 HP), plus a synthetic entry (`moveId: null`, `move: 'Burn'`,
+`effect: 'burn'`) appended at the end of a turn for each side with an active burn tick. `effect` is
+the effect the chosen move carries (`null` if none applied that action); `charge` is present only
+for a `charge`-effect move, `'telegraph'` or `'release'`. See docs/design/progression.md Move pool
+and effects.
 
 ## Determinism contract
 

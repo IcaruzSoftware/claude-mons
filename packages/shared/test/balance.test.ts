@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { simulateBattle, snapshotFor } from '../src/battle/battle.ts';
-import { SPECIES } from '../src/game/species.ts';
-import type { Stance } from '../src/game/progression.ts';
+import type { EffectId } from '../src/battle/effects.ts';
+import { STANCES, type Stance } from '../src/game/progression.ts';
+import { SPECIES, unlockedMoves, type Move, type Species } from '../src/game/species.ts';
 import { stageForLevel } from '../src/game/levels.ts';
 
 /**
@@ -226,4 +227,125 @@ describe('balance (cross-nation round-robin)', () => {
       `pairing spread ${(spread * 100).toFixed(1)}pp: ${rates.map((r) => (r * 100).toFixed(1)).join('/')}`,
     ).toBeLessThanOrEqual(0.05);
   });
+});
+
+// --- Phase B: loadout archetype matrix (docs/design/progression.md Balance targets) -------------
+//
+// Four loadout archetypes, each a 3-move pick from a species' *unlocked* movePool favoring a
+// cluster of effects (a species without a matching effect anywhere in its pool falls back to its
+// next-highest-power unlocked moves, so every species/level/archetype combination is always a
+// valid, playable loadout):
+//   - aggro: crit_up / true_hit / priority (burst -- lean on crits and unavoidable priority hits)
+//   - bulk:  shield_first / drain / def_down (sustain -- reduce and heal off incoming damage)
+//   - dot:   burn / def_down / drain (chip damage over time, softened defenses)
+//   - tempo: charge / priority / true_hit (tempo swings -- telegraphed burst, guaranteed hits)
+// Effects deliberately overlap across archetypes (e.g. def_down is both a "bulk" and a "dot" pick)
+// since the 8-effect vocabulary is shared by all 6 pool slots; the point is exercising different
+// effect combinations under the real loadout policy, not perfectly orthogonal categories.
+type Archetype = 'aggro' | 'bulk' | 'dot' | 'tempo';
+const ARCHETYPES: readonly Archetype[] = ['aggro', 'bulk', 'dot', 'tempo'] as const;
+const ARCHETYPE_EFFECTS: Record<Archetype, readonly EffectId[]> = {
+  aggro: ['crit_up', 'true_hit', 'priority'],
+  bulk: ['shield_first', 'drain', 'def_down'],
+  dot: ['burn', 'def_down', 'drain'],
+  tempo: ['charge', 'priority', 'true_hit'],
+};
+
+function archetypeLoadout(
+  species: Species,
+  level: number,
+  archetype: Archetype,
+): [string, string, string] {
+  const wanted = ARCHETYPE_EFFECTS[archetype];
+  const rank = (m: Move) => {
+    const i = m.effect === null ? -1 : wanted.indexOf(m.effect);
+    return i === -1 ? wanted.length : i;
+  };
+  const picks = [...unlockedMoves(species, level)]
+    .sort((a, b) => rank(a) - rank(b) || b.power - a.power)
+    .slice(0, 3)
+    .map((m) => m.id);
+  while (picks.length < 3) picks.push(picks[picks.length - 1]!);
+  return [picks[0]!, picks[1]!, picks[2]!];
+}
+
+describe('balance (Phase B loadout archetype matrix)', () => {
+  const ids = Object.keys(SPECIES);
+  const BATTLES_PER_COMBO = 15; // 4 archetypes * 4 archetypes * 48 cross-nation pairs * 2 levels
+
+  for (const level of [10, 30] as const) {
+    it(`every species x archetype combination stays balanced at level ${level}`, () => {
+      const stage = stageForLevel(level) as 'teen' | 'adult';
+      const speciesWins: Record<string, number> = {};
+      const speciesGames: Record<string, number> = {};
+      const archWins: Record<Archetype, number> = { aggro: 0, bulk: 0, dot: 0, tempo: 0 };
+      const archGames: Record<Archetype, number> = { aggro: 0, bulk: 0, dot: 0, tempo: 0 };
+
+      for (const idA of ids) {
+        for (const idB of ids) {
+          if (idA === idB || SPECIES[idA]!.nation === SPECIES[idB]!.nation) continue;
+          for (const archA of ARCHETYPES) {
+            for (const archB of ARCHETYPES) {
+              const stanceA = STANCES[(ARCHETYPES.indexOf(archA) + ARCHETYPES.indexOf(archB)) % 3]!;
+              const stanceB = STANCES[(ARCHETYPES.indexOf(archB) + 1) % 3]!;
+              const a = snapshotFor({
+                monId: 'a',
+                playerId: 'a',
+                nickname: 'a',
+                speciesId: idA,
+                stage,
+                level,
+                loadout: { stance: stanceA, moves: archetypeLoadout(SPECIES[idA]!, level, archA) },
+              });
+              const b = snapshotFor({
+                monId: 'b',
+                playerId: 'b',
+                nickname: 'b',
+                speciesId: idB,
+                stage,
+                level,
+                loadout: { stance: stanceB, moves: archetypeLoadout(SPECIES[idB]!, level, archB) },
+              });
+              for (let i = 0; i < BATTLES_PER_COMBO; i++) {
+                const r = simulateBattle(a, b, `${level}-${idA}-${archA}-${idB}-${archB}-${i}`);
+                const winner = r.winner === 'a' ? idA : idB;
+                speciesWins[winner] = (speciesWins[winner] ?? 0) + 1;
+                speciesGames[idA] = (speciesGames[idA] ?? 0) + 1;
+                speciesGames[idB] = (speciesGames[idB] ?? 0) + 1;
+                archGames[archA]++;
+                archGames[archB]++;
+                if (r.winner === 'a') archWins[archA]++;
+                else archWins[archB]++;
+              }
+            }
+          }
+        }
+      }
+
+      const speciesReport: string[] = [];
+      for (const id of ids) {
+        const rate = (speciesWins[id] ?? 0) / (speciesGames[id] ?? 1);
+        speciesReport.push(`${id.padEnd(10)} ${(rate * 100).toFixed(1)}%`);
+        expect(
+          rate,
+          `${id} win rate ${(rate * 100).toFixed(1)}% across all archetypes\n${speciesReport.join('\n')}`,
+        ).toBeGreaterThanOrEqual(0.35);
+        expect(
+          rate,
+          `${id} win rate ${(rate * 100).toFixed(1)}% across all archetypes\n${speciesReport.join('\n')}`,
+        ).toBeLessThanOrEqual(0.65);
+      }
+
+      const archReport = ARCHETYPES.map(
+        (arch) => `${arch.padEnd(6)} ${((archWins[arch] / archGames[arch]) * 100).toFixed(1)}%`,
+      ).join('\n');
+      for (const arch of ARCHETYPES) {
+        const rate = archWins[arch] / archGames[arch];
+        expect(
+          rate,
+          `${arch} averaged ${(rate * 100).toFixed(1)}% across the matrix\n${archReport}`,
+        ).toBeLessThanOrEqual(0.6);
+      }
+    });
+  }
 });

@@ -23,6 +23,8 @@ const mon: MonState = {
   stats: { hp: 72, atk: 62, def: 41, spd: 41 },
   streakDays: 2,
   winStreak: 0,
+  loadout: { stance: 'bulwark', moves: ['spark-nip', 'hot-reload', 'force-push'] },
+  unlockedMoveIds: ['spark-nip', 'hot-reload'],
   battle: { cooldownUntil: null, remainingToday: 10 },
 };
 

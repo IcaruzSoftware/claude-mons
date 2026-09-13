@@ -2,8 +2,8 @@
 doc_type: runbook
 purpose: "Read this when adding a new species to a nation."
 audience: both
-last_verified: 2026-09-05
-last_verified_commit: d7db9c0
+last_verified: 2026-09-13
+last_verified_commit: b1bd8f1
 related_files:
   - packages/shared/src/game/species.ts
   - packages/sprites/src/species/sparkit.ts
@@ -70,7 +70,15 @@ Review output in `packages/sprites/preview/sheet.png` and per-animation PNG stri
 
 ## 5. Add species to shared table
 
-Edit `packages/shared/src/game/species.ts`: add a new entry to `SPECIES` with the id, nation, rarity, stage names, base stats (HP/ATK/DEF/SPD), move names (normal / typed / special), and flavor text.
+Edit `packages/shared/src/game/species.ts`: add a new entry to `SPECIES` with the id, nation, rarity, stage names, base stats (HP/ATK/DEF/SPD), a 6-move `movePool`, and flavor text.
+
+Every species needs exactly 6 moves (`docs/design/progression.md` Move pool and effects): slot 1 is
+always the `priority` effect (it doubles as the loadout's fixed opener) and unlocks at level 2 along
+with slot 2; slots 3/4/5/6 unlock at 5/10/15/20. Each move gets exactly one of the 8 effects
+(`priority`, `crit_up`, `drain`, `shield_first`, `def_down`, `burn`, `true_hit`, `charge` —
+`packages/shared/src/battle/effects.ts`) and a `type` of `neutral` or `nation`. Use the `pool()`
+helper already in `packages/shared/src/game/species.ts` to build the array and derive each move's `id` (a slug of its name)
+automatically:
 
 ```typescript
 // packages/shared/src/game/species.ts
@@ -82,11 +90,22 @@ export const SPECIES: Record<string, Species> = {
     rarity: 'rare',
     names: { baby: '<Baby>', teen: '<Teen>', adult: '<Adult>' },
     baseStats: { hp: 80, atk: 50, def: 55, spd: 30 },
-    moves: { normal: '<Move>', typed: '<Typed>', special: '<Special>' },
+    movePool: pool([
+      ['<Move 1>', 45, 'neutral', 'priority'],
+      ['<Move 2>', 40, 'nation', 'def_down'],
+      ['<Move 3>', 75, 'nation', 'crit_up'],
+      ['<Move 4>', 50, 'nation', 'true_hit'],
+      ['<Move 5>', 55, 'nation', 'burn'],
+      ['<Move 6>', 65, 'nation', 'drain'],
+    ]),
     flavor: '<Flavor text>',
   },
 };
 ```
+
+After adding the species, re-run the balance suite (step 7) — the new species also joins the
+archetype matrix in `packages/shared/test/balance.test.ts`, which needs at least one unlocked move
+per `ARCHETYPE_EFFECTS` cluster to build a sensible loadout at every level.
 
 ## 6. Add new migration
 

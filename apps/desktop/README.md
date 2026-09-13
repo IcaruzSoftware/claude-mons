@@ -3,7 +3,7 @@ doc_type: reference
 purpose: "Understand the desktop app's process model, module map, IPC channels, and CLI flags."
 audience: agent
 last_verified: 2026-09-13
-last_verified_commit: 1abb898
+last_verified_commit: b1bd8f1
 related_files:
   - apps/desktop/src/**
   - apps/desktop/IPC.md
@@ -123,7 +123,7 @@ All channel names and payload types live in `src/common/ipc.ts`. See `apps/deskt
 | `ui` | `{ panel }` (window position or null) |
 | `auth` | `{ session }` (serialized supabase-js session) |
 | `battles` | `{ history (≤50), lastBattleAt, today, streak }` — `streak` mirrors the server's `mons.win_streak` when online, or is derived locally for offline wild battles |
-| `loadout` | `{ stance }` (`docs/design/progression.md` Stances; `stance` defaults to `DEFAULT_STANCE` = `'bulwark'`) |
+| `loadout` | `{ stance, moves? }` (`docs/design/progression.md` Stances / Move pool and effects; `stance` defaults to `DEFAULT_STANCE` = `'bulwark'`, `moves` is 3 move ids set by the loadout editor and left `undefined` until then — `snapshotFor` fills in a level-appropriate default) |
 | `water` | `{ lastDoneAt, snoozedUntil, todayCount, todayKey }` — `snoozedUntil` is reused both for an explicit "Snooze 10 min" and to re-arm after an ignored card auto-hides; see `src/main/reminders/WaterReminder.ts` |
 
 **Migrations:** `MIGRATIONS[i]` upgrades version i+1 → i+2; run in order. `MIGRATIONS[0]` (v1 → v2) adds `hooks.port`/`hooks.token`/`hooks.mode`. `MIGRATIONS[1]` (v2 → v3) adds `settings.waterReminder` (on by default, 60 min) and the top-level `water` state. `MIGRATIONS[2]` (v3 → v4) adds `profile.email` (null). `MIGRATIONS[3]` (v4 → v5) adds `battles.streak` (0) and the top-level `loadout` (`{ stance: 'bulwark' }`). JsonStore uses 500 ms debounce; loads fall back to backup or defaults when unparsable.

@@ -12,6 +12,7 @@ import {
   type LeaderboardPayload,
   type PetConfig,
   type PointerMessage,
+  type SetLoadoutPayload,
   type StateMessage,
   type StimulusMessage,
   type UiSnapshot,
@@ -81,6 +82,8 @@ const uiApi = {
     ipcRenderer.invoke(IPC.uiSetWaterInterval, intervalMin),
   setStance: (stance: Stance): Promise<{ ok: boolean; error: string | null }> =>
     ipcRenderer.invoke(IPC.battleSetStance, stance),
+  setLoadout: (payload: SetLoadoutPayload): Promise<{ ok: boolean; error: string | null }> =>
+    ipcRenderer.invoke(IPC.battleSetLoadout, payload),
   water: {
     done: (): Promise<UiSnapshot> => ipcRenderer.invoke(IPC.waterDone),
     snooze: (): Promise<UiSnapshot> => ipcRenderer.invoke(IPC.waterSnooze),

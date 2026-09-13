@@ -13,6 +13,7 @@ import type {
   LeaderboardNationRow,
   LeaderboardWeeklyRow,
   LevelProgress,
+  MonLoadout,
   MonSnapshot,
   Nation,
   PetState,
@@ -57,6 +58,7 @@ export const IPC = {
   uiSetWaterEnabled: 'ui:set-water-enabled',
   uiSetWaterInterval: 'ui:set-water-interval',
   battleSetStance: 'battle:set-stance',
+  battleSetLoadout: 'battle:set-loadout',
   accountLinkStart: 'account:link-start',
   accountLinkVerify: 'account:link-verify',
   accountLinkRefresh: 'account:link-refresh',
@@ -230,9 +232,17 @@ export interface UiSnapshot {
     remainingToday: number;
     /** current consecutive-win streak (docs/design/progression.md Matchmaking and streaks) */
     winStreak: number;
-    /** this mon's current battle stance (docs/design/progression.md Stances) */
-    stance: Stance;
+    /** this mon's prepared loadout (docs/design/progression.md Stances, Move pool and effects) */
+    loadout: MonLoadout;
+    /** this mon's currently-unlocked move ids, in pool order (empty while egg) */
+    unlockedMoveIds: string[];
   };
+}
+
+/** `battle:set-loadout` request payload; both fields optional, same as `SetLoadoutRequest`. */
+export interface SetLoadoutPayload {
+  stance?: Stance;
+  moves?: string[];
 }
 
 export type UpdateStatusValue =

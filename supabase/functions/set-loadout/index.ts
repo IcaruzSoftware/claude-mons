@@ -1,7 +1,6 @@
-// POST { stance? } -> SetLoadoutResponse (docs/design/progression.md "Data model and API").
-// Phase A: validates and stores `stance` only; `moves`/`tree` are rejected (not yet settable) via
-// the shared pure validateLoadout, which already knows their future shape so this function's
-// request/response types will not need to change again in Phase B/C.
+// POST { stance?, moves? } -> SetLoadoutResponse (docs/design/progression.md "Data model and API").
+// Phase B: validates and stores `stance` and `moves` (3 distinct, unlocked move ids); `tree` is
+// still rejected (Phase C) via the shared pure validateLoadout.
 import type { SetLoadoutRequest, SetLoadoutResponse } from '../_shared/game/api.ts';
 import { validateLoadout } from '../_shared/game/game/progression.ts';
 import { requireUser } from '../_shared/auth.ts';
@@ -28,8 +27,12 @@ serve(async (req) => {
   const mon = monData as MonRow | null;
   if (!mon) return error('NO_PROFILE', 'create a profile first', 409);
 
-  const result = validateLoadout(body, { level: mon.level, nation: player.nation });
-  if (!result.ok) return error('BAD_REQUEST', result.reason, 400);
+  const result = validateLoadout(body, {
+    level: mon.level,
+    nation: player.nation,
+    speciesId: mon.species_id,
+  });
+  if (!result.ok) return error('BAD_REQUEST', result.reason, 400, { code: result.code });
 
   const nextLoadout = { ...(mon.loadout ?? {}), ...result.loadout };
   const { data: updated, error: updateError } = await db

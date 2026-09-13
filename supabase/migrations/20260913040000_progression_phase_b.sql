@@ -1,0 +1,29 @@
+-- Progression system Phase B (docs/design/progression.md Move pool and effects, Loadout policy):
+-- each species' movePool grew from 3 moves (normal/typed/special) to 6, and `mons.loadout.moves`
+-- (3 move ids) becomes settable via `set-loadout`. See CLAUDE.md's Phase B task and
+-- docs/runbooks/extend-the-backend.md for the migration conventions followed here.
+--
+-- --- backfill decision: no backfill ---------------------------------------------------------
+--
+-- `mons.loadout` is `jsonb`, already validated only at the application layer (`validateLoadout`,
+-- `packages/shared/src/game/progression.ts`); no column shape changed, so no `alter table` is
+-- needed here. The only question is whether *existing* mons' `loadout.moves` (absent for every mon
+-- created before this migration -- Phase A only ever wrote `stance`) needs a one-time backfill.
+--
+-- Decision: no backfill. `packages/shared/src/battle/battle.ts:snapshotFor` already defaults
+-- `loadout.moves` to `defaultLoadoutMoveIds(species, level)` (the first 3 unlocked moves in pool
+-- order) whenever a snapshot is built with no stored `moves` -- which is every read path that
+-- matters: `battle-request` (both the challenger's own mon and `pick_opponent`'s rows),
+-- `BattleService.mySnapshot` on the desktop client, and the balance test harness. A mon's *stored*
+-- `mons.loadout` row only gains an explicit `moves` array once its owner actually calls
+-- `set-loadout` with one; until then it keeps battling with the (recomputed, always current) level-
+-- appropriate default. This avoids a backfill UPDATE across every existing mon, and avoids having
+-- to keep a SQL mirror of the move pool (`species_base_stats` has no move columns and gets none
+-- here) in sync with `packages/shared/src/game/species.ts:SPECIES` -- the single source of truth
+-- for movePool data stays the TypeScript table, read only by the battle engine (Edge Functions and
+-- the desktop client), never by Postgres.
+--
+-- The only change this migration makes is documentation: the Phase A column comment said moves
+-- were not yet settable, which is no longer true.
+
+comment on column public.mons.loadout is '{ stance?, moves?, tree? } (docs/design/progression.md). stance and moves are set/read from Phase B (packages/shared/src/game/progression.ts:validateLoadout); tree is reserved for Phase C. A row with no moves battles with defaultLoadoutMoveIds(species, level), recomputed fresh by snapshotFor on every battle -- never backfilled.';

@@ -79,7 +79,7 @@ export class BattleService {
       speciesId: s.pet.speciesId,
       stage,
       level,
-      loadout: { stance: s.loadout.stance },
+      loadout: { stance: s.loadout.stance, ...(s.loadout.moves ? { moves: s.loadout.moves } : {}) },
     });
   }
 

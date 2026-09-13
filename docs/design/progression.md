@@ -3,9 +3,10 @@ doc_type: design
 purpose: "Read this when changing moves, stances, talents, matchmaking windows, streaks or evolution stat multipliers, or building the loadout editor."
 audience: agent
 last_verified: 2026-09-13
-last_verified_commit: 1abb898
+last_verified_commit: b1bd8f1
 related_files:
   - packages/shared/src/battle/battle.ts
+  - packages/shared/src/battle/effects.ts
   - packages/shared/src/game/species.ts
   - packages/shared/src/game/levels.ts
   - packages/shared/src/game/nations.ts
@@ -13,6 +14,7 @@ related_files:
   - docs/design/species-and-nations.md
   - supabase/migrations/20260904000000_init.sql
   - supabase/migrations/20260913030000_progression_tuning.sql
+  - supabase/migrations/20260913040000_progression_phase_b.sql
   - packages/shared/src/game/progression.ts
   - packages/shared/test/balance.test.ts
   - apps/desktop/src/renderer/panel/views/Battles.tsx
@@ -43,6 +45,22 @@ Every species gets a 6-move pool. Each move has a `power`, a `type` of `neutral`
 | `burn` | Target loses 8% max HP at the end of each turn for 3 turns (one instance active at a time) |
 | `true_hit` | Ignores the target's dodge chance |
 | `charge` | Turn 1 telegraphs for 0 damage; turn 2 auto-releases at 2.2× power |
+
+**Tuned by simulation on 2026-09-13** (implemented in `packages/shared/src/battle/effects.ts`,
+original spec was `def_down` = −25% DEF / `crit_up` = +20pp capped at the normal 30% crit ceiling):
+with the loadout policy's 80%-probability slot-2 weighting, a refreshing 3-turn `def_down` stays up
+almost every turn, so −25% DEF (a sustained +33% damage multiplier) dwarfed the other slot-2 effects
+it sits alongside — e.g. pebblet (`def_down` in slot 2) beat same-level, same-loadout-policy sparkit
+(`crit_up` in slot 2) roughly 70% of the time, and the pre-existing "+3 level advantage" balance test
+(`packages/shared/test/balance.test.ts`) dropped from its 60–90% target to ~49%. Root cause for
+`crit_up` specifically: a flat +20pp bonus very often did nothing, since most matchups' base crit
+chance already sits well above the 30% ceiling minus 20pp, so the bonus just hit the same cap the
+base roll would have anyway. Fix: `def_down`'s multiplier moved from 0.75 to **0.88** (−12% DEF, a
++14% damage multiplier — comparable to the other slot-2 effects instead of dominating them), and
+`crit_up` got its own, higher ceiling, **`CRIT_UP_MAX` = 0.5** (uncapped by the normal 30% ceiling up
+to 50%), instead of sharing it. Both constants live in `packages/shared/src/battle/effects.ts`; see
+`packages/shared/test/balance.test.ts`'s archetype matrix (Balance targets below) for the search that
+confirmed these numbers.
 
 Unlock schedule (by mon level): 2 moves at hatch (level 2), 3rd at 5, 4th at 10, 5th at 15, 6th at 20. Slots 1–3 are each species' current `normal`/`typed`/`special` move, kept as-is (unlock 2/2/5); slots 4–6 are new (unlock 10/15/20). Slot 1 is always `priority` — it doubles as the loadout's fixed opener (see Loadout policy). Renaming the existing moves to the new convention is a possible follow-up, not part of this design.
 
@@ -258,35 +276,61 @@ Win streaks add +10% challenger XP per consecutive win, capped at +50% (5 wins),
 
 ## Data model and API
 
-New fields on `public.mons` (`supabase/migrations/20260904000000_init.sql`), added by a new migration per the `CLAUDE.md` Gotcha that the init migration is not edited in place — see `supabase/migrations/<timestamp>_progression.sql`:
+Fields on `public.mons` (`supabase/migrations/20260904000000_init.sql`), added across two
+migrations per the `CLAUDE.md` Gotcha that the init migration is not edited in place —
+`supabase/migrations/20260913020000_progression_phase_a.sql` (columns) and
+`supabase/migrations/20260913040000_progression_phase_b.sql` (docs only, see below):
 
 | Column | Type | Holds |
 |---|---|---|
-| `loadout` | `jsonb` | `{ moves: [string, string, string], stance: string, tree: { [nodeId]: rank } }` |
+| `loadout` | `jsonb` | `{ moves?: [string, string, string], stance?: string, tree?: { [nodeId]: rank } }` |
 | `win_streak` | `int` | Consecutive real-player wins, see Matchmaking above |
 | `last_respec_at` | `timestamptz` | Enforces the once-per-7-days respec cooldown past level 10 |
 
-A new Edge Function, `set-loadout`, validates a submitted loadout against the mon's level (which moves and tree tier are unlocked), the nation's talent budget, and node prerequisites, via a pure shared `validateLoadout` (`packages/shared/src/game/<progression>.ts:validateLoadout` — new file, Deno-safe like the rest of `packages/shared`). `MonSnapshot` (`packages/shared/src/battle/battle.ts`) gains a `loadout` field, stored in `public.battles.challenger_snapshot`/`opponent_snapshot` so old battle logs keep replaying against the loadout that was actually equipped. `apps/desktop/src/renderer/panel/views/Battles.tsx` gains a loadout editor overlay (moves/stance/tree) and recent-opponent cards summarizing the last few foes' setups.
+`loadout.moves` has no backfill for mons that predate Phase B: `packages/shared/src/battle/
+battle.ts:snapshotFor` always defaults an absent/incomplete `moves` to
+`defaultLoadoutMoveIds(species, level)` (`packages/shared/src/game/species.ts`) when it builds a
+snapshot, so every mon always battles with a valid, level-appropriate loadout whether or not it has
+ever called `set-loadout`; see `supabase/migrations/20260913040000_progression_phase_b.sql`'s
+comment for the reasoning against a backfill migration.
+
+The `set-loadout` Edge Function validates a submitted `{ stance?, moves? }` against the mon's level
+(which moves are unlocked) via the pure shared `validateLoadout`
+(`packages/shared/src/game/progression.ts`); `tree` is still rejected (`TREE_NOT_SETTABLE`, Phase
+C). Rejection reasons are typed (`LoadoutErrorCode`, e.g. `MOVE_LOCKED`, `MOVES_NOT_DISTINCT`),
+returned as `error.details.code` alongside the human-readable `error.message`. `MonSnapshot`
+(`packages/shared/src/battle/battle.ts`) has a `loadout` field (always populated by `snapshotFor`),
+stored in `public.battles.challenger_snapshot`/`opponent_snapshot` so old battle logs keep replaying
+against the loadout that was actually equipped. `MonState` (`packages/shared/src/api.ts`) carries
+the mon's own `loadout` and `unlockedMoveIds` so the client can render the loadout editor without a
+separate call. `apps/desktop/src/renderer/panel/views/Battles.tsx` has a loadout editor overlay
+(move dropdowns per slot with reorder, locked moves greyed with "unlocks at level N", and the stance
+picker); the talent tree and recent-opponent cards are still Phase C/D.
 
 ## Balance targets
 
-Extends `packages/shared/test/balance.test.ts`'s matrix (currently cross-nation only, level 10, 150 battles per pair) to every species × 4 loadout archetypes (aggro/bulk/dot/tempo) × 3 stances, at levels 10 and 30, cross-nation only:
+`packages/shared/test/balance.test.ts` runs two matrices: the original cross-nation round-robin
+(35–65% per species, level 10 and 30) plus a Phase B archetype matrix — every species × 4 loadout
+archetypes (aggro/bulk/dot/tempo, each a 3-move pick favoring a cluster of effects — see the test's
+own `ARCHETYPE_EFFECTS`) × 4 opposing archetypes × cross-nation pairs, at levels 10 and 30 (stances
+cycled across the matrix rather than fully crossed, to keep the battle count tractable):
 
 - every species stays within **35–65%** win rate across its matchups (unchanged threshold from
-  `docs/design/battle.md`);
-- no single archetype exceeds **60%** win rate across the matrix;
+  `docs/design/battle.md`), both in the original matrix and aggregated across the archetype matrix;
+- no single archetype exceeds **60%** win rate across the matrix (measured: all 8
+  level × archetype combinations landed 46–55%);
 - the stance triangle holds at **55–62%** for the counter side, on every pairing, within 5 points of
   each other (see Stances above for the 2026-09-13 tuning that made this achievable);
 - boundary matchups (level 9 vs. 11, level 24 vs. 26 — either side of a stage transition) land the
   low-level side at **38–48%** (see Evolution multipliers above).
 
-Any change to `simulateBattle`'s RNG call order (adding a talent roll, a stance check, etc.) resets the golden log snapshot (`docs/design/battle.md` Determinism contract) and bumps the battle protocol version.
+Any change to `simulateBattle`'s RNG call order (adding a talent roll, a stance check, etc.) resets the golden log snapshot (`docs/design/battle.md` Determinism contract) and bumps the battle protocol version. `BATTLE_PROTOCOL_VERSION` is **3** as of Phase B (6-move pools, loadout policy, move effects replace the fixed `normal`/`typed`/`special` power table and the `special`-at-half-HP rule).
 
 ## Phases
 
-| Phase | Scope |
-|---|---|
-| A | Stances, evolution multipliers, matchmaking windows, win streaks |
-| B | Move pool (6/species), loadout policy, `MonSnapshot.loadout`, `set-loadout` |
-| C | Talent tree (nation branches + shared passives), respec |
-| D | Recent-opponent intel: `explainMatchup` summaries on the Battles tab |
+| Phase | Scope | Status |
+|---|---|---|
+| A | Stances, evolution multipliers, matchmaking windows, win streaks | shipped |
+| B | Move pool (6/species), loadout policy, `MonSnapshot.loadout`, `set-loadout` | shipped |
+| C | Talent tree (nation branches + shared passives), respec | not started |
+| D | Recent-opponent intel: `explainMatchup` summaries on the Battles tab | not started |

@@ -2,6 +2,7 @@
  * Phase A of the progression system (docs/design/progression.md): battle stances and the loadout
  * shape that future phases (move pool, talent tree) extend without breaking stored snapshots.
  */
+import { findMove, speciesOf, unlockedMoves } from './species.ts';
 import type { Nation, Stats } from '../types.ts';
 
 /** Battle stance: a rock-paper-scissors triangle of +-18% stat trade-offs. */
@@ -89,31 +90,76 @@ export interface MonLoadout {
   tree?: Record<string, number>;
 }
 
+/**
+ * Stable, machine-readable reasons a submitted loadout was rejected (`set-loadout`'s response
+ * carries this as `error.details.code`).
+ */
+export type LoadoutErrorCode =
+  | 'INVALID_SHAPE'
+  | 'INVALID_STANCE'
+  | 'NO_SPECIES'
+  | 'MOVES_COUNT'
+  | 'MOVES_NOT_DISTINCT'
+  | 'MOVE_UNKNOWN'
+  | 'MOVE_LOCKED'
+  | 'TREE_NOT_SETTABLE';
+
 export type ValidateLoadoutResult =
-  { ok: true; loadout: MonLoadout } | { ok: false; reason: string };
+  { ok: true; loadout: MonLoadout } | { ok: false; code: LoadoutErrorCode; reason: string };
 
 /**
- * Pure validation for the `set-loadout` Edge Function. Phase A only accepts `stance`; `moves` and
- * `tree` are deliberately rejected for now rather than silently ignored, so a Phase-B/C client
- * can't be fooled into thinking an unimplemented field took effect. `context` (mon level, nation)
- * is unused today but is already threaded through for the Phase B/C move-pool and talent-budget
- * checks that will need it.
+ * Pure validation for the `set-loadout` Edge Function. Phase B accepts `stance` and `moves` (3
+ * distinct move ids, each unlocked at the mon's level per `docs/design/progression.md` Move pool
+ * and effects); `tree` is still rejected (Phase C). `context.speciesId` is null for an unhatched
+ * egg, which cannot have moves (it has no species, hence no move pool) -- `stance` alone is still
+ * accepted for an egg, same as Phase A.
  */
 export function validateLoadout(
   input: unknown,
-  context: { level: number; nation: Nation },
+  context: { level: number; nation: Nation; speciesId: string | null },
 ): ValidateLoadoutResult {
-  void context;
   if (typeof input !== 'object' || input === null || Array.isArray(input)) {
-    return { ok: false, reason: 'loadout must be an object' };
+    return { ok: false, code: 'INVALID_SHAPE', reason: 'loadout must be an object' };
   }
   const body = input as Record<string, unknown>;
   const loadout: MonLoadout = {};
   if (body.stance !== undefined) {
-    if (!isStance(body.stance)) return { ok: false, reason: 'invalid stance' };
+    if (!isStance(body.stance))
+      return { ok: false, code: 'INVALID_STANCE', reason: 'invalid stance' };
     loadout.stance = body.stance;
   }
-  if (body.moves !== undefined) return { ok: false, reason: 'moves are not settable yet' };
-  if (body.tree !== undefined) return { ok: false, reason: 'talent tree is not settable yet' };
+  if (body.moves !== undefined) {
+    if (context.speciesId === null) {
+      return { ok: false, code: 'NO_SPECIES', reason: 'mon has not hatched yet' };
+    }
+    if (
+      !Array.isArray(body.moves) ||
+      body.moves.length !== 3 ||
+      !body.moves.every((m) => typeof m === 'string')
+    ) {
+      return { ok: false, code: 'MOVES_COUNT', reason: 'moves must be exactly 3 move ids' };
+    }
+    const moves = body.moves as string[];
+    if (new Set(moves).size !== 3) {
+      return { ok: false, code: 'MOVES_NOT_DISTINCT', reason: 'the 3 moves must be distinct' };
+    }
+    const species = speciesOf(context.speciesId);
+    const unlockedIds = new Set(unlockedMoves(species, context.level).map((m) => m.id));
+    for (const id of moves) {
+      const move = findMove(species, id);
+      if (!move) return { ok: false, code: 'MOVE_UNKNOWN', reason: `unknown move id: ${id}` };
+      if (!unlockedIds.has(id)) {
+        return {
+          ok: false,
+          code: 'MOVE_LOCKED',
+          reason: `${move.name} unlocks at level ${move.unlocksAt}`,
+        };
+      }
+    }
+    loadout.moves = moves;
+  }
+  if (body.tree !== undefined) {
+    return { ok: false, code: 'TREE_NOT_SETTABLE', reason: 'talent tree is not settable yet' };
+  }
   return { ok: true, loadout };
 }

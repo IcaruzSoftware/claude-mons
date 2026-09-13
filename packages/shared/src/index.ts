@@ -7,6 +7,7 @@ export * from './game/species.ts';
 export * from './game/nickname.ts';
 export * from './game/progression.ts';
 export * from './battle/rng.ts';
+export * from './battle/effects.ts';
 export * from './battle/battle.ts';
 export * from './hooks/payload.ts';
 export * from './behavior/index.ts';

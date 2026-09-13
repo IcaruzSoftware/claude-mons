@@ -1,8 +1,9 @@
 // Builds the client-facing MonState from database rows using the shared game math.
 import type { MonState } from './game/api.ts';
 import { BATTLE_RULES, statsAtLevel } from './game/battle/battle.ts';
+import type { MonLoadout } from './game/game/progression.ts';
 import { levelProgress } from './game/game/levels.ts';
-import { speciesOf } from './game/game/species.ts';
+import { speciesOf, unlockedMoves } from './game/game/species.ts';
 import type { MonRow, XpDailyRow } from './db.ts';
 
 export function buildMonState(
@@ -16,6 +17,10 @@ export function buildMonState(
     mon.species_id !== null
       ? statsAtLevel(speciesOf(mon.species_id).baseStats, progress.level)
       : {};
+  const unlockedMoveIds =
+    mon.species_id !== null
+      ? unlockedMoves(speciesOf(mon.species_id), progress.level).map((m) => m.id)
+      : [];
 
   let cooldownUntil: string | null = null;
   if (mon.last_battle_at) {
@@ -35,6 +40,8 @@ export function buildMonState(
     stats,
     streakDays,
     winStreak: mon.win_streak,
+    loadout: (mon.loadout ?? {}) as MonLoadout,
+    unlockedMoveIds,
     battle: {
       cooldownUntil,
       remainingToday: Math.max(0, BATTLE_RULES.challengesPerDay - started),

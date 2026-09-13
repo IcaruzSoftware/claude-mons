@@ -54,6 +54,10 @@ export interface MonState {
   streakDays: number;
   /** Consecutive real-player challenger wins (docs/design/progression.md Matchmaking and streaks). */
   winStreak: number;
+  /** `{ stance?, moves?, tree? }`; `moves` defaults per `defaultLoadoutMoveIds` once hatched. */
+  loadout: MonLoadout;
+  /** This mon's currently-unlocked move ids, in pool order (empty while egg). */
+  unlockedMoveIds: string[];
   battle: {
     /** ISO timestamp when the next challenge is allowed, or null if allowed now */
     cooldownUntil: string | null;
@@ -142,9 +146,13 @@ export interface BattleRequestResponse {
 
 // --- set-loadout ------------------------------------------------------------------------------
 
-/** Only `stance` is accepted in Phase A; `moves`/`tree` are reserved for Phase B/C. */
+/**
+ * `moves` is 3 distinct move ids, each unlocked at the mon's current level (docs/design/
+ * progression.md Move pool and effects); `tree` is reserved for Phase C.
+ */
 export interface SetLoadoutRequest {
   stance?: string;
+  moves?: string[];
 }
 
 export interface SetLoadoutResponse {
