@@ -3,7 +3,7 @@ doc_type: design
 purpose: "Read this when changing battle math, matchmaking, rewards, or the battle log shape."
 audience: agent
 last_verified: 2026-09-13
-last_verified_commit: 5363066
+last_verified_commit: 8f6efa8
 related_files:
   - packages/shared/src/battle/battle.ts
   - packages/shared/src/battle/rng.ts
@@ -13,6 +13,7 @@ related_files:
   - supabase/migrations/20260904000000_init.sql
   - supabase/migrations/20260913010000_battle_limits.sql
   - supabase/functions/battle-request/index.ts
+  - docs/design/progression.md
 ---
 
 # Battle system
@@ -20,6 +21,8 @@ related_files:
 Deterministic auto-battle: given the same two `MonSnapshot`s and the same seed, `simulateBattle()` in
 `packages/shared/src/battle/battle.ts` produces the exact same log on the client and on the server. This
 document describes the **shipped** behavior; where it differs from the original plan, see History below.
+Move pools, loadouts, stances, talent trees and the future matchmaking/streak design live in
+`docs/design/progression.md`, not here.
 
 ## Level curve and stats
 
