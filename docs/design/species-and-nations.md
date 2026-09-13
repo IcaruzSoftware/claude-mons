@@ -102,7 +102,7 @@ These must agree on id, nation, rarity, and (for the first two) stats — the co
 |---|---|---|
 | Shared game table | `packages/shared/src/game/species.ts` | Canonical: id, nation, rarity, names, base stats, moves, flavor |
 | SQL seed | `supabase/migrations/20260904000000_init.sql` (`species_base_stats`) | id, nation, rarity, weight, stats, `sort_order` — used by `roll_species` and the nation leaderboard |
-| Sprite files | `packages/sprites/src/species/<stageFormName>.ts` (one file per stage form, e.g. `pebblet.ts`, `boulderbyte.ts`, `monolithor.ts`; 24 files total, aggregated per nation by `packages/sprites/src/species/{water,fire,earth,air}.ts`) | One `SpriteDef` per stage form, id `<stageFormName>-baby\|teen\|adult`; mapped back to a species id by `EVOLUTION_LINES` above |
+| Sprite files | `packages/sprites/src/species/<stageFormName>.ts` (one file per stage form, e.g. `packages/sprites/src/species/pebblet.ts`, `packages/sprites/src/species/boulderbyte.ts`, `packages/sprites/src/species/monolithor.ts`; 24 files total, aggregated per nation by `packages/sprites/src/species/{water,fire,earth,air}.ts`) | One `SpriteDef` per stage form, id `<stageFormName>-baby\|teen\|adult`; mapped back to a species id by `EVOLUTION_LINES` above |
 
 ## Egg cracking
 

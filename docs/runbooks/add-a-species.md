@@ -59,8 +59,8 @@ EOF
 
 ## 3. Register sprites in the nation aggregator and EVOLUTION_LINES
 
-**Edit the existing nation aggregator** (`packages/sprites/src/species/water.ts`, `fire.ts`,
-`earth.ts`, or `air.ts` — do not recreate it) to import and append your three new sprites to its
+**Edit the existing nation aggregator** (`packages/sprites/src/species/water.ts`, `packages/sprites/src/species/fire.ts`,
+`packages/sprites/src/species/earth.ts`, or `packages/sprites/src/species/air.ts` — do not recreate it) to import and append your three new sprites to its
 exported array (e.g. `WATER_SPRITES`). Do not touch `packages/sprites/src/index.ts`'s own imports —
 it already imports each nation's aggregator array once and does not need per-species changes.
 

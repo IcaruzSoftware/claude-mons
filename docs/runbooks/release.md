@@ -196,7 +196,7 @@ Two bugs had to be fixed for auto-update to work at all during the pre-release p
 
 - **Pre-releases were invisible to the updater.** Before the "Release 0.1.1" commit, electron-updater's
   default feed only considers full (non-pre-release) GitHub Releases, so `v0.1.0`-style tags published
-  as pre-releases were never offered as updates. `Updater.ts` now sets `allowPrerelease = true`, and a
+  as pre-releases were never offered as updates. `apps/desktop/src/main/updater/Updater.ts` now sets `allowPrerelease = true`, and a
   missing/absent release now reads as "up to date" instead of surfacing a failed check.
 - **`autoUpdater` resolved to `undefined` at runtime.** Per commit "Updater: resolve autoUpdater from
   the CommonJS default export": `electron-updater`'s `autoUpdater` export is a CommonJS lazy getter,

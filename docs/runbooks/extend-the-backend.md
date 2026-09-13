@@ -78,14 +78,14 @@ Then deploy (see `docs/runbooks/deploy-backend.md`).
 ## Part B: Add a database migration
 
 `supabase/migrations/` currently has 7 files (see [`supabase/README.md`](../../supabase/README.md)
-for what each one changed); this is expected to keep growing, not stay at the original `_init.sql`.
+for what each one changed); this is expected to keep growing, not stay at the original `the init migration`.
 
 1. **Create the migration file.** In `supabase/migrations/`, use the naming pattern
    `<YYYYMMDDHHMMSS>_<name>.sql`. **Never edit an already-applied migration file** (including
-   `20260904000000_init.sql`) to change its logic — a new migration overrides the function or table
+   `supabase/migrations/20260904000000_init.sql`) to change its logic — a new migration overrides the function or table
    with `create or replace`/`alter table` instead. `supabase/migrations/20260913030000_progression_tuning.sql`
-   is a worked example: it re-tunes `recompute_mon` (originally defined in `20260904000000_init.sql`,
-   then already overridden once by `20260913020000_progression_phase_a.sql`) with a fresh
+   is a worked example: it re-tunes `recompute_mon` (originally defined in `supabase/migrations/20260904000000_init.sql`,
+   then already overridden once by `supabase/migrations/20260913020000_progression_phase_a.sql`) with a fresh
    `create or replace function public.recompute_mon(...)` rather than touching either earlier file.
 
 2. **Keep SQL formulas in sync.** If your migration adds or changes level/stage/stat logic, mirror the
