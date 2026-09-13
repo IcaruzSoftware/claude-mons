@@ -4,8 +4,11 @@
   padding: 10px 12px;
   background: rgba(20, 22, 28, 0.96);
   border: 2px solid var(--water);
-  border-radius: 8px;
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45);
+  border-radius: var(--radius, 8px);
+  box-shadow:
+    inset 1px 1px 0 rgba(255, 255, 255, 0.06),
+    inset -2px -2px 0 rgba(0, 0, 0, 0.35),
+    0 4px 14px rgba(0, 0, 0, 0.45);
   display: flex;
   align-items: center;
   gap: 10px;
@@ -17,10 +20,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-}
-.reminder-card .icon .drop {
-  font-size: 28px;
-  line-height: 1;
+  color: var(--water);
 }
 .reminder-card .body {
   flex: 1;
@@ -30,8 +30,9 @@
   gap: 6px;
 }
 .reminder-card .msg {
+  font-family: var(--font);
+  font-weight: 700;
   font-size: 12px;
-  font-weight: 600;
 }
 .reminder-card .actions {
   display: flex;

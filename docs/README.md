@@ -3,7 +3,7 @@ doc_type: index
 purpose: "Index of every documentation file; regenerate with pnpm docs:index."
 audience: both
 last_verified: 2026-09-13
-last_verified_commit: 275569c
+last_verified_commit: cfc8bc7
 related_files:
 ---
 

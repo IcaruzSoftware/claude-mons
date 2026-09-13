@@ -1,4 +1,4 @@
-import { useState } from 'preact/hooks';
+import { useEffect, useState } from 'preact/hooks';
 import {
   DEFAULT_STANCE,
   EFFECT_DESCRIPTIONS,
@@ -27,22 +27,186 @@ import {
   type TreeNode,
 } from '@claude-mons/shared';
 import type { BattleSummary, SetLoadoutPayload, UiSnapshot } from '../../../common/ipc.ts';
+import { SpriteView } from '../../ui/SpriteView.tsx';
+import { TypeChip } from '../../ui/TypeChip.tsx';
+import { Glyph } from '../../ui/Glyph.tsx';
+import { BRANCH_X, TIER_Y, treeNodePosition } from './battleTreeLayout.ts';
 
 /**
  * Tuned by simulation on 2026-09-13 (docs/design/progression.md Stances); keep this copy in sync
  * with `STANCE_INFO`/`STANCE_COUNTER_DEALT_MULT`/`STANCE_COUNTER_TAKEN_MULT`
  * (`packages/shared/src/game/progression.ts`).
  */
-const STANCE_INFO: Record<Stance, { name: string; description: string }> = {
-  fury: { name: 'Fury', description: 'ATK +2% / DEF -6%. Beats Gale, loses to Bulwark.' },
-  bulwark: { name: 'Bulwark', description: 'DEF +2% / ATK -6%. Beats Fury, loses to Gale.' },
-  gale: { name: 'Gale', description: 'SPD +2% / ATK -6%. Beats Bulwark, loses to Fury.' },
+const STANCE_INFO: Record<Stance, { name: string; description: string; beats: string }> = {
+  fury: { name: 'Fury', description: 'ATK +2% / DEF -6%.', beats: 'Gale' },
+  bulwark: { name: 'Bulwark', description: 'DEF +2% / ATK -6%.', beats: 'Fury' },
+  gale: { name: 'Gale', description: 'SPD +2% / ATK -6%.', beats: 'Bulwark' },
+};
+
+/** Triangle corner layout: Fury top, Bulwark bottom-left, Gale bottom-right. */
+const STANCE_CORNERS: Record<Stance, { x: number; y: number }> = {
+  fury: { x: 100, y: 10 },
+  bulwark: { x: 20, y: 95 },
+  gale: { x: 180, y: 95 },
 };
 
 const SLOT_LABELS = ['Opener', 'Default', 'Finisher'] as const;
 
 function moveLabel(m: Move | undefined): string {
   return m ? m.name : '—';
+}
+
+/**
+ * Stance picker as an SVG triangle (docs/design/ui-panels.md Battles' Stance component): one
+ * corner per stance, the active corner filled solid, the other two dim outlines. Read-only when
+ * `onPick` is omitted (the main tab's preview); clickable inside the loadout editor.
+ */
+function StanceTriangle({ active, onPick }: { active: Stance; onPick?: (s: Stance) => void }) {
+  return (
+    <div class="triangle-wrap">
+      <svg class="triframe" viewBox="0 0 200 110" width={200} height={110}>
+        <line x1="100" y1="10" x2="20" y2="95" />
+        <line x1="100" y1="10" x2="180" y2="95" />
+        <line x1="20" y1="95" x2="180" y2="95" />
+        {STANCES.map((id) => {
+          const { x, y } = STANCE_CORNERS[id];
+          const isActive = id === active;
+          return (
+            <g
+              key={id}
+              onClick={onPick ? () => onPick(id) : undefined}
+              style={onPick ? { cursor: 'pointer' } : undefined}
+            >
+              <circle
+                class={`corner${isActive ? ' active-corner' : ''}`}
+                cx={x}
+                cy={y}
+                r={isActive ? 22 : 20}
+              />
+              <text
+                class={isActive ? 'active-corner-text' : ''}
+                x={x}
+                y={y + 4}
+                text-anchor="middle"
+              >
+                {STANCE_INFO[id].name.toUpperCase()}
+              </text>
+            </g>
+          );
+        })}
+      </svg>
+    </div>
+  );
+}
+
+/**
+ * Talent tree as an actual SVG tree (docs/design/ui-panels.md Battles' Talent tree component):
+ * trunk rising into 3 branch columns of 6 tiered nodes each. Read-only (a static preview of the
+ * saved tree) when `onAdd`/`onRemove` are omitted; interactive inside the loadout editor, where a
+ * left click adds a rank and a right click removes one, with a detail line below showing the
+ * selected node's exact numbers (desktop hover also selects, covering the tap-to-inspect case).
+ */
+function TalentTree({
+  nation,
+  ranks,
+  level,
+  onAdd,
+  onRemove,
+}: {
+  nation: Nation;
+  ranks: Record<string, number>;
+  level: number;
+  onAdd?: (node: TreeNode) => void;
+  onRemove?: (node: TreeNode) => void;
+}) {
+  const [selected, setSelected] = useState<string | null>(null);
+  const nodes = nationNodes(nation);
+  const branches: string[] = [];
+  for (const n of nodes) if (!branches.includes(n.branch)) branches.push(n.branch);
+  const columns = branches
+    .slice(0, 3)
+    .map((b) => nodes.filter((n) => n.branch === b).sort((a, c) => a.tier - c.tier));
+  const spent = treeSpent(nation, ranks);
+  const budget = pointsAvailable(level);
+  const interactive = Boolean(onAdd);
+  const selectedNode = selected ? nodes.find((n) => n.id === selected) : null;
+
+  return (
+    <div class={`tree-wrap`}>
+      <div class="leaf-badge">
+        <Glyph name="leaf" size={9} />
+        {spent.nation}/{budget}
+      </div>
+      <svg class={`tree-svg ${nation}`} viewBox="0 0 300 230" width="100%" height={230}>
+        <line x1="150" y1="228" x2="150" y2="205" />
+        {BRANCH_X.map((x) => (
+          <line key={x} x1="150" y1="205" x2={x} y2={TIER_Y[0]} />
+        ))}
+        {BRANCH_X.map((x) => (
+          <line key={`c-${x}`} x1={x} y1={TIER_Y[0]} x2={x} y2={TIER_Y[5]} />
+        ))}
+        {columns.map((col, ci) => (
+          <text key={ci} class="branch-label" x={BRANCH_X[ci]} y={205} text-anchor="middle">
+            {col[0]!.branch.toUpperCase()}
+          </text>
+        ))}
+        {columns.map((col, ci) =>
+          col.map((node) => {
+            const rank = ranks[node.id] ?? 0;
+            const locked = node.prereqId !== null && (ranks[node.prereqId] ?? 0) < 1;
+            const { x, y } = treeNodePosition(ci, node.tier);
+            return (
+              <g
+                key={node.id}
+                onMouseEnter={() => setSelected(node.id)}
+                onClick={() => {
+                  setSelected(node.id);
+                  if (interactive && !locked) onAdd?.(node);
+                }}
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  if (interactive && rank > 0) onRemove?.(node);
+                }}
+              >
+                <circle
+                  class={`node${locked ? ' locked' : ''}${rank > 0 ? ' ranked' : ''}`}
+                  cx={x}
+                  cy={y}
+                  r={9}
+                />
+                {rank > 0 && node.maxRank > 1 && (
+                  <text class="rank-label" x={x} y={y + 3} text-anchor="middle">
+                    {rank}
+                  </text>
+                )}
+              </g>
+            );
+          }),
+        )}
+      </svg>
+      {selectedNode && (
+        <div class="talent-tooltip">
+          <b>
+            {selectedNode.name} · {ranks[selectedNode.id] ?? 0}/{selectedNode.maxRank} (
+            {selectedNode.cost} pt{selectedNode.cost === 1 ? '' : 's'}/rank)
+          </b>
+          {selectedNode.description}
+          {interactive && (ranks[selectedNode.id] ?? 0) > 0 && (
+            <div style={{ marginTop: 4 }}>
+              <button onClick={() => onRemove?.(selectedNode)}>Remove a rank</button>
+            </div>
+          )}
+        </div>
+      )}
+      {!selectedNode && (
+        <p class="hint" style={{ margin: '4px 0 0', textAlign: 'center' }}>
+          {interactive
+            ? 'Click a node to rank it, right-click to remove a rank.'
+            : 'Hover or tap a node for details.'}
+        </p>
+      )}
+    </div>
+  );
 }
 
 /** Cascades a respec down: dropping a node to 0 also zeroes every higher tier in its branch, so
@@ -59,138 +223,9 @@ function clearDependents(
 }
 
 /**
- * Talents: a 3-column grid (one per nation branch) x 6 tiers, plus the 10 nation-agnostic shared
- * passives below it (docs/design/talent-tree.md). Purely presentational over `ranks`/`onChange` so
- * the respec-confirm flow (comparing against the *saved* tree, not this in-progress edit) stays in
- * `LoadoutEditor`.
- */
-function TalentsSection({
-  nation,
-  level,
-  ranks,
-  onChange,
-}: {
-  nation: Nation;
-  level: number;
-  ranks: Record<string, number>;
-  onChange: (next: Record<string, number>) => void;
-}) {
-  const nodes = nationNodes(nation);
-  const branches: string[] = [];
-  for (const n of nodes) if (!branches.includes(n.branch)) branches.push(n.branch);
-  const columns = branches.map((b) =>
-    nodes.filter((n) => n.branch === b).sort((a, c) => a.tier - c.tier),
-  );
-
-  const spent = treeSpent(nation, ranks);
-  const nationBudget = pointsAvailable(level);
-  const sharedBudget = sharedPassivePoints(level);
-
-  const addRank = (node: TreeNode) => {
-    const current = ranks[node.id] ?? 0;
-    if (current >= node.maxRank) return;
-    if (node.prereqId && (ranks[node.prereqId] ?? 0) < 1) return;
-    if (spent.nation + node.cost > nationBudget) return;
-    onChange({ ...ranks, [node.id]: current + 1 });
-  };
-  const removeRank = (node: TreeNode) => {
-    const current = ranks[node.id] ?? 0;
-    if (current <= 0) return;
-    const next = { ...ranks, [node.id]: current - 1 };
-    if (current - 1 < 1) clearDependents(nodes, node.branch, node.tier, next);
-    onChange(next);
-  };
-  const togglePassive = (id: string, cost: number) => {
-    const current = ranks[id] ?? 0;
-    if (current > 0) {
-      onChange({ ...ranks, [id]: 0 });
-    } else {
-      if (spent.shared + cost > sharedBudget) return;
-      onChange({ ...ranks, [id]: 1 });
-    }
-  };
-
-  return (
-    <>
-      <h3>Talents</h3>
-      <p class="flavor" style={{ margin: '0 0 6px' }}>
-        Nation: {spent.nation} / {nationBudget} spent. Click a node to add a rank, the − button to
-        remove one (a rank going down counts as a respec).
-      </p>
-      <div class="talent-grid">
-        {columns.map((column, ci) => (
-          <div class="talent-column" key={ci}>
-            <div class="talent-branch-name">{column[0]!.branch}</div>
-            {column.map((node) => {
-              const rank = ranks[node.id] ?? 0;
-              const locked = node.prereqId !== null && (ranks[node.prereqId] ?? 0) < 1;
-              const maxed = rank >= node.maxRank;
-              const affordable = spent.nation + node.cost <= nationBudget;
-              return (
-                <div
-                  class={`talent-node${locked ? ' locked' : ''}${rank > 0 ? ' active' : ''}`}
-                  key={node.id}
-                >
-                  <button
-                    class="talent-node-main"
-                    disabled={locked || maxed || !affordable}
-                    onClick={() => addRank(node)}
-                    title={node.description}
-                  >
-                    <b>{node.name}</b>
-                    <span class="talent-rank">
-                      {rank}/{node.maxRank}
-                    </span>
-                  </button>
-                  {rank > 0 && (
-                    <button
-                      class="talent-node-minus"
-                      onClick={() => removeRank(node)}
-                      title="Remove a rank"
-                    >
-                      −
-                    </button>
-                  )}
-                  <div class="hint">
-                    {node.description} ({node.cost} pt{node.cost === 1 ? '' : 's'}/rank)
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        ))}
-      </div>
-      <h3 style={{ marginTop: 14 }}>Shared passives</h3>
-      <p class="flavor" style={{ margin: '0 0 6px' }}>
-        Shared: {spent.shared} / {sharedBudget} spent. Available regardless of nation.
-      </p>
-      <div class="talent-passives">
-        {SHARED_PASSIVE_NODES.map((p) => {
-          const active = (ranks[p.id] ?? 0) > 0;
-          const affordable = spent.shared + p.cost <= sharedBudget;
-          return (
-            <button
-              key={p.id}
-              class={`talent-passive${active ? ' active' : ''}`}
-              disabled={!active && !affordable}
-              onClick={() => togglePassive(p.id, p.cost)}
-              title={p.description}
-            >
-              <b>{p.name}</b>
-              <div class="hint">{p.description}</div>
-            </button>
-          );
-        })}
-      </div>
-    </>
-  );
-}
-
-/**
- * The loadout editor overlay: 3 move slots (dropdown + reorder), stance picker, save/cancel.
- * `initialStance` lets the Battles tab's "Counter this" button (Recent opponents cards, Phase D
- * of docs/design/progression.md) pre-select a stance without saving it -- the player still has to
- * hit Save for it to take effect, same as any other in-progress edit here.
+ * The loadout editor overlay: 3 move slots (dropdown + reorder), stance triangle, talent tree,
+ * save/cancel. `initialStance` lets the Battles tab's "Counter this" button pre-select a stance
+ * without saving it -- the player still has to hit Save for it to take effect.
  */
 function LoadoutEditor({
   s,
@@ -205,13 +240,6 @@ function LoadoutEditor({
   const unlockedIds = new Set(s.battles.unlockedMoveIds);
   const level = s.progress.level;
   const storedMoves = s.battles.loadout.moves;
-  // A stored loadout is only trusted as the starting point when every move in it is still
-  // unlocked at this level -- a mon whose loadout was never explicitly saved (or one predating
-  // this check) could otherwise start the editor pre-loaded with a locked move (e.g. a level-4
-  // Mossling defaulting to `movePool.slice(0, 3)`, which includes the level-5 "terraform apply"),
-  // which made `allUnlocked` false forever and left Save permanently -- and silently -- disabled.
-  // `defaultLoadoutMoveIds` (packages/shared/src/game/species.ts) always picks from what's
-  // actually unlocked, repeating the last unlocked move to fill remaining slots below level 5.
   const storedIsValid =
     storedMoves !== undefined &&
     storedMoves.length === 3 &&
@@ -240,6 +268,38 @@ function LoadoutEditor({
   const needsConfirm =
     treeRespec && level >= RESPEC_FREE_BELOW_LEVEL && !onCooldown && !respecArmed;
 
+  const nodes = nationNodes(species.nation);
+  const addRank = (node: TreeNode) => {
+    setTree((ranks) => {
+      const current = ranks[node.id] ?? 0;
+      if (current >= node.maxRank) return ranks;
+      if (node.prereqId && (ranks[node.prereqId] ?? 0) < 1) return ranks;
+      const spent = treeSpent(species.nation, ranks);
+      if (spent.nation + node.cost > pointsAvailable(level)) return ranks;
+      return { ...ranks, [node.id]: current + 1 };
+    });
+  };
+  const removeRank = (node: TreeNode) => {
+    setTree((ranks) => {
+      const current = ranks[node.id] ?? 0;
+      if (current <= 0) return ranks;
+      const next = { ...ranks, [node.id]: current - 1 };
+      if (current - 1 < 1) clearDependents(nodes, node.branch, node.tier, next);
+      return next;
+    });
+  };
+  const spent = treeSpent(species.nation, tree);
+  const sharedBudget = sharedPassivePoints(level);
+  const togglePassive = (id: string, cost: number) => {
+    const current = tree[id] ?? 0;
+    if (current > 0) {
+      setTree({ ...tree, [id]: 0 });
+    } else {
+      if (spent.shared + cost > sharedBudget) return;
+      setTree({ ...tree, [id]: 1 });
+    }
+  };
+
   const setSlot = (i: number, id: string) => {
     const next = [...moves] as [string, string, string];
     next[i] = id;
@@ -258,15 +318,6 @@ function LoadoutEditor({
   const distinct = new Set(moves).size === 3;
   const allUnlocked = moves.every((id) => unlockedIds.has(id));
   const movesValid = distinct && allUnlocked;
-  // Below level 5 fewer than 3 moves are unlocked at all (docs/design/progression.md Move pool
-  // and effects), so `defaultLoadoutMoveIds` necessarily repeats the last unlocked move to fill
-  // the remaining slot(s) -- `distinct` can never be true yet. That's expected, not a mistake the
-  // player needs to fix: it's exactly the same repeated-default shape the battle engine already
-  // uses for a mon with no saved loadout (see `RecentOpponentCard`'s own use of
-  // `defaultLoadoutMoveIds`, and `BattleService.mySnapshot`). Only gate Save on "3 distinct unlocked
-  // moves" once the player actually has 3 or more to choose from -- otherwise there is nothing
-  // valid to submit for `moves` yet, so it's left out of the payload below and only stance/tree
-  // changes are saved.
   const canPickThreeMoves = unlockedIds.size >= 3;
 
   const save = async () => {
@@ -285,8 +336,6 @@ function LoadoutEditor({
     const r = await window.monsUi.setLoadout(payload);
     setBusy(false);
     if (r.ok) {
-      // Brief "Saved" confirmation so the click reads as having done something, then close --
-      // closing instantly on success (the old behavior) looked identical to Save doing nothing.
       setSaved(true);
       setTimeout(onClose, 700);
     } else {
@@ -295,10 +344,6 @@ function LoadoutEditor({
     }
   };
 
-  // Shown right above Save so an invalid state reads as "disabled, here's why" instead of a dead
-  // click -- the per-slot hints further up can scroll out of view once the talent grid grows the
-  // overlay past the panel's height. The cooldown/confirm messages already have their own text
-  // just above the buttons, so they're not repeated here.
   const saveDisabledReason =
     canPickThreeMoves && !distinct
       ? 'Pick 3 different moves.'
@@ -317,54 +362,65 @@ function LoadoutEditor({
             currently unlocked moves below.
           </p>
         )}
-        {([0, 1, 2] as const).map((i) => {
-          const move = species.movePool.find((m) => m.id === moves[i]);
-          return (
-            <div class="loadout-slot" key={i}>
-              <div class="row" style={{ border: 0, padding: '4px 0' }}>
-                <span class="slot-label">{SLOT_LABELS[i]}</span>
-                <div class="row" style={{ border: 0, padding: 0, gap: 4 }}>
+        <div class="slots">
+          {([0, 1, 2] as const).map((i) => {
+            const move = species.movePool.find((m) => m.id === moves[i]);
+            return (
+              <div class="slot-card" key={i}>
+                <span class="num">{i + 1}</span>
+                <div class="body">
+                  <div class="role">{SLOT_LABELS[i]}</div>
+                  <select
+                    class="mv-select"
+                    value={moves[i]}
+                    onChange={(e) => setSlot(i, (e.target as HTMLSelectElement).value)}
+                  >
+                    {species.movePool.map((m) => (
+                      <option key={m.id} value={m.id} disabled={!unlockedIds.has(m.id)}>
+                        {m.name} · {m.power} pwr
+                        {unlockedIds.has(m.id) ? '' : ` (unlocks at level ${m.unlocksAt})`}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                {move && (
+                  <TypeChip
+                    nation={move.type === 'nation' ? species.nation : 'neutral'}
+                    label={
+                      move.type === 'nation' ? species.nation.slice(0, 3).toUpperCase() : 'NEU'
+                    }
+                  />
+                )}
+                <div class="reorder">
                   <button disabled={i === 0} onClick={() => reorder(i, -1)} title="Move up">
-                    ↑
+                    ▲
                   </button>
                   <button disabled={i === 2} onClick={() => reorder(i, 1)} title="Move down">
-                    ↓
+                    ▼
                   </button>
                 </div>
               </div>
-              <select
-                value={moves[i]}
-                onChange={(e) => setSlot(i, (e.target as HTMLSelectElement).value)}
-              >
-                {species.movePool.map((m) => (
-                  <option key={m.id} value={m.id} disabled={!unlockedIds.has(m.id)}>
-                    {m.name} · {m.power} pwr · {m.type === 'nation' ? 'nation' : 'neutral'}
-                    {unlockedIds.has(m.id) ? '' : ` (unlocks at level ${m.unlocksAt})`}
-                  </option>
-                ))}
-              </select>
-              {move?.effect && <div class="hint">{EFFECT_DESCRIPTIONS[move.effect]}</div>}
-            </div>
-          );
-        })}
-        <h3>Stance</h3>
-        <p class="flavor" style={{ margin: '0 0 8px' }}>
-          Countering the opponent's stance grants +2% damage dealt and -2% damage taken for the
-          whole battle.
-        </p>
-        <div class="row" style={{ border: 0, gap: 8 }}>
-          {STANCES.map((id) => (
-            <button
-              key={id}
-              class={id === stance ? 'primary' : ''}
-              style={{ flex: 1, textAlign: 'left' }}
-              onClick={() => setStance(id)}
-            >
-              <b>{STANCE_INFO[id].name}</b>
-              <div class="hint">{STANCE_INFO[id].description}</div>
-            </button>
-          ))}
+            );
+          })}
         </div>
+        {([0, 1, 2] as const).map((i) => {
+          const move = species.movePool.find((m) => m.id === moves[i]);
+          return move?.effect ? (
+            <p class="hint" key={i} style={{ margin: '4px 0 0' }}>
+              {SLOT_LABELS[i]}: {EFFECT_DESCRIPTIONS[move.effect]}
+            </p>
+          ) : null;
+        })}
+
+        <h3 style={{ marginTop: 14 }}>Stance</h3>
+        <p class="flavor" style={{ margin: '0 0 4px' }}>
+          Countering the opponent's stance grants +2% damage dealt and -2% damage taken.
+        </p>
+        <StanceTriangle active={stance} onPick={setStance} />
+        <p class="stance-caption">
+          {STANCE_INFO[stance].name} beats {STANCE_INFO[stance].beats}
+        </p>
+
         {!canPickThreeMoves && (
           <p class="flavor">
             Only {unlockedIds.size} move{unlockedIds.size === 1 ? '' : 's'} unlocked so far -- more
@@ -376,7 +432,37 @@ function LoadoutEditor({
           <p class="flavor">One of these moves isn't unlocked yet.</p>
         )}
 
-        <TalentsSection nation={species.nation} level={level} ranks={tree} onChange={setTree} />
+        <h3 style={{ marginTop: 14 }}>Talents · {NATION_INFO[species.nation].name}</h3>
+        <TalentTree
+          nation={species.nation}
+          ranks={tree}
+          level={level}
+          onAdd={addRank}
+          onRemove={removeRank}
+        />
+        <h3 style={{ marginTop: 14 }}>Shared passives</h3>
+        <p class="flavor" style={{ margin: '0 0 6px' }}>
+          Shared: {spent.shared} / {sharedBudget} spent. Available regardless of nation.
+        </p>
+        <div class="talent-passives">
+          {SHARED_PASSIVE_NODES.map((p) => {
+            const active = (tree[p.id] ?? 0) > 0;
+            const affordable = spent.shared + p.cost <= sharedBudget;
+            return (
+              <button
+                key={p.id}
+                class={`talent-passive${active ? ' active' : ''}`}
+                disabled={!active && !affordable}
+                onClick={() => togglePassive(p.id, p.cost)}
+                title={p.description}
+              >
+                <b>{p.name}</b>
+                <div class="hint">{p.description}</div>
+              </button>
+            );
+          })}
+        </div>
+
         <div class="row" style={{ border: 0, justifyContent: 'space-between', marginTop: 8 }}>
           <span class="hint">
             {level < RESPEC_FREE_BELOW_LEVEL
@@ -443,12 +529,21 @@ function ago(ts: number): string {
   return `${Math.round(h / 24)} d ago`;
 }
 
+/** `mm:ss` (or `h:mm:ss` past an hour) countdown for the arena's digital-readout timer. */
+function formatCountdown(msLeft: number): string {
+  const total = Math.max(0, Math.ceil(msLeft / 1000));
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const sec = total % 60;
+  const mm = String(m).padStart(2, '0');
+  const ss = String(sec).padStart(2, '0');
+  return h > 0 ? `${h}:${mm}:${ss}` : `${mm}:${ss}`;
+}
+
 /**
- * Builds a `MonSnapshot`-shaped object good enough for `explainMatchup`
- * (`packages/shared/src/battle/matchup.ts`), which only ever reads `nation`/`speciesId`/`level`/
- * `loadout` off either side -- `monId`/`playerId`/`nickname`/`stats` are filled with placeholders
- * that are never inspected. Used for both the player's current loadout and a recorded opponent's
- * (docs/design/progression.md Phase D: recent-opponent intel).
+ * Builds a `MonSnapshot`-shaped object good enough for `explainMatchup`, which only ever reads
+ * `nation`/`speciesId`/`level`/`loadout` off either side -- the rest are placeholders never
+ * inspected.
  */
 function matchupSnapshot(input: {
   nickname: string;
@@ -470,10 +565,8 @@ function matchupSnapshot(input: {
   };
 }
 
-/** One "Recent opponents" card: who it was, their prepared loadout at battle time, the result, and
- * a rules-derived matchup tip against the player's CURRENT loadout (recomputed on every render, so
- * it tracks loadout edits without a server round-trip -- see `explainMatchup`'s own doc comment). */
-function RecentOpponentCard({
+/** One "Recent opponents" strip: who it was, a rules-derived matchup tip, and "Counter this". */
+function RecentOpponentStrip({
   b,
   me,
   onCounter,
@@ -502,38 +595,33 @@ function RecentOpponentCard({
   const explanation: MatchupExplanation | null = me ? explainMatchup(me, opp) : null;
 
   return (
-    <div class="opponent-card">
-      <div class="opponent-head">
-        <span class="opponent-name">{b.isBot ? 'Wild' : o.nickname}</span>
-        <span class={`badge ${o.nation}`}>{NATION_INFO[o.nation].name}</span>
-        {b.isElite && <span class="badge neutral">Elite</span>}
+    <div class="opponent-strip">
+      <div class="top">
+        <b>{b.isBot ? 'Wild' : o.nickname}</b>
+        <span class={b.won ? 'res-w' : 'res-l'}>
+          {b.won ? 'WON' : 'LOST'} +{b.xp} XP
+        </span>
       </div>
-      <div class="hint">
+      <p class="hint" style={{ margin: '3px 0 0' }}>
         {displayName(o.speciesId, o.stage)} Lv {o.level} · {STANCE_INFO[stance].name} stance
-      </div>
-      <div class="opponent-moves">
+        {b.won && b.winStreak > 1 ? ` · streak x${b.winStreak}` : ''} · {ago(b.at)}
+      </p>
+      <div class="moves">
         {moveNames.map((name, i) => (
           <span class="chip" key={i}>
             {name}
           </span>
         ))}
         {branch && <span class="chip">{`${branch.branch} ${toRoman(branch.ranks)}`}</span>}
-      </div>
-      <div class="row" style={{ border: 0, padding: '4px 0' }}>
-        <span>
-          <b style={{ color: b.won ? '#7cb342' : '#ff5252' }}>{b.won ? 'Won' : 'Lost'}</b>{' '}
-          <span class="hint">
-            {b.turns} turn{b.turns === 1 ? '' : 's'} · {b.reason === 'ko' ? 'knockout' : 'timeout'}
-            {b.won && b.winStreak > 1 ? ` · streak x${b.winStreak}` : ''} · {ago(b.at)}
-          </span>
-        </span>
-        <span style={{ color: 'var(--accent)', fontWeight: 600 }}>+{b.xp} XP</span>
+        {b.isElite && <span class="chip">Elite</span>}
       </div>
       {explanation && (
-        <div class="opponent-tip">
-          <span class="hint">{explanation.suggestion}</span>
+        <div class="hintline">
+          <span>{explanation.suggestion}</span>
           {explanation.suggestedStance && (
-            <button onClick={() => onCounter(explanation.suggestedStance!)}>Counter this</button>
+            <button class="cta" onClick={() => onCounter(explanation.suggestedStance!)}>
+              Counter this
+            </button>
           )}
         </div>
       )}
@@ -544,14 +632,21 @@ function RecentOpponentCard({
 export function BattlesView({ s }: { s: UiSnapshot }) {
   const [editing, setEditing] = useState(false);
   const [counterStance, setCounterStance] = useState<Stance | null>(null);
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => setTick((t) => t + 1), 1000);
+    return () => clearInterval(id);
+  }, []);
+
   const history = s.battles.history;
   const cd = s.battles.cooldownUntil;
-  const cdLeft = cd ? Math.max(0, Math.ceil((cd - Date.now()) / 60000)) : 0;
+  const cdLeft = cd ? Math.max(0, cd - Date.now()) : 0;
   const hatched = s.pet.speciesId !== null;
   const species = hatched ? speciesOf(s.pet.speciesId!) : null;
   const moves = species
     ? (s.battles.loadout.moves ?? []).map((id) => species.movePool.find((m) => m.id === id))
     : [];
+  const stance = s.battles.loadout.stance ?? DEFAULT_STANCE;
   const me = species
     ? matchupSnapshot({
         nickname: s.profile.nickname ?? 'You',
@@ -561,70 +656,151 @@ export function BattlesView({ s }: { s: UiSnapshot }) {
         loadout: s.battles.loadout,
       })
     : null;
+  const last = history[0] ?? null;
+
+  if (!hatched) {
+    return (
+      <div>
+        <div class="section">
+          <p class="flavor">Hatch your mon to pick its moves and stance.</p>
+        </div>
+        <div class="section">
+          <h3>Recent opponents</h3>
+          {history.length === 0 ? (
+            <p class="flavor">No battles yet.</p>
+          ) : (
+            history
+              .slice(0, 10)
+              .map((b) => <RecentOpponentStrip b={b} me={null} key={b.id} onCounter={() => {}} />)
+          )}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div>
       <div class="section">
-        <h3>How to battle</h3>
-        <p class="flavor" style={{ margin: 0 }}>
-          {s.pet.stage === 'egg'
-            ? "Eggs can't fight. Hatch your mon first, then grab it and shake it to challenge another nation."
-            : 'Grab your mon with the mouse and shake it to challenge a mon from another nation. Battles resolve automatically.'}
-        </p>
-        <div class="kv" style={{ marginTop: 8 }}>
-          <span>Cooldown</span>
-          <span>{cdLeft > 0 ? `${cdLeft} min` : 'ready'}</span>
-          <span>Challenges left today</span>
-          <span>{s.battles.remainingToday}</span>
-          <span>Win streak</span>
-          <span>{s.battles.winStreak > 0 ? `${s.battles.winStreak} in a row` : '—'}</span>
+        <div class="arena">
+          <div class="side">
+            <SpriteView
+              speciesId={s.pet.speciesId}
+              stage={s.pet.stage}
+              nation={species!.nation}
+              scale={4}
+            />
+            <b>{displayName(s.pet.speciesId!, s.pet.stage)}</b>
+            <span>
+              Lv {s.progress.level} · {STANCE_INFO[stance].name}
+            </span>
+          </div>
+          <span class="vs">VS</span>
+          <div class="side">
+            {last ? (
+              <>
+                <SpriteView
+                  speciesId={last.opponent.speciesId}
+                  stage={last.opponent.stage}
+                  nation={last.opponent.nation}
+                  scale={4}
+                />
+                <b>
+                  {last.isBot
+                    ? 'Wild ' + displayName(last.opponent.speciesId, last.opponent.stage)
+                    : last.opponent.nickname}
+                </b>
+                <span>
+                  Lv {last.opponent.level} ·{' '}
+                  {STANCE_INFO[last.opponent.loadout.stance ?? DEFAULT_STANCE].name}
+                </span>
+              </>
+            ) : (
+              <span class="hint">No battles yet</span>
+            )}
+          </div>
+        </div>
+        {last && (
+          <div class={`result-banner ${last.won ? 'won' : 'lost'}`}>
+            {last.won ? 'WON' : 'LOST'} · {last.turns} turn{last.turns === 1 ? '' : 's'} ·{' '}
+            {last.reason === 'ko' ? 'knockout' : 'timeout'}
+          </div>
+        )}
+        {!last && (
+          <div class="result-banner none">
+            Grab your mon and shake it to challenge another nation.
+          </div>
+        )}
+        <div class="timer-row">
+          <span class="timer">{cdLeft > 0 ? formatCountdown(cdLeft) : 'READY'}</span>
+          <span class="streak-chip">
+            <Glyph name="flame" size={12} />
+            streak x{s.battles.winStreak}
+          </span>
+          <span class="hint">{s.battles.remainingToday} today</span>
         </div>
       </div>
+
       <div class="section">
         <h3>Loadout</h3>
-        {hatched ? (
-          <>
-            <div class="row loadout-summary" style={{ border: 0, flexWrap: 'wrap', gap: 6 }}>
-              {moves.map((m, i) => (
-                <span class="badge neutral" key={i}>
-                  {moveLabel(m)}
-                </span>
-              ))}
-              <span class="badge neutral stance">
-                {STANCE_INFO[s.battles.loadout.stance ?? 'bulwark'].name}
-              </span>
+        <div class="slots">
+          {moves.map((m, i) => (
+            <div class="slot-card" key={i}>
+              <span class="num">{i + 1}</span>
+              <div class="body">
+                <div class="role">{SLOT_LABELS[i]}</div>
+                <div class="mv">{moveLabel(m)}</div>
+              </div>
+              {m && (
+                <TypeChip
+                  nation={m.type === 'nation' ? species!.nation : 'neutral'}
+                  label={m.type === 'nation' ? species!.nation.slice(0, 3).toUpperCase() : 'NEU'}
+                />
+              )}
             </div>
-            <button style={{ marginTop: 8 }} onClick={() => setEditing(true)}>
-              Edit loadout
-            </button>
-          </>
-        ) : (
-          <p class="flavor" style={{ margin: 0 }}>
-            Hatch your mon to pick its moves and stance.
-          </p>
-        )}
+          ))}
+        </div>
+        <button style={{ marginTop: 8 }} onClick={() => setEditing(true)}>
+          Edit loadout
+        </button>
       </div>
+
+      <div class="section">
+        <h3>Stance</h3>
+        <StanceTriangle active={stance} />
+        <p class="stance-caption">
+          {STANCE_INFO[stance].name} beats {STANCE_INFO[stance].beats}
+        </p>
+      </div>
+
+      <div class="section">
+        <h3>Talents · {NATION_INFO[species!.nation].name}</h3>
+        <TalentTree
+          nation={species!.nation}
+          ranks={s.battles.loadout.tree ?? {}}
+          level={s.progress.level}
+        />
+      </div>
+
       <div class="section">
         <h3>Recent opponents</h3>
         {history.length === 0 ? (
           <p class="flavor">No battles yet.</p>
         ) : (
-          <div class="opponent-cards">
-            {history.slice(0, 10).map((b) => (
-              <RecentOpponentCard
-                b={b}
-                me={me}
-                key={b.id}
-                onCounter={(stance) => {
-                  setCounterStance(stance);
-                  setEditing(true);
-                }}
-              />
-            ))}
-          </div>
+          history.slice(0, 10).map((b) => (
+            <RecentOpponentStrip
+              b={b}
+              me={me}
+              key={b.id}
+              onCounter={(stance) => {
+                setCounterStance(stance);
+                setEditing(true);
+              }}
+            />
+          ))
         )}
       </div>
-      {editing && hatched && (
+
+      {editing && (
         <LoadoutEditor
           s={s}
           initialStance={counterStance}

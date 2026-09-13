@@ -3,6 +3,7 @@ import '../ui/theme.css';
 import './reminder.css';
 import { snapshot, startSnapshotFeed } from '../ui/useSnapshot.ts';
 import { SpriteView } from '../ui/SpriteView.tsx';
+import { Glyph } from '../ui/Glyph.tsx';
 
 /**
  * Water reminder card. The window itself is only ever shown while `WaterReminder` (main process)
@@ -23,7 +24,7 @@ function Card() {
             scale={3}
           />
         ) : (
-          <span class="drop">💧</span>
+          <Glyph name="drop" size={28} />
         )}
       </div>
       <div class="body">

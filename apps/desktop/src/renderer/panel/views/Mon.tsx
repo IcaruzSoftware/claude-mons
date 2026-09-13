@@ -6,26 +6,14 @@ import {
   speciesForNation,
   statsAtLevel,
   unlockedMoves,
-  type EffectId,
 } from '@claude-mons/shared';
 import type { UiSnapshot } from '../../../common/ipc.ts';
 import { SpriteView } from '../../ui/SpriteView.tsx';
-
-/**
- * Short chip labels for each move effect (docs/design/progression.md Move pool and effects) --
- * `EFFECT_DESCRIPTIONS` (packages/shared/src/battle/effects.ts) is a full sentence meant for the
- * loadout editor's dropdown hint, too long for this compact per-move row.
- */
-const EFFECT_NAMES: Record<EffectId, string> = {
-  priority: 'Priority',
-  crit_up: 'Crit up',
-  drain: 'Drain',
-  shield_first: 'Shield',
-  def_down: 'DEF down',
-  burn: 'Burn',
-  true_hit: 'True hit',
-  charge: 'Charge',
-};
+import { SegmentedBar } from '../../ui/SegmentedBar.tsx';
+import { StatGem } from '../../ui/StatGem.tsx';
+import { TypeChip } from '../../ui/TypeChip.tsx';
+import { Glyph } from '../../ui/Glyph.tsx';
+import { PixelPanel } from '../../ui/PixelPanel.tsx';
 
 export function MonView({ s }: { s: UiSnapshot }) {
   const nation = s.profile.nation!;
@@ -36,27 +24,31 @@ export function MonView({ s }: { s: UiSnapshot }) {
   const pct = total > 0 ? Math.round((p.xpIntoLevel / total) * 100) : 100;
   const isEgg = s.pet.stage === 'egg';
   const stats = species ? statsAtLevel(species.baseStats, p.level) : null;
+  const shortPersonality = info.personality.split('.')[0]!.toLowerCase();
 
   return (
     <div>
-      <div class="hero">
-        <SpriteView
-          speciesId={s.pet.speciesId}
-          stage={s.pet.stage}
-          nation={nation}
-          scale={isEgg ? 4 : 3}
-        />
+      <div class={`hero tint-${nation}`}>
+        <div class="mon-slot">
+          <SpriteView
+            speciesId={s.pet.speciesId}
+            stage={s.pet.stage}
+            nation={nation}
+            scale={isEgg ? 4 : 3}
+          />
+        </div>
         <div class="info">
-          <div class="name">{species ? displayName(species.id, s.pet.stage) : 'Egg'}</div>
-          <div class="sub">
-            <span class={`badge ${nation}`}>{info.name}</span>{' '}
-            {isEgg ? 'Unhatched' : `${s.pet.stage} · Level ${p.level}`}
-            {species?.rarity === 'rare' && ' · ★ rare'}
+          <div class="name-row">
+            <span class="name">{species ? displayName(species.id, s.pet.stage) : 'Egg'}</span>
+            {!isEgg && <span class="stagebadge">{s.pet.stage}</span>}
+            <span class="lvbadge">{isEgg ? 'Unhatched' : `Lv ${p.level}`}</span>
+            {species?.rarity === 'rare' && <span class="rarebadge">★ rare</span>}
           </div>
-          <div class="bar">
-            <i style={{ width: `${pct}%` }} />
+          <div class="nationline">
+            {isEgg ? `${info.name} egg` : `${info.name} · ${shortPersonality}`}
           </div>
-          <div class="sub">
+          <SegmentedBar pct={isEgg ? Math.min(100, (p.totalXp / HATCH_XP) * 100) : pct} />
+          <div class="xp-caption">
             {isEgg
               ? `${p.totalXp} / ${HATCH_XP} XP to hatch`
               : `${p.xpIntoLevel} / ${total} XP to level ${p.level + 1}`}
@@ -65,57 +57,29 @@ export function MonView({ s }: { s: UiSnapshot }) {
       </div>
 
       {stats && (
-        <div class="stats">
-          <div class="stat">
-            <b>{stats.hp}</b>
-            <span>HP</span>
-          </div>
-          <div class="stat">
-            <b>{stats.atk}</b>
-            <span>ATK</span>
-          </div>
-          <div class="stat">
-            <b>{stats.def}</b>
-            <span>DEF</span>
-          </div>
-          <div class="stat">
-            <b>{stats.spd}</b>
-            <span>SPD</span>
+        <div class="section">
+          <div class="gems">
+            <StatGem kind="hp" value={stats.hp} label="HP" />
+            <StatGem kind="atk" value={stats.atk} label="ATK" />
+            <StatGem kind="def" value={stats.def} label="DEF" />
+            <StatGem kind="spd" value={stats.spd} label="SPD" />
           </div>
         </div>
       )}
 
-      <div class="section" style={{ marginTop: 18 }}>
-        <h3>Progress</h3>
-        <div class="kv">
-          <span>Total XP</span>
-          <span>{p.totalXp}</span>
-          <span>Streak</span>
-          <span>
-            {p.streakDays} day{p.streakDays === 1 ? '' : 's'}
-          </span>
-          <span>Status</span>
-          <span>{s.pet.state.replace(/_/g, ' ')}</span>
-          <span>Server sync</span>
-          <span>{s.online.connected ? 'online' : 'offline (local XP)'}</span>
-        </div>
-      </div>
-
-      <div class="section">
-        <h3>{species ? 'About' : 'What could hatch'}</h3>
-        {species ? (
-          <p class="flavor">{species.flavor}</p>
-        ) : (
-          <div class="kv">
+      {!species && (
+        <div class="section">
+          <h3>What could hatch</h3>
+          <div class="hatch-odds">
             {speciesForNation(nation).map((sp) => (
-              <>
-                <span key={sp.id}>{sp.names.baby}</span>
-                <span>{sp.rarity === 'rare' ? '★ rare (25 %)' : 'common (75 %)'}</span>
-              </>
+              <div class="row" key={sp.id}>
+                <span>{sp.names.baby}</span>
+                <span class="hint">{sp.rarity === 'rare' ? '★ rare · 25%' : 'common · 75%'}</span>
+              </div>
             ))}
           </div>
-        )}
-      </div>
+        </div>
+      )}
 
       {species &&
         (() => {
@@ -124,37 +88,50 @@ export function MonView({ s }: { s: UiSnapshot }) {
           const nextLevel = locked.length > 0 ? Math.min(...locked.map((m) => m.unlocksAt)) : null;
           return (
             <div class="section">
-              <h3>Moves</h3>
-              <div class="move-list">
+              <h3>
+                Known moves · {unlocked.length}/{species.movePool.length} unlocked
+              </h3>
+              <div class="movecards">
                 {unlocked.map((m) => (
-                  <div class="move-row" key={m.id}>
-                    <span class={`chip move-type ${m.type === 'nation' ? nation : 'neutral'}`}>
-                      {m.name}
-                    </span>
-                    <span class="hint">
-                      {m.power} pwr · {m.effect ? EFFECT_NAMES[m.effect] : '—'}
-                    </span>
+                  <div class="movecard" key={m.id}>
+                    <b>{m.name}</b>
+                    <span class="pow">{m.power} pwr</span>
+                    <TypeChip
+                      nation={m.type === 'nation' ? nation : 'neutral'}
+                      label={m.type === 'nation' ? info.name.toUpperCase() : 'NEUTRAL'}
+                    />
                   </div>
                 ))}
+                {locked.length > 0 && (
+                  <div class="teaser">
+                    {locked.length} more move{locked.length === 1 ? '' : 's'} to discover · unlocks
+                    at level {nextLevel}
+                  </div>
+                )}
               </div>
-              {locked.length > 0 && (
-                <p class="flavor" style={{ margin: '6px 0 0' }}>
-                  {locked.length} more move{locked.length === 1 ? '' : 's'} to discover — next at
-                  level {nextLevel}
-                </p>
-              )}
             </div>
           );
         })()}
 
       <div class="section">
-        <h3>Training</h3>
-        <p class="flavor" style={{ margin: 0 }}>
-          {s.hooks.status === 'installed-binary' || s.hooks.status === 'installed-script'
-            ? 'Claude Code is connected. Every prompt, tool call and finished turn earns XP.'
-            : 'Connect Claude Code in Settings to start training.'}
-        </p>
+        <h3>Streak &amp; training</h3>
+        <PixelPanel style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <div class="streak-row">
+            <Glyph name="flame" size={14} class="flame" />
+            <span style={{ fontSize: 11.5 }}>
+              {p.streakDays > 0 ? `${p.streakDays}-day streak` : 'No streak yet'}
+            </span>
+          </div>
+          <p class="trainline">
+            <span class="dot" />
+            {s.hooks.status === 'installed-binary' || s.hooks.status === 'installed-script'
+              ? 'Claude Code connected · every prompt and tool call earns XP'
+              : 'Connect Claude Code in Settings to start training'}
+          </p>
+        </PixelPanel>
       </div>
+
+      {species && <p class="flavor">{species.flavor}</p>}
 
       {s.isDev && (
         <div class="dev">

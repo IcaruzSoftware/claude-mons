@@ -3,7 +3,7 @@ doc_type: reference
 purpose: "Release notes and version history; check this when seeing claude-mons updates or deciding what version to expect features in."
 audience: both
 last_verified: 2026-09-13
-last_verified_commit: 275569c
+last_verified_commit: cfc8bc7
 related_files:
   - docs/history/v1-handoff-2026-09-04.md
   - docs/README.md
@@ -19,6 +19,24 @@ related_files:
 All notable changes to claude-mons are documented here. See [Keep a Changelog](https://keepachangelog.com/) for format details.
 
 ## [Unreleased]
+
+## [0.2.0] - 2026-09-13
+
+### Fixed
+
+- Evolved mons had no sprite: `spriteIdFor` built `<speciesId>-<stage>` while sprites are registered under the stage form (`boulderbyte-teen`); an explicit evolution-line table now maps species ids to their forms.
+
+### Changed
+- **Panel redesign.** The panel (Mon, Leaderboard, Battles, Settings), onboarding wizard, hover
+  card and water reminder now share one small set of game-styled tokens and components instead of
+  each screen styling itself independently — see `docs/design/ui-style.md` and
+  `docs/design/ui-panels.md`. New
+  shared pieces in `apps/desktop/src/renderer/ui/`: `PixelPanel`, `SegmentedBar`, `StatGem`,
+  `TypeChip`, `NationBadge`, `Glyph` (an 8×8 pixel icon set replacing every emoji), `BottomTabBar`
+  (a bottom game-menu bar replacing the old top tab strip). Battles gained an arena header, an SVG
+  stance triangle and an SVG talent tree (trunk + 3 branches rising upward) in place of the old flat
+  button lists; Leaderboard gained nation banner tiles and a top-3 podium. Ships a locally bundled
+  Pixelify Sans (OFL) display font for headings/labels — no network request.
 
 ## [0.1.3] - 2026-09-13
 

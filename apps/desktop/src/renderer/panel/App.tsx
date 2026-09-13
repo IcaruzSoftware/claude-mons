@@ -1,6 +1,7 @@
 import { signal } from '@preact/signals';
 import { useEffect } from 'preact/hooks';
 import { snapshot } from '../ui/useSnapshot.ts';
+import { BottomTabBar, type BottomTab } from '../ui/BottomTabBar.tsx';
 import { Onboarding } from './views/Onboarding.tsx';
 import { MonView } from './views/Mon.tsx';
 import { LeaderboardView } from './views/Leaderboard.tsx';
@@ -10,11 +11,11 @@ import { SettingsView } from './views/Settings.tsx';
 export type Route = 'mon' | 'leaderboard' | 'battles' | 'settings';
 const route = signal<Route>('mon');
 
-const TABS: Array<{ id: Route; label: string }> = [
-  { id: 'mon', label: 'Mon' },
-  { id: 'leaderboard', label: 'Leaderboard' },
-  { id: 'battles', label: 'Battles' },
-  { id: 'settings', label: 'Settings' },
+const TABS: ReadonlyArray<BottomTab<Route>> = [
+  { id: 'mon', label: 'MON', glyph: 'mon' },
+  { id: 'leaderboard', label: 'BOARD', glyph: 'trophy' },
+  { id: 'battles', label: 'BATTLE', glyph: 'swords' },
+  { id: 'settings', label: 'SETUP', glyph: 'gear' },
 ];
 
 export function App() {
@@ -34,23 +35,14 @@ export function App() {
 
   return (
     <div class="app">
-      <nav class="tabs">
-        {TABS.map((t) => (
-          <button
-            key={t.id}
-            class={route.value === t.id ? 'active' : ''}
-            onClick={() => (route.value = t.id)}
-          >
-            {t.label}
-          </button>
-        ))}
-      </nav>
       <main class="view">
         {route.value === 'mon' && <MonView s={s} />}
         {route.value === 'leaderboard' && <LeaderboardView s={s} />}
         {route.value === 'battles' && <BattlesView s={s} />}
         {route.value === 'settings' && <SettingsView s={s} />}
+        <div class="scroll-fade" aria-hidden="true" />
       </main>
+      <BottomTabBar tabs={TABS} active={route.value} onChange={(id) => (route.value = id)} />
     </div>
   );
 }

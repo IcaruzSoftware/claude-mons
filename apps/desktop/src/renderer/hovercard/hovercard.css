@@ -1,10 +1,13 @@
 .card {
   margin: 4px;
-  padding: 8px 10px;
+  padding: var(--sp-2, 8px) var(--sp-3, 10px);
   background: rgba(20, 22, 28, 0.94);
-  border: 2px solid #3a3f4c;
-  border-radius: 8px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  border: 2px solid var(--line, #3a3f4c);
+  border-radius: var(--radius, 8px);
+  box-shadow:
+    inset 1px 1px 0 rgba(255, 255, 255, 0.06),
+    inset -2px -2px 0 rgba(0, 0, 0, 0.35),
+    0 4px 12px rgba(0, 0, 0, 0.4);
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -15,12 +18,16 @@
   gap: 8px;
 }
 .row .name {
-  font-weight: 700;
-  font-size: 14px;
+  font-family: var(--font-display);
+  font-size: 12px;
   flex: 1;
 }
 .row .lvl {
-  font-weight: 600;
+  /* Not the display font: this carries the mon's level as a digit at 11px -- see theme.css's
+     .badge comment for the legibility issue this avoids. */
+  font-family: var(--font);
+  font-weight: 700;
+  font-size: 11px;
   color: var(--accent);
 }
 .row.dim {

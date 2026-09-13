@@ -3,7 +3,7 @@ doc_type: reference
 purpose: "Understand the desktop app's process model, module map, IPC channels, and CLI flags."
 audience: agent
 last_verified: 2026-09-13
-last_verified_commit: ec08bb6
+last_verified_commit: cfc8bc7
 related_files:
   - apps/desktop/src/**
   - apps/desktop/IPC.md
@@ -90,16 +90,37 @@ All windows share one preload (`src/preload/index.ts`); four renderers (pet, pan
 | `src/renderer/pet/SpriteCache.ts` | Caches rasterized frames by `id\|anim\|frame\|palette` |
 | `src/renderer/pet/BattlePlayer.ts` | Time-based battle playback; schedules attack/hit steps |
 | `src/renderer/panel/main.tsx` | Panel entry: snapshot feed |
-| `src/renderer/panel/App.tsx` | Tab router (mon/leaderboard/battles/settings); Onboarding while no nation |
+| `src/renderer/panel/App.tsx` | Bottom game-menu tab router (mon/leaderboard/battles/settings, `BottomTabBar`); Onboarding while no nation |
 | `src/renderer/panel/onboardingSteps.ts` | Pure step arithmetic (`nextOnboardingStep`/`prevOnboardingStep`/`canGoBack`/`canGoNext`) for the onboarding wizard |
 | `src/renderer/panel/accountCopy.ts` | Copy for account linking, shared by Settings' Account section and Onboarding's sign-in sub-step |
 | `src/renderer/panel/views/*` | Onboarding (5-step wizard: welcome, what-is, controls, connect Claude Code, nation picker; welcome also offers a "sign in" sub-step, see account-linking flow doc), Mon, Battles, Leaderboard, Settings (Account section: link/switch/sign-out) |
+| `src/renderer/panel/views/battleTreeLayout.ts` | Pure talent-tree SVG coordinate lookup (`treeNodePosition`) for Battles' tree, dependency-free so it's unit-testable |
+| `src/renderer/panel/views/leaderboardHelpers.ts` | Pure podium ordering (`podiumOrder`: 2nd/1st/3rd) for Leaderboard, dependency-free so it's unit-testable |
 | `src/renderer/hovercard/main.tsx` | Hover card entry: compact stat card |
-| `src/renderer/reminder/main.tsx` | Water reminder card entry: nation-tinted sprite (or a 💧 glyph before hatch) + "Time for a sip of water" + Done/Snooze buttons; always renders the same content since the window is only shown while due |
+| `src/renderer/reminder/main.tsx` | Water reminder card entry: nation-tinted sprite (or a `drop` glyph before hatch) + "Time for a sip of water" + Done/Snooze buttons; always renders the same content since the window is only shown while due |
+| `src/renderer/ui/theme.css` | Design tokens (palette, spacing scale, radii, bevel shadows, type scale) and the bundled display font's `@font-face` — see [Fonts](#fonts) below |
+| `src/renderer/ui/PixelPanel.tsx` | Bevelled card chrome (`.pixel-panel`), used wherever a generic card container is needed |
+| `src/renderer/ui/SegmentedBar.tsx` | Discrete-segment XP bar (cosmetic segment count, not a real unit) |
+| `src/renderer/ui/StatGem.tsx` | Diamond stat gem with a fixed per-stat color (HP/ATK/DEF/SPD), independent of nation |
+| `src/renderer/ui/TypeChip.tsx` | Move-type chip: solid nation color + ink text, or neutral grey |
+| `src/renderer/ui/NationBadge.tsx` | Small nation crest tile (3-letter code) for Leaderboard's banner tiles |
+| `src/renderer/ui/Glyph.tsx` | 8×8 pixel glyph set (mon, trophy, swords, gear, flame, clock, leaf, drop, spark, wind) drawn as inline SVG rects from a string grid; the only icon language besides a mon's own sprite (no emoji) |
+| `src/renderer/ui/BottomTabBar.tsx` | Bottom game-menu tab bar (glyph + label, bevelled active state) used by `src/renderer/panel/App.tsx` |
 | `src/renderer/ui/useSnapshot.ts` | Shared snapshot signal + one-time feed subscription |
-| `src/renderer/ui/SpriteView.tsx` | Animated sprite preview (nation-tinted) |
+| `src/renderer/ui/SpriteView.tsx` | Animated sprite preview (nation-tinted); on an unknown sprite id, sizes the canvas to the standard 32px sprite grid instead of the browser's 300x150 default so a missing sprite degrades to a same-sized blank box rather than blowing out its flex layout |
 | `src/renderer/ui/hookStatus.ts` | Shared `HookStatusValue` label/dot-class helpers (Settings hook row + onboarding Connect step) |
 | `src/renderer/ui/AccountEmailCode.tsx` | Shared email → 6-digit-code widget for account linking (link, switch, onboarding sign-in) |
+
+### Fonts
+
+The panel's display font (`--font-display` in `src/renderer/ui/theme.css`, used for headings/tab labels/short bold
+text at 12px and up — see `docs/design/ui-style.md`) is **Pixelify Sans** (SIL Open Font License
+1.1, `src/renderer/ui/fonts/LICENSE.txt`), bundled as a local `.woff2`
+(`src/renderer/ui/fonts/PixelifySans.woff2`) loaded via a relative `@font-face` `url()` — no CDN or
+network request. Text below ~12px stays in the system font instead of the display font: a real
+capture showed the display face's "2" misread as "8" at 9px, so anything that size or smaller
+(section headers, badges, chip labels, the talent tree's rank pips) uses the bold system font
+instead — see `docs/design/ui-panels.md`'s noted deviation.
 
 ## IPC channels
 

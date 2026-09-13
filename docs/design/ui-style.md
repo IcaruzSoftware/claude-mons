@@ -3,7 +3,7 @@ doc_type: design
 purpose: "Read this when changing the panel's visual language, design tokens, or a shared UI component (gems, segmented bars, chips, the game-menu bar) before it looks like a generic web app."
 audience: agent
 last_verified: 2026-09-13
-last_verified_commit: 275569c
+last_verified_commit: cfc8bc7
 related_files:
   - apps/desktop/src/renderer/ui/theme.css
   - apps/desktop/src/renderer/panel/panel.css
@@ -18,6 +18,23 @@ related_files:
 ---
 
 # Panel visual language
+
+**Status: implemented** (commit `cfc8bc7`) — tokens, the bundled display font and the shared
+components below all landed in `apps/desktop/src/renderer/ui/`. Two deviations from this doc, found
+during the visual-capture pass (`docs/design/ui-panels.md`'s Verification section):
+
+- **Display font choice**: this doc names no specific pixel/bitmap face; **Pixelify Sans** (OFL
+  1.1) was chosen over Press Start 2P/Silkscreen for legibility at small sizes, per the
+  implementation instructions. It is bundled at `apps/desktop/src/renderer/ui/fonts/PixelifySans.woff2`.
+- **The "~11px" legibility floor is stricter in practice.** A real capture of the Mon tab's "Known
+  moves · 2/6 unlocked" header (`--font-display` at 9px) was misread as "8/6" — Pixelify Sans's "2"
+  and "8" collapse into similar shapes at that size. Rather than rely on a soft "~11px" cutoff, every
+  spot that shows an exact count, level or rank at 11px or below (badges, chip labels, the game-menu
+  tab labels, the talent tree's rank pips and point counter, board-row XP, the stance triangle's
+  corner labels) now uses the bold system font instead of `--font-display`; the display font is used
+  only at 12px and up (hero name, stat gem values, banner XP figures, the cooldown timer, podium
+  place numbers). This is a stricter version of this doc's own Typography rule, not a departure from
+  its intent.
 
 The 440x660 panel (`apps/desktop/src/renderer/panel/panel.css`, tokens in
 `apps/desktop/src/renderer/ui/theme.css`) currently reads as a settings web page: flat rows, a soft

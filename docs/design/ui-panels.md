@@ -3,7 +3,7 @@ doc_type: design
 purpose: "Read this when redesigning a specific panel tab (Mon, Leaderboard, Battles, Settings) or planning the order of work for the panel reskin."
 audience: agent
 last_verified: 2026-09-13
-last_verified_commit: 275569c
+last_verified_commit: cfc8bc7
 related_files:
   - docs/design/ui-style.md
   - docs/design/progression.md
@@ -16,6 +16,40 @@ related_files:
 ---
 
 # Panel redesign specs
+
+**Status: implemented** (commit `cfc8bc7`) — all four tabs, the shared components and the
+game-menu bar landed. Deviations found during the build-order's visual-capture step:
+
+- **Battles: stance triangle and talent tree are read-only previews on the main tab, interactive
+  only inside the loadout editor overlay.** This doc's ASCII sketch shows the triangle and tree
+  directly on the Battles tab with no overlay; the *implementation* kept the existing
+  `LoadoutEditor` overlay (opened via "Edit loadout" or "Counter this") as the place moves, stance
+  and talent ranks are actually changed, and added a static (non-clickable) `StanceTriangle`/
+  `TalentTree` preview of the *saved* loadout directly on the main tab so the tab still reads at a
+  glance the way the sketch shows. Reason: "Keep all existing behaviour and IPC calls (set-loadout,
+  stance, tree, respec, validation messages, Saved confirmation, disabled reasons)" is a stronger
+  constraint than the sketch's exact layout, and the editor's Save/Cancel/respec-confirm state
+  machine (`apps/desktop/src/renderer/panel/views/Battles.tsx`'s `LoadoutEditor`) is exactly that
+  existing behaviour. Both the preview and the editor render through the same `StanceTriangle`/
+  `TalentTree` components (interactivity is just an optional `onPick`/`onAdd`/`onRemove` prop), so
+  there is one implementation of each, not two.
+- **Sprite bug found, not fixed here (out of scope for this doc).** Visually capturing the Mon
+  hero, Battles arena and (by extension) the Leaderboard podium surfaced that every mon past baby
+  stage renders a blank sprite: `spriteIdFor` (`packages/sprites/src/index.ts`) builds
+  `${speciesId}-${stage}`, but the sprite package registers teen/adult art under the *evolved*
+  species' own name (e.g. `rootling-teen`, not `mossling-teen`) — a data/registry mismatch in
+  `packages/sprites`/`packages/shared`, unrelated to this pass's CSS/component work. Tracked as a
+  separate follow-up. `apps/desktop/src/renderer/ui/SpriteView.tsx` was defensively hardened so an
+  unresolvable sprite id sizes its canvas to the standard 32px grid instead of the browser's
+  300×150 default, which otherwise blew out every flex layout it sat inside (the hero slot, the
+  arena's side columns) with a huge invisible box — a real layout bug this redesign's own capture
+  step is supposed to catch, even though the underlying missing-art bug is not this doc's to fix.
+- **Leaderboard's populated state (banners/podium/board rows) was not captured against live data.**
+  The dev/offline build used for the Verification pass has no backend, so `LeaderboardView` only
+  ever showed its correctly-implemented offline placeholder. The podium/banner code was verified by
+  review and by `podiumOrder`'s unit tests (`apps/desktop/test/leaderboardHelpers.test.ts`), reusing
+  the same `TypeChip`/`NationBadge`/`SpriteView` already verified live on the Mon/Battles tabs, but a
+  real screenshot with backend data is still worth taking before calling this tab fully done.
 
 Per-tab layout for the visual language in `docs/design/ui-style.md`, inside the fixed 440x660 panel
 window. Owner feedback per tab: Mon "generally liked" (keep structure, fix chrome and the moves list);

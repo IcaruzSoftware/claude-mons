@@ -13,6 +13,31 @@ describe('spriteIdFor', () => {
     expect(spriteIdFor('infernode', 'adult')).toBe('infernode-adult');
   });
 
+  it('maps a species id to its evolved forms', () => {
+    expect(spriteIdFor('sparkit', 'teen')).toBe('blazebit-teen');
+    expect(spriteIdFor('sparkit', 'adult')).toBe('infernode-adult');
+    expect(spriteIdFor('pebblet', 'teen')).toBe('boulderbyte-teen');
+    expect(spriteIdFor('blazebit', 'adult')).toBe('infernode-adult');
+  });
+
+  it('resolves a registered sprite for every species at every stage', () => {
+    const species = [
+      'dripple',
+      'bubblit',
+      'sparkit',
+      'cinderpup',
+      'pebblet',
+      'mossling',
+      'puffle',
+      'wispit',
+    ];
+    for (const id of species) {
+      for (const stage of ['baby', 'teen', 'adult'] as const) {
+        expect(() => getSprite(spriteIdFor(id, stage))).not.toThrow();
+      }
+    }
+  });
+
   it('resolves to registered sprites for the fire line', () => {
     expect(getSprite(spriteIdFor('sparkit', 'baby'))).toBe(SPRITES['sparkit-baby']);
     expect(getSprite(spriteIdFor('blazebit', 'teen')).size).toBe(32);

@@ -38,6 +38,19 @@ export function SpriteView({
     try {
       def = getSprite(speciesId ? spriteIdFor(speciesId, stage) : 'egg');
     } catch {
+      // Unknown sprite id (e.g. a species/stage combination with no sprite yet): size the canvas
+      // to what a real sprite would use instead of leaving it at the browser's 300x150 default,
+      // which used to blow out every flex layout this is dropped into (the hero slot, the arena's
+      // side columns) with a huge invisible box. `SIZE` (packages/sprites/src/egg.ts) is 32 for
+      // every sprite in the package, so this fallback stays correct even for a sprite this
+      // component has never successfully rendered.
+      const FALLBACK_SPRITE_SIZE = 32;
+      const dpr = window.devicePixelRatio || 1;
+      const css = FALLBACK_SPRITE_SIZE * scale;
+      canvas.width = Math.round(css * dpr);
+      canvas.height = Math.round(css * dpr);
+      canvas.style.width = `${css}px`;
+      canvas.style.height = `${css}px`;
       return;
     }
     const resolved: AnimName = def.anims[anim] ? anim : 'idle';

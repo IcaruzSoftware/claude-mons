@@ -3,39 +3,91 @@
   flex-direction: column;
   height: 100vh;
 }
-.tabs {
+
+/* bottom game-menu bar (docs/design/ui-style.md Iconography "Tabs"), replaces the old top .tabs
+   strip entirely. */
+.gamenav {
   display: flex;
-  border-bottom: 1px solid var(--line);
-  background: var(--bg-2);
+  border-top: 2px solid var(--line);
+  background: var(--ink);
+  flex: none;
 }
-.tabs button {
+.gamenav button {
   flex: 1;
-  border: 0;
-  border-radius: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
   background: transparent;
-  padding: 10px 0;
+  border: 0;
+  box-shadow: none;
+  border-radius: 0;
   color: var(--fg-dim);
-  border-bottom: 2px solid transparent;
+  padding: 8px 0 7px;
 }
-.tabs button.active {
-  color: var(--fg);
-  border-bottom-color: var(--accent);
+.gamenav button svg {
+  opacity: 0.7;
 }
+.gamenav button.active {
+  color: var(--accent-ink);
+  background: var(--accent);
+  box-shadow: var(--bevel-pressed);
+}
+.gamenav button.active svg {
+  opacity: 1;
+}
+.gamenav button span {
+  /* Not the display font: docs/design/ui-style.md Typography warns a pixel face stops being
+     legible below ~11px, and this label sits at 9px -- confirmed by a real render where a
+     display-font "2" elsewhere on the panel was misread as "8" at this scale (see ui-panels.md's
+     noted deviation). Bold system-font caps reads as the same family without the risk. */
+  font-family: var(--font);
+  font-weight: 700;
+  font-size: 9px;
+  letter-spacing: 0.03em;
+}
+
 .view {
   flex: 1;
   overflow: auto;
-  padding: 16px;
+  padding: var(--sp-4);
+  position: relative;
+  /* Hidden but still scrollable, same treatment as .onboard-content/.loadout-card -- a taller
+     section (the talent tree, a full moves list) can push content past the fold, but the bar
+     itself would look out of place in a small game-styled panel. The `.scroll-fade` sibling
+     (rendered by App.tsx, pinned just above the game-menu bar) is the visual cue that there is
+     more to see, replacing an actual scrollbar. */
+  scrollbar-width: none;
 }
+.view::-webkit-scrollbar {
+  display: none;
+}
+.scroll-fade {
+  position: sticky;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 20px;
+  margin-top: -20px;
+  background: linear-gradient(to bottom, transparent, var(--bg));
+  pointer-events: none;
+}
+
 .section {
-  margin-bottom: 18px;
+  margin-bottom: var(--sp-4);
 }
 .section h3 {
-  margin: 0 0 8px;
-  font-size: 12px;
+  margin: 0 0 var(--sp-2);
+  /* Not the display font -- these headers often carry an exact count (e.g. "2/6 unlocked"); see
+     the .gamenav comment above for why sub-11px numerals avoid the pixel face entirely. */
+  font-family: var(--font);
+  font-weight: 700;
+  font-size: 9px;
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: var(--fg-dim);
 }
+
 .kv {
   display: grid;
   grid-template-columns: 1fr auto;
@@ -48,47 +100,36 @@
 .kv span:nth-child(odd) {
   color: var(--fg-dim);
 }
-.hero {
-  display: flex;
-  gap: 16px;
-  align-items: center;
-  padding: 16px;
-  background: var(--bg-2);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-}
-.hero .info {
-  flex: 1;
-}
-.hero .name {
-  font-size: 20px;
-  font-weight: 700;
-}
-.hero .sub {
-  color: var(--fg-dim);
-  margin: 2px 0 8px;
-}
-.stats {
+/* Settings' Profile card / About card: a bevelled two-column readout in the display font. */
+.kv-pixel {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 8px;
-  margin-top: 12px;
+  grid-template-columns: 1fr auto;
+  gap: 5px 10px;
+  font-size: 11.5px;
 }
-.stat {
-  background: var(--bg-2);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  padding: 8px;
-  text-align: center;
-}
-.stat b {
-  display: block;
-  font-size: 16px;
-}
-.stat span {
+.kv-pixel span:nth-child(odd) {
   color: var(--fg-dim);
+}
+.kv-pixel span:nth-child(even) {
+  text-align: right;
+  /* Not the display font: some values here are numbers (version, sync time) at 11px, below the
+     ~11px legibility floor docs/design/ui-style.md warns about. */
+  font-family: var(--font);
+  font-weight: 700;
   font-size: 11px;
 }
+
+/* bevelled card chrome (docs/design/ui-style.md Chrome), shared by PixelPanel and every
+   card-level container below. */
+.pixel-panel,
+.card {
+  background: var(--bg-2);
+  border: 2px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--bevel);
+  padding: var(--sp-3);
+}
+
 .placeholder {
   color: var(--fg-dim);
   text-align: center;
@@ -103,7 +144,7 @@
   background: var(--fg-dim);
 }
 .status-dot.ok {
-  background: #7cb342;
+  background: var(--earth);
 }
 .status-dot.warn {
   background: var(--accent);
@@ -123,27 +164,43 @@
   color: var(--fg-dim);
   font-size: 11px;
 }
+.hint {
+  color: var(--fg-dim);
+  font-size: 11px;
+}
 .seg {
   display: inline-flex;
-  border: 1px solid var(--line);
+  border: 2px solid var(--line);
   border-radius: var(--radius);
   overflow: hidden;
 }
 .seg button {
   border: 0;
+  box-shadow: none;
   border-radius: 0;
   padding: 4px 10px;
-}
-.seg button.active {
-  background: var(--accent);
-  color: #111;
 }
 .flavor {
   font-style: italic;
   color: var(--fg-dim);
 }
 
-/* onboarding wizard */
+/* nation tint helpers (docs/design/ui-style.md Palette: a low-opacity mix into --bg-2, not the
+   flat hue, so --fg body text keeps its contrast ratio). */
+.tint-water {
+  --nation: var(--water);
+}
+.tint-fire {
+  --nation: var(--fire);
+}
+.tint-earth {
+  --nation: var(--earth);
+}
+.tint-air {
+  --nation: var(--air);
+}
+
+/* onboarding wizard (layout unchanged from before this pass -- tokens/chrome only) */
 .onboard {
   display: flex;
   flex-direction: column;
@@ -155,8 +212,6 @@
   flex: 1;
   min-height: 0;
   overflow: auto;
-  /* The wizard is sized to fit the panel without scrolling; keep scrolling available (a smaller
-     window, larger OS font) but never show the bar so it cannot cover content. */
   scrollbar-width: none;
 }
 .onboard-content::-webkit-scrollbar {
@@ -164,7 +219,8 @@
 }
 .onboard-step h1 {
   margin: 0 0 8px;
-  font-size: 20px;
+  font-size: 16px;
+  font-family: var(--font-display);
 }
 .onboard p.lead,
 .onboard-step p.lead {
@@ -232,7 +288,7 @@
   gap: 8px;
   padding-top: 12px;
   margin-top: 8px;
-  border-top: 1px solid var(--line);
+  border-top: 2px solid var(--line);
 }
 .onboard-nav .dots {
   display: flex;
@@ -251,8 +307,6 @@
   display: flex;
   gap: 8px;
 }
-/* Nation step: tuned to fit two rows of four cards in the 440x660 panel with no scrolling — see
-   the height budget in docs/architecture/flows/onboarding.md. */
 .onboard-nation-step h1 {
   margin-bottom: 4px;
 }
@@ -265,9 +319,6 @@
   gap: 8px;
 }
 .nation {
-  /* Without this, the nowrap tagline's unwrapped width becomes this grid item's automatic
-     minimum size and forces both columns wider than the panel — min-width: 0 opts back into
-     the 1fr track width so the tagline's own ellipsis (not the grid) does the clipping. */
   min-width: 0;
   text-align: left;
   padding: 8px;
@@ -276,13 +327,14 @@
   flex-direction: column;
   gap: 4px;
   background: var(--bg-2);
+  box-shadow: var(--bevel);
 }
 .nation:hover {
   transform: translateY(-1px);
 }
 .nation .title {
-  font-size: 14px;
-  font-weight: 700;
+  font-size: 13px;
+  font-family: var(--font-display);
   display: flex;
   align-items: center;
   gap: 6px;
@@ -298,7 +350,6 @@
   font-style: italic;
   color: var(--fg);
   font-size: 12px;
-  /* wrap freely: the step has vertical room to spare and clipped text reads as a bug */
   overflow-wrap: anywhere;
 }
 .nation .desc {
@@ -328,8 +379,8 @@
   border-color: var(--air);
 }
 .dev {
-  margin-top: 24px;
-  padding-top: 12px;
+  margin-top: var(--sp-5);
+  padding-top: var(--sp-3);
   border-top: 1px dashed var(--line);
   color: var(--fg-dim);
   font-size: 11px;
@@ -340,71 +391,6 @@
   font-size: 11px;
 }
 
-/* leaderboard */
-.nations-table,
-.board {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-.nation-row,
-.board-row {
-  display: grid;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 10px;
-  background: var(--bg-2);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-}
-.nation-row {
-  grid-template-columns: 32px auto 1fr;
-}
-.nation-row .hint {
-  grid-column: 1 / -1;
-  font-size: 11px;
-  color: var(--fg-dim);
-}
-.nation-row .power {
-  text-align: right;
-  font-weight: 700;
-  color: var(--accent);
-}
-.board-row {
-  grid-template-columns: 40px 1fr auto 70px;
-}
-.board-row .who {
-  display: flex;
-  flex-direction: column;
-}
-.board-row .who .hint {
-  font-size: 11px;
-  color: var(--fg-dim);
-}
-.board-row .xp {
-  text-align: right;
-  font-weight: 600;
-}
-.rank {
-  color: var(--fg-dim);
-  font-variant-numeric: tabular-nums;
-}
-.mine {
-  border-color: var(--accent) !important;
-}
-button.active {
-  background: var(--accent);
-  color: #111;
-}
-input.nick {
-  font: inherit;
-  color: var(--fg);
-  background: var(--bg-3);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  padding: 5px 8px;
-  width: 150px;
-}
 .account-flow {
   margin-top: 8px;
 }
@@ -412,171 +398,729 @@ input.nick {
   margin-top: 6px;
 }
 
-/* loadout editor overlay (Battles tab) -- fixed, covers the whole 440x660 panel window */
-.loadout-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.55);
+/* ============================= Mon tab ============================= */
+.hero {
+  display: flex;
+  gap: var(--sp-3);
+  align-items: center;
+  padding: var(--sp-3);
+  background: radial-gradient(
+    120% 140% at 15% 20%,
+    color-mix(in srgb, var(--nation) 22%, var(--bg-2)) 0%,
+    var(--bg-2) 65%
+  );
+  border: 2px solid var(--nation);
+  border-radius: var(--radius);
+  box-shadow: var(--bevel);
+}
+.hero .mon-slot {
+  flex: none;
+  width: 88px;
+  height: 88px;
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 16px;
-  z-index: 10;
-}
-.loadout-card {
-  width: 100%;
-  max-height: 100%;
-  overflow: auto;
-  background: var(--bg-2);
-  border: 1px solid var(--line);
+  background: color-mix(in srgb, var(--nation) 25%, var(--ink));
   border-radius: var(--radius);
-  padding: 14px;
-  box-sizing: border-box;
-  /* The talent tree can push this overlay past the panel's 440x660 size; keep scrolling available
-     but never show the bar, same treatment as .onboard-content. */
-  scrollbar-width: none;
+  border: 2px solid var(--nation);
 }
-.loadout-card::-webkit-scrollbar {
-  display: none;
+.hero .info {
+  flex: 1;
+  min-width: 0;
 }
-.loadout-slot {
-  margin-bottom: 10px;
+.hero .name-row {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  flex-wrap: wrap;
 }
-.loadout-slot select {
-  width: 100%;
-  font: inherit;
+.hero .name {
+  font-family: var(--font-display);
+  font-size: 13px;
   color: var(--fg);
+}
+.stagebadge,
+.lvbadge,
+.rarebadge {
+  /* Not the display font: `.lvbadge` carries the mon's level as a digit at 9px -- exactly the
+     size that turned out to misread "2" as "8" in a real capture (docs/design/ui-panels.md notes
+     this as a deviation from the mockup). */
+  font-family: var(--font);
+  font-weight: 700;
+  font-size: 9px;
+  padding: 2px 5px;
+  border-radius: 2px;
+  letter-spacing: 0.02em;
+}
+.stagebadge {
   background: var(--bg-3);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  padding: 5px 6px;
-  margin-bottom: 2px;
-}
-.slot-label {
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
   color: var(--fg-dim);
+  border: 1px solid var(--line);
 }
-.loadout-error {
-  color: var(--fire);
-  font-weight: 600;
-  margin: 8px 0 0;
+.lvbadge {
+  background: var(--nation);
+  color: var(--ink);
+}
+.rarebadge {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+.hero .nationline {
+  color: var(--fg-dim);
+  font-size: 11px;
+  margin: 4px 0 8px;
 }
 
-/* Mon tab move list (Mon.tsx): only unlocked moves, colour-coded by type; reuses .chip's shape but
-   overrides colour per nation so a move's type reads at a glance without a legend. */
-.move-list {
+/* segmented XP bar (SegmentedBar.tsx) */
+.segbar {
+  display: flex;
+  gap: 2px;
+  height: 12px;
+}
+.segbar i {
+  flex: 1;
+  background: var(--bg-3);
+  border: 1px solid var(--line);
+  border-radius: 1px;
+}
+.segbar i.fill {
+  background: var(--accent);
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.3);
+  transition: background 300ms ease-out;
+}
+.xp-caption {
+  color: var(--fg-dim);
+  font-size: 10.5px;
+  margin-top: 4px;
+}
+
+/* stat gems (StatGem.tsx) */
+.gems {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--sp-2);
+  margin-top: var(--sp-3);
+}
+.gem {
+  background: var(--bg-3);
+  border: 2px solid var(--line);
+  clip-path: polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%);
+  padding: 10px 2px;
+  text-align: center;
+}
+.gem b {
+  display: block;
+  font-family: var(--font-display);
+  font-size: 13px;
+  color: var(--fg);
+}
+.gem span {
+  display: block;
+  font-family: var(--font);
+  font-weight: 700;
+  font-size: 9px;
+  color: var(--fg-dim);
+  letter-spacing: 0.05em;
+  margin-top: 2px;
+}
+.gem.hp {
+  border-color: var(--fire);
+}
+.gem.atk {
+  border-color: var(--accent);
+}
+.gem.def {
+  border-color: var(--earth);
+}
+.gem.spd {
+  border-color: var(--air);
+}
+
+/* known-move cards (TypeChip.tsx for the type pill) */
+.movecards {
   display: flex;
   flex-direction: column;
   gap: 6px;
 }
-.move-row {
+.movecard {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 9px;
+  border-radius: var(--radius);
+  border: 1px solid var(--line);
+  background: var(--bg-3);
+}
+.movecard b {
+  font-size: 11.5px;
+  flex: 1;
+  min-width: 0;
+}
+.movecard .pow {
+  color: var(--fg-dim);
+  font-size: 10.5px;
+  flex: none;
+}
+.typechip {
+  font-size: 9px;
+  padding: 2px 6px;
+  border-radius: 2px;
+  font-family: var(--font);
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  flex: none;
+}
+.typechip.neutral {
+  background: #3a3f4a;
+  color: var(--fg);
+}
+.typechip.nation-water {
+  background: var(--water);
+  color: var(--ink);
+}
+.typechip.nation-fire {
+  background: var(--fire);
+  color: var(--ink);
+}
+.typechip.nation-earth {
+  background: var(--earth);
+  color: var(--ink);
+}
+.typechip.nation-air {
+  background: var(--air);
+  color: var(--ink);
+}
+.teaser {
+  border: 1px dashed var(--line-lite);
+  border-radius: var(--radius);
+  padding: 6px 9px;
+  color: var(--fg-dim);
+  font-size: 10.5px;
+  text-align: center;
+}
+
+/* streak / training */
+.streak-row {
   display: flex;
   align-items: center;
   gap: 8px;
 }
-.chip.move-type {
-  flex: none;
-  font-weight: 600;
+.streak-row .flame,
+.streak-chip .flame {
+  color: var(--accent);
 }
-.chip.move-type.neutral {
-  background: var(--bg-3);
-  border-color: var(--line);
+.trainline {
   color: var(--fg-dim);
+  font-size: 11px;
+  margin: 0;
+  display: flex;
+  align-items: center;
 }
-.chip.move-type.water {
-  background: var(--water);
-  border-color: var(--water);
-  color: #111;
-}
-.chip.move-type.fire {
-  background: var(--fire);
-  border-color: var(--fire);
-  color: #111;
-}
-.chip.move-type.earth {
+.dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
   background: var(--earth);
-  border-color: var(--earth);
-  color: #111;
+  margin-right: 5px;
+  flex: none;
 }
-.chip.move-type.air {
-  background: var(--air);
-  border-color: var(--air);
-  color: #111;
-}
-
-/* talent tree (Battles tab loadout editor, docs/design/talent-tree.md) */
-.talent-grid {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 6px;
-}
-.talent-column {
+.hatch-odds {
   display: flex;
   flex-direction: column;
   gap: 4px;
+}
+.hatch-odds .row {
+  border: 0;
+  padding: 3px 0;
+}
+
+/* ========================= Leaderboard tab ========================= */
+.banner-tile {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  margin-bottom: 6px;
+  background: var(--bg-2);
+  border: 2px solid var(--line);
+  border-left: 5px solid var(--nation);
+  border-radius: var(--radius);
+}
+.banner-tile.mine {
+  border-color: var(--accent);
+  border-left-color: var(--nation);
+}
+.crest {
+  width: 26px;
+  height: 26px;
+  flex: none;
+  border-radius: 3px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font);
+  font-weight: 700;
+  font-size: 9px;
+  color: var(--ink);
+}
+.crest-water {
+  background: var(--water);
+}
+.crest-fire {
+  background: var(--fire);
+}
+.crest-earth {
+  background: var(--earth);
+}
+.crest-air {
+  background: var(--air);
+}
+.banner-tile .mid {
+  flex: 1;
   min-width: 0;
 }
-.talent-branch-name {
+.banner-tile .nname {
   font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
   color: var(--fg-dim);
-  text-align: center;
-  margin-bottom: 2px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
 }
-.talent-node {
-  position: relative;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: var(--bg-3);
-}
-.talent-node.active {
-  border-color: var(--accent);
-}
-.talent-node .hint {
-  display: none;
-  padding: 4px 6px 6px;
-}
-.talent-node:hover .hint,
-.talent-node:focus-within .hint {
-  display: block;
-}
-.talent-node-main {
-  width: 100%;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 2px;
-  padding: 5px 6px;
-  font: inherit;
+.banner-tile .xpnum {
+  font-family: var(--font-display);
+  font-size: 14px;
   color: var(--fg);
-  background: transparent;
-  border: 0;
 }
-.talent-node-main b {
-  font-size: 11px;
-  line-height: 1.2;
-}
-.talent-rank {
+.banner-tile .meta {
   font-size: 10px;
   color: var(--fg-dim);
+  margin-top: 2px;
 }
-.talent-node.locked .talent-node-main {
-  opacity: 0.4;
+.winbar {
+  width: 54px;
+  height: 8px;
+  background: var(--bg-3);
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  overflow: hidden;
+  flex: none;
 }
-.talent-node-minus {
+.winbar i {
+  display: block;
+  height: 100%;
+  background: var(--nation);
+}
+
+.seg-pixel {
+  display: inline-flex;
+  border: 2px solid var(--line);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.seg-pixel button {
+  border: 0;
+  box-shadow: none;
+  border-radius: 0;
+  background: var(--bg-3);
+  color: var(--fg-dim);
+  padding: 4px 10px;
+  font-size: 10.5px;
+}
+.seg-pixel button.active {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+
+.board-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.podium {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 6px;
+  margin: 10px 0 4px;
+}
+.pedestal {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  width: 96px;
+}
+.pedestal .pname {
+  font-size: 10.5px;
+  font-weight: 600;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+.pedestal .pxp {
+  font-size: 9.5px;
+  color: var(--fg-dim);
+}
+.pedestal .block {
+  width: 100%;
+  background: var(--bg-3);
+  border: 2px solid var(--line);
+  border-bottom: 0;
+  border-radius: 3px 3px 0 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font);
+  font-weight: 700;
+  color: var(--fg-dim);
+  font-size: 13px;
+}
+.pedestal.p1 .block {
+  height: 46px;
+  border-color: var(--accent);
+}
+.pedestal.p2 .block {
+  height: 30px;
+}
+.pedestal.p3 .block {
+  height: 20px;
+}
+
+.board-row {
+  display: grid;
+  grid-template-columns: 26px 1fr auto auto;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 9px;
+  background: var(--bg-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  margin-bottom: 4px;
+}
+.board-row.mine {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, var(--bg-2));
+}
+.board-row .who {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.board-row .who b {
+  font-size: 11.5px;
+}
+.board-row .who .hint {
+  font-size: 10px;
+}
+.board-row .xp {
+  font-family: var(--font);
+  font-weight: 700;
+  font-size: 11px;
+  color: var(--fg);
+}
+.rank {
+  color: var(--fg-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ============================ Battles tab ============================ */
+.arena {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--sp-3);
+  background: linear-gradient(180deg, var(--bg-3), var(--bg-2));
+  border: 2px solid var(--line);
+  border-radius: var(--radius);
+}
+.arena .side {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  width: 110px;
+  min-width: 0;
+}
+.arena .side b {
+  font-size: 10.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+.arena .side span {
+  font-size: 9px;
+  color: var(--fg-dim);
+}
+.vs {
+  font-family: var(--font);
+  font-weight: 700;
+  color: var(--fg-dim);
+  font-size: 11px;
+  flex: none;
+}
+.result-banner {
+  text-align: center;
+  font-family: var(--font);
+  font-weight: 700;
+  font-size: 11px;
+  padding: 3px;
+  margin-top: 6px;
+}
+.result-banner.won {
+  background: color-mix(in srgb, var(--earth) 25%, var(--bg-2));
+  color: var(--earth);
+  border-radius: 2px;
+}
+.result-banner.lost {
+  background: color-mix(in srgb, var(--fire) 25%, var(--bg-2));
+  color: var(--fire);
+  border-radius: 2px;
+}
+.result-banner.none {
+  background: transparent;
+  color: var(--fg-dim);
+  font-family: var(--font);
+  font-size: 11px;
+}
+.timer-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 8px;
+  gap: 6px;
+}
+.timer {
+  font-family: var(--font-display);
+  font-size: 14px;
+  letter-spacing: 0.05em;
+  padding: 3px 8px;
+  background: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  color: var(--accent);
+}
+.streak-chip {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 10.5px;
+  color: var(--fg-dim);
+}
+
+.slots {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.slot-card {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 9px;
+  background: var(--bg-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+.slot-card .num {
+  font-family: var(--font);
+  font-weight: 700;
+  font-size: 9px;
+  width: 20px;
+  height: 20px;
+  flex: none;
+  background: var(--bg-3);
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--fg-dim);
+}
+.slot-card .body {
+  flex: 1;
+  min-width: 0;
+}
+.slot-card .role {
+  font-size: 9px;
+  color: var(--fg-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.slot-card .mv {
+  font-size: 11.5px;
+}
+.slot-card select.mv-select {
+  width: 100%;
+  font-size: 11.5px;
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  padding: 0;
+  color: var(--fg);
+}
+.reorder {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  flex: none;
+}
+.reorder button {
+  width: 16px;
+  height: 14px;
+  font-size: 8px;
+  line-height: 1;
+  padding: 0;
+  background: var(--bg-3);
+  border: 1px solid var(--line);
+  box-shadow: none;
+  color: var(--fg-dim);
+}
+
+/* stance triangle */
+.triangle-wrap {
+  display: flex;
+  justify-content: center;
+  padding: 6px 0 2px;
+}
+.triframe text {
+  font-family: var(--font);
+  font-weight: 700;
+  font-size: 8px;
+  fill: var(--fg-dim);
+  pointer-events: none;
+}
+.triframe .corner {
+  fill: var(--bg-3);
+  stroke: var(--line-lite);
+  stroke-width: 2;
+  cursor: pointer;
+}
+.triframe .corner:hover {
+  stroke: var(--accent);
+}
+.triframe .corner.active-corner {
+  fill: var(--accent);
+  stroke: var(--accent);
+}
+.triframe .active-corner-text {
+  fill: var(--ink);
+  font-weight: 700;
+}
+.stance-caption {
+  font-size: 10px;
+  color: var(--fg-dim);
+  text-align: center;
+  margin: 0;
+}
+
+/* talent tree */
+.tree-wrap {
+  background: var(--bg-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 8px 4px 4px;
+  position: relative;
+}
+.leaf-badge {
   position: absolute;
-  top: 2px;
-  right: 2px;
+  top: 6px;
+  right: 8px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--earth);
+  color: var(--ink);
+  /* Not the display font: this is the exact point counter ("18/47") at 9px -- the same size that
+     produced the misread "2" as "8" elsewhere on the panel. */
+  font-family: var(--font);
+  font-weight: 700;
+  font-size: 9px;
+  padding: 3px 7px;
+  border-radius: 2px 10px 2px 10px;
+}
+.tree-svg circle.node {
+  fill: var(--bg-3);
+  stroke: var(--line-lite);
+  stroke-width: 2;
+  cursor: pointer;
+}
+.tree-svg circle.node.ranked {
+  fill: var(--earth);
+  stroke: var(--earth);
+}
+.tree-svg.water circle.node.ranked {
+  fill: var(--water);
+  stroke: var(--water);
+}
+.tree-svg.fire circle.node.ranked {
+  fill: var(--fire);
+  stroke: var(--fire);
+}
+.tree-svg.air circle.node.ranked {
+  fill: var(--air);
+  stroke: var(--air);
+}
+.tree-svg circle.node.locked {
+  opacity: 0.4;
+  cursor: default;
+}
+.tree-svg circle.node:hover {
+  stroke: var(--accent);
+}
+.tree-svg line {
+  stroke: var(--line-lite);
+  stroke-width: 2;
+}
+.tree-svg text.branch-label {
+  fill: var(--fg-dim);
+  font-size: 7px;
+  font-family: var(--font);
+  font-weight: 700;
+}
+.tree-svg text.rank-label {
+  /* Not the display font: this is the node's rank count, a raw digit at 7px -- squarely the size
+     that produced the misread "2" as "8" elsewhere on the panel. */
+  fill: var(--ink);
+  font-size: 8px;
+  font-family: var(--font);
+  font-weight: 700;
+  pointer-events: none;
+}
+.talent-node-remove {
+  position: absolute;
   width: 16px;
   height: 16px;
+  border-radius: 50%;
   line-height: 1;
   padding: 0;
   font-size: 11px;
-  border-radius: 50%;
 }
+.talent-tooltip {
+  background: var(--ink);
+  border: 1px solid var(--line-lite);
+  border-radius: var(--radius);
+  padding: 6px 8px;
+  font-size: 10.5px;
+  color: var(--fg);
+  margin-top: 6px;
+}
+.talent-tooltip b {
+  font-family: var(--font);
+  font-weight: 700;
+  font-size: 11px;
+  display: block;
+  margin-bottom: 2px;
+  color: var(--fg);
+}
+
 .talent-passives {
   display: flex;
   flex-direction: column;
@@ -596,53 +1140,125 @@ input.nick {
   font-size: 12px;
 }
 
-/* recent-opponent cards (Battles tab, docs/design/progression.md Phase D: recent-opponent intel) */
-.opponent-cards {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-.opponent-card {
+/* recent-opponent strips */
+.opponent-strip {
+  padding: 7px 9px;
   background: var(--bg-2);
   border: 1px solid var(--line);
   border-radius: var(--radius);
-  padding: 8px 10px;
+  margin-bottom: 6px;
 }
-.opponent-head {
+.opponent-strip .top {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 6px;
-  flex-wrap: wrap;
 }
-.opponent-name {
+.opponent-strip b {
+  font-size: 11px;
+}
+.opponent-strip .res-w {
+  color: var(--earth);
   font-weight: 700;
+  font-size: 10.5px;
 }
-.opponent-moves {
+.opponent-strip .res-l {
+  color: var(--fire);
+  font-weight: 700;
+  font-size: 10.5px;
+}
+.opponent-strip .moves {
   display: flex;
   flex-wrap: wrap;
   gap: 4px;
-  margin: 6px 0;
+  margin: 5px 0;
 }
-.chip {
+.opponent-strip .chip {
   display: inline-block;
   padding: 1px 6px;
   border-radius: var(--radius);
-  font-size: 11px;
+  font-size: 10px;
   background: var(--bg-3);
   border: 1px solid var(--line);
   color: var(--fg-dim);
 }
-.opponent-tip {
+.opponent-strip .hintline {
+  font-size: 10px;
+  color: var(--fg-dim);
+  margin-top: 3px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 6px;
+}
+.opponent-strip .cta {
+  font-size: 9.5px;
+  padding: 2px 7px;
+  background: var(--bg-3);
+  border: 1px solid var(--line-lite);
+  box-shadow: none;
+  border-radius: 2px;
+  color: var(--fg);
+  flex: none;
+}
+
+.loadout-error {
+  color: var(--fire);
+  font-weight: 600;
+  margin: 8px 0 0;
+}
+
+/* ============================ Settings tab ============================ */
+.set-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
-  margin-top: 6px;
-  padding-top: 6px;
-  border-top: 1px dashed var(--line);
+  gap: 10px;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--line);
 }
-.opponent-tip button {
+.set-row:last-child {
+  border-bottom: 0;
+}
+.set-row .label {
+  font-size: 12px;
+}
+.set-row .hint {
+  font-size: 10.5px;
+  color: var(--fg-dim);
+  margin-top: 2px;
+}
+.toggle-pixel {
+  width: 38px;
+  height: 20px;
+  border: 2px solid var(--line);
+  border-radius: 10px;
+  background: var(--bg-3);
+  position: relative;
+  cursor: pointer;
   flex: none;
-  padding: 3px 8px;
-  font-size: 11px;
+  padding: 0;
+  box-shadow: none;
+}
+.toggle-pixel.on {
+  background: var(--earth);
+  border-color: var(--earth);
+}
+.toggle-pixel i {
+  position: absolute;
+  top: 1px;
+  left: 1px;
+  width: 14px;
+  height: 14px;
+  background: var(--fg);
+  border-radius: 50%;
+  transition: transform 160ms ease-out;
+}
+.toggle-pixel.on i {
+  transform: translateX(18px);
+  background: var(--ink);
+}
+
+input.nick {
+  width: 150px;
 }

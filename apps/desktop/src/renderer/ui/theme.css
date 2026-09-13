@@ -1,3 +1,15 @@
+/* Bundled display font (docs/design/ui-style.md Typography). Local file only, no network request --
+   the packaged app has no guaranteed network access. Google Fonts serves the same woff2 file for
+   both the 400 and 700 static instances (it's a variable-weight file), so one @font-face with a
+   weight range covers both. */
+@font-face {
+  font-family: 'Pixelify Sans';
+  src: url('./fonts/PixelifySans.woff2') format('woff2');
+  font-weight: 400 700;
+  font-style: normal;
+  font-display: swap;
+}
+
 :root {
   --bg: #14161c;
   --bg-2: #1c1f27;
@@ -5,14 +17,39 @@
   --fg: #e8e9ee;
   --fg-dim: #9aa0ad;
   --line: #2f3440;
+  /* Slightly lighter than --line; used for the talent tree's connecting lines and a hovered
+     control's border so a hover state reads against the tree's own dim node outlines. Not called
+     out by name in docs/design/ui-style.md's palette table -- a small derived addition, noted as a
+     deviation in that doc. */
+  --line-lite: #3a4152;
   --accent: #ffd740;
+  --accent-ink: #1a1a1a;
   --water: #2ec4b6;
   --fire: #ff5252;
   --earth: #7cb342;
   --air: #4fc3f7;
-  --radius: 6px;
+
+  /* docs/design/ui-style.md Palette */
+  --ink: #0a0b0f;
+  --parchment: #f5ecd7;
+
+  /* docs/design/ui-style.md Spacing scale */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 24px;
+
+  --radius: 4px;
+  /* Fallback stack is exactly the old --font-pixel value, so a build without the bundled font
+     degrades to the previous look instead of breaking (docs/design/ui-style.md Typography). */
+  --font-display: 'Pixelify Sans', 'Courier New', ui-monospace, SFMono-Regular, Menlo, monospace;
   --font-pixel: 'Courier New', ui-monospace, SFMono-Regular, Menlo, monospace;
   --font: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+
+  /* docs/design/ui-style.md Chrome: borders, radii, bevel */
+  --bevel: inset 1px 1px 0 rgba(255, 255, 255, 0.06), inset -2px -2px 0 rgba(0, 0, 0, 0.35);
+  --bevel-pressed: inset 0 2px 0 rgba(255, 255, 255, 0.5), inset 0 -2px 0 rgba(0, 0, 0, 0.25);
 }
 
 * {
@@ -30,38 +67,78 @@ body {
   user-select: none;
 }
 
-button {
+button,
+select,
+input {
   font: inherit;
   color: inherit;
+}
+
+button {
   background: var(--bg-3);
-  border: 1px solid var(--line);
+  border: 2px solid var(--line);
   border-radius: var(--radius);
+  box-shadow: var(--bevel);
   padding: 6px 10px;
   cursor: pointer;
 }
 button:hover {
-  border-color: var(--fg-dim);
+  border-color: var(--line-lite);
 }
 button.primary {
   background: var(--accent);
-  color: #1a1a1a;
+  color: var(--accent-ink);
   border-color: var(--accent);
   font-weight: 600;
+}
+button.active {
+  background: var(--accent);
+  color: var(--accent-ink);
+  box-shadow: var(--bevel-pressed);
 }
 button:disabled {
   opacity: 0.5;
   cursor: default;
 }
 
+select,
+input.nick {
+  background: var(--bg-3);
+  border: 2px solid var(--line);
+  border-radius: var(--radius);
+  padding: 5px 8px;
+}
+
+/* Visible focus rings everywhere (docs/design/ui-style.md Accessibility); keyboard-only so a mouse
+   click doesn't leave a ring behind. */
+button:focus-visible,
+select:focus-visible,
+input:focus-visible,
+a:focus-visible,
+[tabindex]:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+  }
+}
+
 .pixel {
-  font-family: var(--font-pixel);
+  font-family: var(--font-display);
   letter-spacing: 0.02em;
 }
 
+/* Legacy segmented bar (still used by the hover card, which keeps its existing DOM/layout per
+   docs/design/ui-panels.md -- only chrome changes here). The panel's own XP bars use the
+   `SegmentedBar` component (apps/desktop/src/renderer/ui/SegmentedBar.tsx) instead. */
 .bar {
   height: 10px;
   background: var(--bg-3);
-  border: 1px solid var(--line);
+  border: 2px solid var(--line);
   border-radius: 3px;
   overflow: hidden;
 }
@@ -72,13 +149,21 @@ button:disabled {
   transition: width 300ms ease-out;
 }
 
+/* Legacy nation/neutral pill, still used by the hover card. Re-textured to the chip look (chunky
+   radius, ink text on a nation fill) instead of the old rounded pill so it reads as the same family
+   as `TypeChip`/`NationBadge` without changing the hover card's DOM. */
 .badge {
   display: inline-block;
   padding: 1px 6px;
-  border-radius: 999px;
-  font-size: 11px;
-  font-weight: 600;
-  color: #111;
+  border-radius: var(--radius);
+  /* Not the display font: docs/design/ui-style.md Typography warns a pixel face stops being
+     legible below ~11px, confirmed by a real capture where a display-font "2" elsewhere on the
+     panel was misread as "8" at this scale. Bold system-font caps keeps the same chip look. */
+  font-family: var(--font);
+  font-size: 10px;
+  letter-spacing: 0.02em;
+  font-weight: 700;
+  color: var(--ink);
 }
 .badge.water {
   background: var(--water);
@@ -93,13 +178,15 @@ button:disabled {
   background: var(--air);
 }
 /* A badge with no nation (loadout move/stance chips, "Elite") has no background of its own -- the
-   base `.badge` rule's #111 text color assumed one of the nation backgrounds above was always
+   base `.badge` rule's ink text color assumed one of the nation backgrounds above was always
    present, so it rendered as near-black text directly on the panel's dark background and was
    barely legible. */
 .badge.neutral {
   background: var(--bg-3);
   border: 1px solid var(--line);
   color: var(--fg);
+  font-family: var(--font);
+  font-weight: 400;
 }
 .badge.neutral.stance {
   color: var(--accent);
