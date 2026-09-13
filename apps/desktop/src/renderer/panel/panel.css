@@ -458,6 +458,53 @@ input.nick {
   letter-spacing: 0.06em;
   color: var(--fg-dim);
 }
+.loadout-error {
+  color: var(--fire);
+  font-weight: 600;
+  margin: 8px 0 0;
+}
+
+/* Mon tab move list (Mon.tsx): only unlocked moves, colour-coded by type; reuses .chip's shape but
+   overrides colour per nation so a move's type reads at a glance without a legend. */
+.move-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.move-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.chip.move-type {
+  flex: none;
+  font-weight: 600;
+}
+.chip.move-type.neutral {
+  background: var(--bg-3);
+  border-color: var(--line);
+  color: var(--fg-dim);
+}
+.chip.move-type.water {
+  background: var(--water);
+  border-color: var(--water);
+  color: #111;
+}
+.chip.move-type.fire {
+  background: var(--fire);
+  border-color: var(--fire);
+  color: #111;
+}
+.chip.move-type.earth {
+  background: var(--earth);
+  border-color: var(--earth);
+  color: #111;
+}
+.chip.move-type.air {
+  background: var(--air);
+  border-color: var(--air);
+  color: #111;
+}
 
 /* talent tree (Battles tab loadout editor, docs/design/talent-tree.md) */
 .talent-grid {

@@ -5,9 +5,27 @@ import {
   displayName,
   speciesForNation,
   statsAtLevel,
+  unlockedMoves,
+  type EffectId,
 } from '@claude-mons/shared';
 import type { UiSnapshot } from '../../../common/ipc.ts';
 import { SpriteView } from '../../ui/SpriteView.tsx';
+
+/**
+ * Short chip labels for each move effect (docs/design/progression.md Move pool and effects) --
+ * `EFFECT_DESCRIPTIONS` (packages/shared/src/battle/effects.ts) is a full sentence meant for the
+ * loadout editor's dropdown hint, too long for this compact per-move row.
+ */
+const EFFECT_NAMES: Record<EffectId, string> = {
+  priority: 'Priority',
+  crit_up: 'Crit up',
+  drain: 'Drain',
+  shield_first: 'Shield',
+  def_down: 'DEF down',
+  burn: 'Burn',
+  true_hit: 'True hit',
+  charge: 'Charge',
+};
 
 export function MonView({ s }: { s: UiSnapshot }) {
   const nation = s.profile.nation!;
@@ -99,24 +117,35 @@ export function MonView({ s }: { s: UiSnapshot }) {
         )}
       </div>
 
-      {species && (
-        <div class="section">
-          <h3>Moves</h3>
-          <div class="kv">
-            {species.movePool.map((m) => (
-              <>
-                <span key={m.id}>
-                  {m.name}
-                  {p.level < m.unlocksAt ? ` (Lv ${m.unlocksAt})` : ''}
-                </span>
-                <span>
-                  {m.power} pwr · {m.type === 'nation' ? info.name : 'neutral'}
-                </span>
-              </>
-            ))}
-          </div>
-        </div>
-      )}
+      {species &&
+        (() => {
+          const unlocked = unlockedMoves(species, p.level);
+          const locked = species.movePool.filter((m) => p.level < m.unlocksAt);
+          const nextLevel = locked.length > 0 ? Math.min(...locked.map((m) => m.unlocksAt)) : null;
+          return (
+            <div class="section">
+              <h3>Moves</h3>
+              <div class="move-list">
+                {unlocked.map((m) => (
+                  <div class="move-row" key={m.id}>
+                    <span class={`chip move-type ${m.type === 'nation' ? nation : 'neutral'}`}>
+                      {m.name}
+                    </span>
+                    <span class="hint">
+                      {m.power} pwr · {m.effect ? EFFECT_NAMES[m.effect] : '—'}
+                    </span>
+                  </div>
+                ))}
+              </div>
+              {locked.length > 0 && (
+                <p class="flavor" style={{ margin: '6px 0 0' }}>
+                  {locked.length} more move{locked.length === 1 ? '' : 's'} to discover — next at
+                  level {nextLevel}
+                </p>
+              )}
+            </div>
+          );
+        })()}
 
       <div class="section">
         <h3>Training</h3>

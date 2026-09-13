@@ -203,10 +203,24 @@ function LoadoutEditor({
 }) {
   const species = speciesOf(s.pet.speciesId!);
   const unlockedIds = new Set(s.battles.unlockedMoveIds);
-  const initial =
-    s.battles.loadout.moves && s.battles.loadout.moves.length === 3
-      ? (s.battles.loadout.moves as [string, string, string])
-      : (species.movePool.slice(0, 3).map((m) => m.id) as [string, string, string]);
+  const level = s.progress.level;
+  const storedMoves = s.battles.loadout.moves;
+  // A stored loadout is only trusted as the starting point when every move in it is still
+  // unlocked at this level -- a mon whose loadout was never explicitly saved (or one predating
+  // this check) could otherwise start the editor pre-loaded with a locked move (e.g. a level-4
+  // Mossling defaulting to `movePool.slice(0, 3)`, which includes the level-5 "terraform apply"),
+  // which made `allUnlocked` false forever and left Save permanently -- and silently -- disabled.
+  // `defaultLoadoutMoveIds` (packages/shared/src/game/species.ts) always picks from what's
+  // actually unlocked, repeating the last unlocked move to fill remaining slots below level 5.
+  const storedIsValid =
+    storedMoves !== undefined &&
+    storedMoves.length === 3 &&
+    storedMoves.every((id) => unlockedIds.has(id));
+  const initial = storedIsValid
+    ? (storedMoves as [string, string, string])
+    : defaultLoadoutMoveIds(species, level);
+  const replacedLockedLoadout =
+    storedMoves !== undefined && storedMoves.length === 3 && !storedIsValid;
 
   const [moves, setMoves] = useState<[string, string, string]>(initial);
   const [stance, setStance] = useState<Stance>(
@@ -216,9 +230,8 @@ function LoadoutEditor({
   const [tree, setTree] = useState<Record<string, number>>(savedTree);
   const [respecArmed, setRespecArmed] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [saved, setSaved] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-
-  const level = s.progress.level;
   const treeRespec = isRespec(savedTree, tree);
   const cooldownUntilMs = s.battles.lastRespecAt
     ? Date.parse(s.battles.lastRespecAt) + RESPEC_COOLDOWN_MS
@@ -244,6 +257,17 @@ function LoadoutEditor({
 
   const distinct = new Set(moves).size === 3;
   const allUnlocked = moves.every((id) => unlockedIds.has(id));
+  const movesValid = distinct && allUnlocked;
+  // Below level 5 fewer than 3 moves are unlocked at all (docs/design/progression.md Move pool
+  // and effects), so `defaultLoadoutMoveIds` necessarily repeats the last unlocked move to fill
+  // the remaining slot(s) -- `distinct` can never be true yet. That's expected, not a mistake the
+  // player needs to fix: it's exactly the same repeated-default shape the battle engine already
+  // uses for a mon with no saved loadout (see `RecentOpponentCard`'s own use of
+  // `defaultLoadoutMoveIds`, and `BattleService.mySnapshot`). Only gate Save on "3 distinct unlocked
+  // moves" once the player actually has 3 or more to choose from -- otherwise there is nothing
+  // valid to submit for `moves` yet, so it's left out of the payload below and only stance/tree
+  // changes are saved.
+  const canPickThreeMoves = unlockedIds.size >= 3;
 
   const save = async () => {
     if (needsConfirm) {
@@ -252,24 +276,47 @@ function LoadoutEditor({
     }
     setBusy(true);
     setErr(null);
-    const payload: SetLoadoutPayload = { stance, moves };
+    const payload: SetLoadoutPayload = { stance };
+    if (movesValid) payload.moves = moves;
     if (JSON.stringify(tree) !== JSON.stringify(savedTree)) {
       payload.tree = tree;
       payload.respec = treeRespec;
     }
     const r = await window.monsUi.setLoadout(payload);
     setBusy(false);
-    if (r.ok) onClose();
-    else {
+    if (r.ok) {
+      // Brief "Saved" confirmation so the click reads as having done something, then close --
+      // closing instantly on success (the old behavior) looked identical to Save doing nothing.
+      setSaved(true);
+      setTimeout(onClose, 700);
+    } else {
       setRespecArmed(false);
       setErr(r.error ?? 'Failed to save loadout');
     }
   };
 
+  // Shown right above Save so an invalid state reads as "disabled, here's why" instead of a dead
+  // click -- the per-slot hints further up can scroll out of view once the talent grid grows the
+  // overlay past the panel's height. The cooldown/confirm messages already have their own text
+  // just above the buttons, so they're not repeated here.
+  const saveDisabledReason =
+    canPickThreeMoves && !distinct
+      ? 'Pick 3 different moves.'
+      : canPickThreeMoves && !allUnlocked
+        ? "One of these moves isn't unlocked yet."
+        : null;
+  const saveDisabled = busy || saved || saveDisabledReason !== null || onCooldown;
+
   return (
     <div class="loadout-overlay">
       <div class="loadout-card">
         <h3 style={{ marginTop: 0 }}>Edit loadout</h3>
+        {replacedLockedLoadout && (
+          <p class="flavor">
+            Your saved loadout included a move you haven't unlocked yet, so we swapped in your
+            currently unlocked moves below.
+          </p>
+        )}
         {([0, 1, 2] as const).map((i) => {
           const move = species.movePool.find((m) => m.id === moves[i]);
           return (
@@ -318,8 +365,16 @@ function LoadoutEditor({
             </button>
           ))}
         </div>
-        {!distinct && <p class="flavor">Pick 3 different moves.</p>}
-        {distinct && !allUnlocked && <p class="flavor">One of these moves isn't unlocked yet.</p>}
+        {!canPickThreeMoves && (
+          <p class="flavor">
+            Only {unlockedIds.size} move{unlockedIds.size === 1 ? '' : 's'} unlocked so far -- more
+            open up as this mon levels up. Stance and talent changes below still save normally.
+          </p>
+        )}
+        {canPickThreeMoves && !distinct && <p class="flavor">Pick 3 different moves.</p>}
+        {canPickThreeMoves && distinct && !allUnlocked && (
+          <p class="flavor">One of these moves isn't unlocked yet.</p>
+        )}
 
         <TalentsSection nation={species.nation} level={level} ranks={tree} onChange={setTree} />
         <div class="row" style={{ border: 0, justifyContent: 'space-between', marginTop: 8 }}>
@@ -348,7 +403,12 @@ function LoadoutEditor({
         )}
         {onCooldown && <p class="flavor">Respec is on cooldown; this change can't be saved yet.</p>}
 
-        {err && <p class="flavor">{err}</p>}
+        {err && <p class="loadout-error">Couldn't save: {err}</p>}
+        {saveDisabledReason && !err && !saved && (
+          <p class="hint" style={{ textAlign: 'right' }}>
+            {saveDisabledReason}
+          </p>
+        )}
         <div class="row" style={{ border: 0, justifyContent: 'flex-end', gap: 8, marginTop: 8 }}>
           <button
             onClick={() => {
@@ -362,9 +422,10 @@ function LoadoutEditor({
           <button
             class="primary"
             onClick={() => void save()}
-            disabled={busy || !distinct || !allUnlocked || onCooldown}
+            disabled={saveDisabled}
+            title={saveDisabledReason ?? undefined}
           >
-            {busy ? 'Saving…' : respecArmed ? 'Confirm respec' : 'Save'}
+            {saved ? 'Saved' : busy ? 'Saving…' : respecArmed ? 'Confirm respec' : 'Save'}
           </button>
         </div>
       </div>
@@ -445,7 +506,7 @@ function RecentOpponentCard({
       <div class="opponent-head">
         <span class="opponent-name">{b.isBot ? 'Wild' : o.nickname}</span>
         <span class={`badge ${o.nation}`}>{NATION_INFO[o.nation].name}</span>
-        {b.isElite && <span class="badge">Elite</span>}
+        {b.isElite && <span class="badge neutral">Elite</span>}
       </div>
       <div class="hint">
         {displayName(o.speciesId, o.stage)} Lv {o.level} · {STANCE_INFO[stance].name} stance
@@ -523,13 +584,15 @@ export function BattlesView({ s }: { s: UiSnapshot }) {
         <h3>Loadout</h3>
         {hatched ? (
           <>
-            <div class="row" style={{ border: 0, flexWrap: 'wrap', gap: 6 }}>
+            <div class="row loadout-summary" style={{ border: 0, flexWrap: 'wrap', gap: 6 }}>
               {moves.map((m, i) => (
-                <span class="badge" key={i}>
+                <span class="badge neutral" key={i}>
                   {moveLabel(m)}
                 </span>
               ))}
-              <span class="badge">{STANCE_INFO[s.battles.loadout.stance ?? 'bulwark'].name}</span>
+              <span class="badge neutral stance">
+                {STANCE_INFO[s.battles.loadout.stance ?? 'bulwark'].name}
+              </span>
             </div>
             <button style={{ marginTop: 8 }} onClick={() => setEditing(true)}>
               Edit loadout

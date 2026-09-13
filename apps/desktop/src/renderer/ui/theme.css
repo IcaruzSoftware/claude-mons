@@ -92,6 +92,19 @@ button:disabled {
 .badge.air {
   background: var(--air);
 }
+/* A badge with no nation (loadout move/stance chips, "Elite") has no background of its own -- the
+   base `.badge` rule's #111 text color assumed one of the nation backgrounds above was always
+   present, so it rendered as near-black text directly on the panel's dark background and was
+   barely legible. */
+.badge.neutral {
+  background: var(--bg-3);
+  border: 1px solid var(--line);
+  color: var(--fg);
+}
+.badge.neutral.stance {
+  color: var(--accent);
+  border-color: var(--accent);
+}
 
 canvas.sprite {
   image-rendering: pixelated;

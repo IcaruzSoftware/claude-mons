@@ -3,7 +3,7 @@ doc_type: reference
 purpose: "Release notes and version history; check this when seeing claude-mons updates or deciding what version to expect features in."
 audience: both
 last_verified: 2026-09-13
-last_verified_commit: ec08bb6
+last_verified_commit: 275569c
 related_files:
   - docs/history/v1-handoff-2026-09-04.md
   - docs/README.md
@@ -19,6 +19,32 @@ related_files:
 All notable changes to claude-mons are documented here. See [Keep a Changelog](https://keepachangelog.com/) for format details.
 
 ## [Unreleased]
+
+## [0.1.3] - 2026-09-13
+
+### Fixed
+- **Save in the loadout editor did nothing for a mon with fewer than 3 unlocked moves.** The
+  editor's fallback for "no loadout saved yet" picked the first 3 moves in `movePool` order
+  (`species.movePool.slice(0, 3)`) instead of the moves actually unlocked at the mon's level, so a
+  level-4 mon (2 moves unlocked; the 3rd unlocks at level 5) opened pre-loaded with a locked move
+  in a slot, which left Save silently disabled forever (`allUnlocked` never true). The editor now
+  seeds its move slots from `defaultLoadoutMoveIds` (`packages/shared/src/game/species.ts`), which
+  only ever draws from unlocked moves, and no longer requires 3 *distinct* moves to save stance/
+  talent changes below level 5 (where fewer than 3 moves exist at all) -- it simply leaves `moves`
+  out of the `set-loadout` payload in that case. A stored loadout that references a locked move
+  (e.g. old/corrupted data) is now replaced with the level-appropriate default and called out with
+  a line in the editor. Save also shows a visible error line when the server rejects the change, a
+  brief "Saved" confirmation before closing on success, and a specific disabled-reason instead of
+  silently doing nothing.
+- **The Mon tab's move list showed all 6 moves, including ones several levels away, in one flat
+  colour.** It now lists only currently-unlocked moves, colour-coded by type (a nation-typed move
+  uses that nation's colour from `apps/desktop/src/renderer/ui/theme.css`; a neutral move gets a
+  grey chip) with power and effect name, plus a single "N more moves to discover -- next at level
+  M" line for the rest.
+- **The Battles tab's loadout summary (move/stance chips) rendered near-black text with no
+  background of its own, on the panel's dark background -- almost invisible.** `.badge` assumed a
+  nation-coloured background was always present; a `.badge.neutral` variant now gives these chips
+  their own background/border/text colour.
 
 ## [0.1.2] - 2026-09-13
 
