@@ -3,7 +3,7 @@ doc_type: design
 purpose: "Read this when redesigning a specific panel tab (Mon, Leaderboard, Battles, Settings) or planning the order of work for the panel reskin."
 audience: agent
 last_verified: 2026-09-13
-last_verified_commit: 8a24ac9
+last_verified_commit: 44486b0
 related_files:
   - docs/design/ui-style.md
   - docs/design/progression.md
@@ -20,6 +20,10 @@ related_files:
 ---
 
 # Panel redesign specs
+
+> Verifying a change against these specs: `docs/runbooks/verify-a-ui-change.md`. Class names used by
+> the views must exist in a stylesheet those views load — enforced by
+> `apps/desktop/test/styleContract.test.ts`.
 
 **Status: shipped** in the 0.2.0 "game-style panel redesign" (commit `6d1d1c3`) — all four tabs,
 the shared components and the game-menu bar landed; see

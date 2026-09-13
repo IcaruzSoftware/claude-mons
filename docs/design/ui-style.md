@@ -3,7 +3,7 @@ doc_type: design
 purpose: "Read this when changing the panel's visual language, design tokens, or a shared UI component (gems, segmented bars, chips, the game-menu bar) before it looks like a generic web app."
 audience: agent
 last_verified: 2026-09-13
-last_verified_commit: 8a24ac9
+last_verified_commit: 44486b0
 related_files:
   - apps/desktop/src/renderer/ui/theme.css
   - apps/desktop/src/renderer/panel/panel.css
@@ -19,6 +19,8 @@ related_files:
 ---
 
 # Panel visual language
+
+> Verifying a change against this spec: `docs/runbooks/verify-a-ui-change.md`.
 
 **Status: shipped** in the 0.2.0 "game-style panel redesign" (commit `6d1d1c3`) — tokens, the
 bundled display font and the shared components below all landed in

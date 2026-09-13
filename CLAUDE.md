@@ -3,7 +3,7 @@ doc_type: root
 purpose: "Read this first, every session, before touching any code or doc."
 audience: agent
 last_verified: 2026-09-13
-last_verified_commit: 8f6efa8
+last_verified_commit: 44486b0
 related_files:
   - docs/README.md
   - docs/architecture/overview.md
@@ -24,7 +24,10 @@ claude-mons is a desktop-pet overlay (Electron) crossed with Pokémon: the pet e
 | change talent-tree nodes, budgets, respec or the Talents editor | [docs/design/talent-tree.md](docs/design/talent-tree.md) |
 | add or change a species or nation | [docs/design/species-and-nations.md](docs/design/species-and-nations.md), [docs/runbooks/add-a-species.md](docs/runbooks/add-a-species.md) |
 | touch the pet state machine or animations | [docs/design/behavior-engine.md](docs/design/behavior-engine.md), [packages/sprites/README.md](packages/sprites/README.md) |
-| touch the overlay window, click-through, drag or shake | [docs/architecture/overlay-and-input.md](docs/architecture/overlay-and-input.md) |
+| touch the overlay window, its bounds, displays or Linux quirks | [docs/architecture/overlay-window.md](docs/architecture/overlay-window.md) |
+| touch click-through, pointer handling, drag, shake or the hover card | [docs/architecture/input-and-gestures.md](docs/architecture/input-and-gestures.md) |
+| change panel, onboarding, hover-card or reminder styling or layout | [docs/design/ui-style.md](docs/design/ui-style.md), [docs/design/ui-panels.md](docs/design/ui-panels.md) |
+| ship any change under `apps/desktop/src/renderer` | [docs/runbooks/verify-a-ui-change.md](docs/runbooks/verify-a-ui-change.md) — run the app before you call it done |
 | touch hook ingestion (Go binary, endpoint, spool, installer) | [packages/hook-cli/README.md](packages/hook-cli/README.md), [docs/architecture/flows/hook-to-xp.md](docs/architecture/flows/hook-to-xp.md) |
 | touch the Supabase schema, RLS, RPCs or Edge Functions | [supabase/README.md](supabase/README.md), [docs/design/backend-rules.md](docs/design/backend-rules.md), [docs/runbooks/extend-the-backend.md](docs/runbooks/extend-the-backend.md) |
 | touch sync, persistence or reconciliation | [docs/architecture/flows/server-reconciliation.md](docs/architecture/flows/server-reconciliation.md), [apps/desktop/README.md](apps/desktop/README.md) |
@@ -46,13 +49,14 @@ claude-mons is a desktop-pet overlay (Electron) crossed with Pokémon: the pet e
 - IPC channel names and payload types live only in `apps/desktop/src/common/ipc.ts`.
 - Secrets live only in `.env.local` (gitignored). Never print their values; source them into the environment of CLI commands.
 - Sprites are string-row pixel matrices in `packages/sprites`; never commit generated PNGs.
+- Never run the app against your own pet while testing: launch with a throwaway `--user-data-dir` and `CLAUDE_MONS_OFFLINE=1` ([docs/runbooks/verify-a-ui-change.md](docs/runbooks/verify-a-ui-change.md)). A plain `pnpm dev` uses the real profile and the real backend.
 - Read the owning file in `docs/design` before changing a game mechanic, and update it in the same commit. The balance test in `packages/shared/test/balance.test.ts` must still pass.
 - Commit per coherent feature: imperative subject, body explains why.
 
 ## Doc rules
 
 - Every doc starts with the flat frontmatter described in [CONTRIBUTING.md](CONTRIBUTING.md); `last_verified_commit` is the real short SHA you read the code at.
-- One topic per file, 80–250 lines, tables for inventories, full repo-relative paths in backticks.
+- One topic per file, 80–250 lines (the checker errors above 260; frozen `docs/history/*` excepted), tables for inventories, full repo-relative paths in backticks.
 - A fact has one home. Numbers and formulas live in `docs/design`; everywhere else links to them.
 - Run `pnpm docs:check` after editing a doc, `pnpm docs:index` after adding or removing one; CI fails on stale paths or a stale index.
 - New decisions get the next ADR number in `docs/decisions`; runbooks end with an Acceptance section.

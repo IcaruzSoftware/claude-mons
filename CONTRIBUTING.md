@@ -3,7 +3,7 @@ doc_type: root
 purpose: "Read this when contributing code or documentation to claude-mons."
 audience: human
 last_verified: 2026-09-05
-last_verified_commit: f198a9d
+last_verified_commit: 44486b0
 related_files:
   - README.md
   - docs/README.md
@@ -33,10 +33,14 @@ pnpm dev               # starts the Electron app with hot reload
 ## Pre-PR checklist
 
 ```bash
-pnpm check             # lint + typecheck + unit tests
+pnpm check             # lint + typecheck + unit tests + script tests + docs check
 pnpm deno:check        # Deno compatibility of shared code and Edge Functions
 pnpm hook:build        # if Go code in packages/hook-cli changed
 ```
+
+If you changed anything under `apps/desktop/src/renderer`, also run the app and verify the change
+on screen: [docs/runbooks/verify-a-ui-change.md](docs/runbooks/verify-a-ui-change.md). Unit tests do
+not prove a view is visible, reachable or clickable.
 
 ## Ground rules
 
@@ -44,6 +48,8 @@ pnpm hook:build        # if Go code in packages/hook-cli changed
 - **`packages/shared` is Node-free** – it runs in Deno; use web-standard globals and relative imports with `.ts` extensions.
 - **Game-balance changes** – update both [docs/design/battle.md](docs/design/battle.md) and the balance tests.
 - **Sprites are code** ([`packages/sprites`](packages/sprites/)) – keep palettes per nation consistent.
+- **UI changes are verified by running the app**, never by reading the diff – with a throwaway profile, never your own pet ([docs/runbooks/verify-a-ui-change.md](docs/runbooks/verify-a-ui-change.md)).
+- **Panel styling follows the specs** – [docs/design/ui-style.md](docs/design/ui-style.md) (tokens) and [docs/design/ui-panels.md](docs/design/ui-panels.md) (per-view layout); change the spec in the same commit if the design moves.
 
 ## Adding or editing documentation
 
@@ -73,7 +79,7 @@ adr_status: accepted               # decision docs only
 7. Runbooks: numbered steps; each is a fenced shell command or bold UI action; end with `## Acceptance`.
 8. ADRs: sections `## Context`, `## Decision`, `## Consequences`, `## Status`; 40–80 lines.
 9. Present tense for current behavior; past tense only for ADR Context and CHANGELOG.
-10. Stay under the target length (hard cap 260 lines); cut prose, not tables.
+10. Stay under the target length; the checker **fails** above 260 lines (frozen `docs/history/*` excepted), so split rather than trim to the line. Cut prose, not tables.
 11. `docs/history/*` are frozen – never edit them and do not cite them as current facts.
 12. Placeholders in paths use `<angle brackets>` (checker skips them, e.g. `` `<userData>/state.json` ``).
 
