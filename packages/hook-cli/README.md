@@ -2,8 +2,8 @@
 doc_type: reference
 purpose: "Read this when building or understanding how hook events flow from Claude Code to the desktop app."
 audience: agent
-last_verified: "2026-09-05"
-last_verified_commit: ab12392
+last_verified: "2026-09-13"
+last_verified_commit: 8a24ac9
 related_files:
   - packages/shared/src/hooks/payload.ts
   - apps/desktop/src/main/hooks/binary.ts

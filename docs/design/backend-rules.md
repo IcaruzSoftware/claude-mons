@@ -3,7 +3,7 @@ doc_type: design
 purpose: "Read this when you need to know why the Supabase backend rejects, clamps or flags a client's claimed activity."
 audience: agent
 last_verified: 2026-09-13
-last_verified_commit: 5363066
+last_verified_commit: 8a24ac9
 related_files:
   - supabase/functions/_shared/pipeline.ts
   - supabase/functions/ingest-xp/index.ts

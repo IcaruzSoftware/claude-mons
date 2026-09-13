@@ -3,7 +3,7 @@ doc_type: architecture
 purpose: "Read this when tracing how a shake gesture becomes a battle, from cursor drag to a history entry."
 audience: agent
 last_verified: 2026-09-13
-last_verified_commit: e3483fc
+last_verified_commit: 8a24ac9
 related_files:
   - packages/shared/src/battle/matchup.ts
   - apps/desktop/src/main/PetHost.ts
@@ -95,9 +95,14 @@ typed errors on the exact same conditions — the client cannot out-race its own
 the server directly. `RemoteBattleBackend` rethrows those three codes so `BattleService` turns them
 into the same refusals as above; any other failure (offline, network error, unrecognized code) is
 swallowed and treated as "no backend," and `BattleService.wildBattle` runs an offline battle against
-a same-level Wild Mon from another nation instead. The server path picks a real opponent
-(`findOpponent`, widening level windows) or its own wild-mon fallback when none is found — see
-`docs/design/battle.md` for the opponent search and reward rules.
+a same-level Wild Mon from another nation instead (always `isElite: false` — there is no
+matchmaking service to roll an elite wild mon offline). The server path picks a real opponent
+(`findOpponent`, widening level windows) or its own wild-mon fallback (`wildMon`,
+`supabase/functions/battle-request/index.ts`) when none is found; that fallback rolls a 10 % chance
+of an elite encounter (`ELITE_CHANCE`), which fixes the wild mon's level at `+3` instead of the
+usual `±` random spread and, on a win, doubles the challenger's XP reward (`isElite` on the returned
+`BattlePlayMessage`/`BattleSummary`) — see `docs/design/battle.md` for the opponent search and
+reward rules.
 
 ## Determinism guarantee
 
@@ -114,10 +119,11 @@ A successful `BattleOutcome` (`{ok: true, play}`) is stashed as `BattleService.p
 `PetHost.playBattle`, which first switches the pet window into the **battle** arena
 (`PetWindow.enterBattle`, `apps/desktop/src/main/display.ts:battleBounds`) before sending
 `IPC.petBattlePlay` to the pet renderer — the arena is a generously-sized box (see
-`docs/architecture/overlay-and-input.md`'s "One window, three modes"), not the small `follow` square or
-the short `strip`, so the opponent, hp bars, popups and banner all have room. `PetHost` reverts to
-`strip` on `IPC.petBattleDone` and ignores a pointer-down that would otherwise start a drag
-(`enterFollow`) out from under an in-progress battle. `PetLoop.playBattle` constructs a `BattlePlayer`
+`docs/architecture/overlay-and-input.md`'s "One window, always compact"), not the small `follow`
+square used the rest of the time, so the opponent, hp bars, popups and banner all have room.
+`PetHost` reverts to `follow` (`PetWindow.enterFollow`) on `IPC.petBattleDone` and ignores a
+pointer-down that would otherwise start a drag out from under an in-progress battle.
+`PetLoop.playBattle` constructs a `BattlePlayer`
 (`apps/desktop/src/renderer/pet/BattlePlayer.ts`), which turns the already-resolved `BattleResult.turns`
 into a time-based schedule — robust to dropped frames because every step carries an absolute `at` (ms
 since playback start) rather than being driven frame-by-frame:

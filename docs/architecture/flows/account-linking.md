@@ -2,8 +2,8 @@
 doc_type: architecture
 purpose: "Read this when tracing what happens linking an email to the anonymous account, signing in with it on a second device, or signing out back to anonymous."
 audience: agent
-last_verified: 2026-09-09
-last_verified_commit: c062864
+last_verified: 2026-09-13
+last_verified_commit: 8a24ac9
 related_files:
   - apps/desktop/src/main/net/SupabaseClient.ts
   - apps/desktop/src/main/net/account.ts
@@ -123,11 +123,19 @@ sequenceDiagram
 
     Note over UI,App: Link (anonymous account, same device)
     UI->>App: account:link-start(email)
-    App->>SB: linkEmail(email) = updateUser({email})
-    UI->>App: account:link-verify(email, code)
-    App->>SB: verifyLinkCode = verifyOtp(type: email_change)
-    SB-->>App: ok (same auth id)
-    App-->>UI: profile.email set
+    App->>SB: linkEmail(email) = updateUser({email}) (GoTrue always mails a code)
+    alt player types the code (custom SMTP configured)
+        UI->>App: account:link-verify(email, code)
+        App->>SB: verifyLinkCode = verifyOtp(type: email_change)
+        SB-->>App: ok (same auth id)
+        App-->>UI: profile.email set
+    else player clicks the confirmation link instead (free-tier default mailer)
+        Note over UI: "I clicked the link" button, or auto-poll every 5s for 10min
+        UI->>App: account:link-refresh
+        App->>SB: refreshLinkedEmail = refreshSession() + getUser()
+        SB-->>App: user (resolveConfirmedEmail: null while pending/anonymous)
+        App-->>UI: AccountOpResult.account (email set once confirmed)
+    end
 
     Note over UI,App: Sign in on a new device
     UI->>App: account:signin-start(email)

@@ -2,8 +2,8 @@
 doc_type: policy
 purpose: "Read this when you want to know what data claude-mons collects and where it goes."
 audience: both
-last_verified: 2026-09-09
-last_verified_commit: b0a0308
+last_verified: 2026-09-13
+last_verified_commit: 8a24ac9
 related_files:
   - packages/hook-cli/README.md
   - packages/hook-cli/main.go

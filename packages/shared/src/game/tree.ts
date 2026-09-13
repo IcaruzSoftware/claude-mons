@@ -267,7 +267,7 @@ const BRANCHES: BranchSpec[] = [
     tier5: 'Sluice Control',
     tier6: {
       name: 'Deep Reserve',
-      description: 'Max HP +8% flat, stacks with tier 1/2.',
+      description: 'Max HP +4% flat, stacks with tier 1/2.',
       capstone: { kind: 'flatStat', stat: 'hp', pct: 0.04 },
     },
   },

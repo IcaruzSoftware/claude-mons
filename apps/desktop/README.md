@@ -3,7 +3,7 @@ doc_type: reference
 purpose: "Understand the desktop app's process model, module map, IPC channels, and CLI flags."
 audience: agent
 last_verified: 2026-09-13
-last_verified_commit: cfc8bc7
+last_verified_commit: 8a24ac9
 related_files:
   - apps/desktop/src/**
   - apps/desktop/IPC.md
@@ -22,7 +22,7 @@ The Electron app consists of four windows (pet overlay, main panel, hover card, 
 ## Process model
 
 ```
-src/main/index.ts (single-instance lock, transparency switch, GPU disable flag)
+src/main/index.ts (single-instance lock, Linux transparency + X11-backend force, GPU disable flag)
     ↓
 src/main/App.ts (composition root)
     ├─ PetHost (owns PetWindow, tray, cursor tracking; broadcasts stimulus)
@@ -52,7 +52,7 @@ All windows share one preload (`src/preload/index.ts`); four renderers (pet, pan
 
 | Path | Responsibility |
 |---|---|
-| `src/main/index.ts` | Bootstrap: single instance, Linux transparency, app quit override, `new App().start()`; installs `uncaughtException`/`unhandledRejection` handlers that log to `<userData>/crash.log` (capped ~1 MB) instead of letting Electron show its blocking crash dialog |
+| `src/main/index.ts` | Bootstrap: single instance, Linux transparency + forced X11 backend (`CLAUDE_MONS_NATIVE_WAYLAND=1` opts out), Linux GPU disabled by default (`CLAUDE_MONS_ENABLE_GPU=1` opts back in), app quit override, `new App().start()`; installs `uncaughtException`/`unhandledRejection` handlers that log to `<userData>/crash.log` (capped ~1 MB) instead of letting Electron show its blocking crash dialog |
 | `src/main/App.ts` | Composition root; IPC; snapshot feed; nation choice; battle request/finish; hook fan-out |
 | `src/main/PetHost.ts` | Pet window, tray, cursor tracking; drag/shake/click; world bounds; stimulus forwarding; withholds the window and stimuli until a nation is chosen (`canRevealPet`/`canStimulatePet`) |
 | `src/main/petGate.ts` | Pure `canRevealPet`/`canStimulatePet` helpers deciding whether the pet window may be shown or animated before onboarding picks a nation |
@@ -78,6 +78,7 @@ All windows share one preload (`src/preload/index.ts`); four renderers (pet, pan
 | `src/main/persistence/JsonStore.ts` | Atomic debounced JSON store with `.bak` recovery and versioned migrations |
 | `src/main/sim/ScriptRunner.ts` | Scripted stimulus timeline (dev aid); CLI arg parsers |
 | `src/main/tray/Tray.ts` | Tray icon, tooltip, context menu; pet right-click menu; while no nation is chosen the tooltip reads "claude-mons — choose your nation" and the menu is reduced to a single "Finish setup" item; "Bring pet back" (`PetHost.recenterOnPrimary`) re-anchors the pet to the primary display and recenters it if it ever walks out of frame; "Battle now" initiates a battle without shaking |
+| `src/main/tray/icons.ts` | `iconFromSprite`: builds a tray/app icon straight from a sprite's idle frame (crop opaque bounds, center in a square, scale, PNG-encode), so the icon always matches the pet's current species/stage |
 | `src/main/updater/Updater.ts` | electron-updater over GitHub Releases (unsupported in dev, on `.deb`) |
 | `src/main/updater/interop.ts` | Resolves electron-updater's `autoUpdater` from either the named or the CommonJS default export shape; maps update errors to one readable line | `pickAutoUpdater`, `describeUpdateError`, `UpdatePayload` |
 | `src/main/autostart/Autostart.ts` | Windows `setLoginItemSettings`; Linux `~/.config/autostart/claude-mons.desktop` |
@@ -168,7 +169,9 @@ All channel names and payload types live in `src/common/ipc.ts`. See `apps/deskt
 | Variable | Effect |
 |---|---|
 | `CLAUDE_MONS_DEBUG=1` | PetHost logging + renderer debug overlay |
-| `CLAUDE_MONS_DISABLE_GPU=1` | Disable GPU acceleration |
+| `CLAUDE_MONS_DISABLE_GPU=1` | Disable GPU acceleration (any platform) |
+| `CLAUDE_MONS_ENABLE_GPU=1` | Linux only: opt back into GPU acceleration, which is off there by default (radeonsi crash, see `src/main/index.ts`) |
+| `CLAUDE_MONS_NATIVE_WAYLAND=1` | Linux only: skip forcing the X11/XWayland backend and try native Wayland instead |
 | `CLAUDE_MONS_OFFLINE=1` | No backend; local game + wild battles only |
 | `CLAUDE_MONS_SUPABASE_URL` | Override Supabase URL |
 | `CLAUDE_MONS_SUPABASE_ANON_KEY` | Override Supabase anon key |

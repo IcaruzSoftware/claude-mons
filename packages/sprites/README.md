@@ -2,12 +2,14 @@
 doc_type: reference
 purpose: "Read this when authoring sprite definitions (SpriteDef), understanding the grid format, or running the preview script."
 audience: agent
-last_verified: 2026-09-05
-last_verified_commit: 6d99ae3
+last_verified: 2026-09-13
+last_verified_commit: 8a24ac9
 related_files:
   - packages/sprites/src/types.ts
   - packages/sprites/src/palette.ts
   - packages/sprites/src/util.ts
+  - packages/sprites/src/index.ts
+  - packages/shared/src/game/species.ts
   - packages/sprites/test/sprites.test.ts
   - packages/sprites/scripts/preview.ts
 ---
@@ -119,7 +121,21 @@ See `packages/sprites/src/egg.ts` or `packages/sprites/src/species/sparkit.ts` f
 
 - `SPRITES` — Record<id, SpriteDef> with 30 entries (egg, 24 species across 4 nations, 5 FX)
 - `getSprite(id)` — Throws on unknown id
-- `spriteIdFor(speciesId, stage)` — Returns `'egg'` for egg stage, else `` `${speciesId}-${stage}` ``
+- `EVOLUTION_LINES` — Record mapping each baby species id (the id a mon keeps for life, per `packages/shared/src/game/species.ts`) to the sprite ids of its own teen/adult stage forms. A mon's species id never changes on evolution, but the sprite file it draws does (`pebblet`'s teen sprite is registered as `boulderbyte-teen`, not `pebblet-teen`) — this table is what lets `spriteIdFor` resolve the right sprite for an evolved mon. See [Evolution lines](#evolution-lines) below; the display names for the same 3 stages live in `packages/shared/src/game/species.ts`'s `Species.names`.
+- `spriteIdFor(speciesId, stage)` — Returns `'egg'` for egg stage. Otherwise looks up `speciesId` in `EVOLUTION_LINES` (falling back to a reverse lookup by teen/adult id, so a stage-form id also works as input) and returns `` `${form}-${stage}` `` — e.g. `spriteIdFor('pebblet', 'teen')` → `'boulderbyte-teen'`. Prior to the 0.2.0 fix this built `` `${speciesId}-${stage}` `` directly, which does not match how teen/adult sprites are actually registered and left evolved mons with no sprite.
+
+### Evolution lines
+
+| Baby species id | Teen sprite id | Adult sprite id |
+|---|---|---|
+| `dripple` | `pipefin` | `torrentide` |
+| `bubblit` | `cachecoral` | `deepseaquel` |
+| `sparkit` | `blazebit` | `infernode` |
+| `cinderpup` | `hotfixhound` | `overclockwolf` |
+| `pebblet` | `boulderbyte` | `monolithor` |
+| `mossling` | `rootling` | `terraformer` |
+| `puffle` | `gustling` | `nimbyte` |
+| `wispit` | `zephyrix` | `stratosphinx` |
 
 ## Rasterization
 

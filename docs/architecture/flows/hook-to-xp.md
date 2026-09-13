@@ -2,8 +2,8 @@
 doc_type: architecture
 purpose: "Read this when tracing how a Claude Code hook event turns into pet animation and player XP, or debugging why an animation or an XP credit didn't happen."
 audience: agent
-last_verified: 2026-09-05
-last_verified_commit: ab12392
+last_verified: 2026-09-13
+last_verified_commit: 8a24ac9
 related_files:
   - packages/hook-cli/main.go
   - apps/desktop/src/main/hooks/HookServer.ts

@@ -2,8 +2,8 @@
 doc_type: architecture
 purpose: "Read this when you need to know how provisional local XP is reconciled against the server, or why a stage/hatch/evolve event fired (or didn't)."
 audience: agent
-last_verified: 2026-09-05
-last_verified_commit: d7db9c0
+last_verified: 2026-09-13
+last_verified_commit: 8a24ac9
 related_files:
   - apps/desktop/src/main/game/GameService.ts
   - apps/desktop/src/main/net/SyncQueue.ts

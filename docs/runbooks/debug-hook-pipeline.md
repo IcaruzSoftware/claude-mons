@@ -2,8 +2,8 @@
 doc_type: runbook
 purpose: "Use this when the pet does not respond to Claude Code activity (no XP, no stimulus)."
 audience: both
-last_verified: 2026-09-05
-last_verified_commit: ab12392
+last_verified: 2026-09-13
+last_verified_commit: 8a24ac9
 related_files:
   - packages/hook-cli/README.md
   - apps/desktop/README.md
@@ -12,12 +12,39 @@ related_files:
   - apps/desktop/src/main/hooks/binary.ts
   - apps/desktop/src/main/hooks/HookInstaller.ts
   - apps/desktop/src/main/hooks/mode.ts
+  - apps/desktop/src/main/hooks/rawHook.ts
+  - apps/desktop/src/common/ipc.ts
+  - apps/desktop/src/main/App.ts
   - docs/decisions/0014-curl-script-mode-hook-fallback.md
 ---
 
 # Debug the hook pipeline
 
-The pet receives Claude Code activity through a hook binary that POSTs events to the desktop app. When activity is not reflected, diagnose the path from event generation to pet processing.
+The pet receives Claude Code activity through a hook that POSTs events to the desktop app, in
+either of two modes: the Go binary, or a `curl` script-mode fallback (see the mode vocabulary
+below). When activity is not reflected, diagnose the path from event generation to pet processing.
+
+## Status, mode, and probe vocabulary
+
+Three independent pieces of state, all defined in `apps/desktop/src/common/ipc.ts` and surfaced in
+the panel's Settings tab and `CLAUDE_MONS_DEBUG=1` logs:
+
+- **`HookStatusValue`** — what is actually written into `~/.claude/settings.json` right now:
+  `installed-binary`, `installed-script`, `partial` (some but not all 7 events present, or a mix of
+  both modes), `not-installed`, `unreadable` (the settings file itself is invalid JSON), or
+  `no-binary` (the configured preference is `binary`, but no Go binary was ever bundled/copied for
+  this build — nothing is installable in that mode; `apps/desktop/src/main/App.ts:applyHookMode`).
+- **`HookModeValue`** — the user's preference (`LocalState.hooks.mode`): `auto`, `binary`, or
+  `script`.
+- **`HookProbeValue`** — the last `probeBinary()` result (`apps/desktop/src/main/hooks/mode.ts`):
+  `ok`, `blocked`, `missing`, or `null` before the first probe.
+
+`auto` mode resolves to binary only when the probe reports `ok`; anything else (`blocked`,
+`missing`, or no binary at all) falls back to script mode (`computeEffectiveMode` in
+`apps/desktop/src/main/hooks/mode.ts`). `no-binary` is distinct from a `blocked` probe: `blocked`
+means the binary exists but the OS refuses to run it (see step 7); `no-binary` means there was
+never a binary to try (typical in a dev build without `pnpm hook:build`), and only shows up when
+the mode preference is explicitly forced to `binary`.
 
 ## Steps
 
@@ -82,7 +109,7 @@ If the hook binary exits with code 126 in Git Bash, Windows Smart App Control ha
 
 8. **Force a specific hook mode.**
 
-Open the panel's Settings tab and change **Hook mode** from `Auto` to `Binary` or `Script (curl)`; the app reinstalls the hooks in that mode immediately (`ui:set-hook-mode` IPC, `apps/desktop/src/main/App.ts:applyHookMode`). Forcing `Binary` on a machine where the probe reports `blocked` reinstalls the (non-functional) binary command anyway — useful only to confirm the block, not to work around it.
+Open the panel's Settings tab and change **Hook mode** from `Auto` to `Binary` or `Script (curl)`; the app reinstalls the hooks in that mode immediately (`ui:set-hook-mode` IPC, `apps/desktop/src/main/App.ts:applyHookMode`). Forcing `Binary` on a machine where the probe reports `blocked` reinstalls the (non-functional) binary command anyway — useful only to confirm the block, not to work around it. Forcing `Binary` when no binary was ever bundled or copied (a dev build without `pnpm hook:build`) instead yields the `no-binary` status: the installer is torn down (`this.installer = null`) and nothing is written to `~/.claude/settings.json` at all, so step 3 will show whatever hooks (if any) were already there.
 
 9. **Send a synthetic event to the script-mode route (app running).**
 

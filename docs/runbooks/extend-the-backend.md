@@ -2,8 +2,8 @@
 doc_type: runbook
 purpose: "Read this when adding an Edge Function or database migration to the Supabase backend."
 audience: both
-last_verified: 2026-09-05
-last_verified_commit: d7db9c0
+last_verified: 2026-09-13
+last_verified_commit: 8a24ac9
 related_files:
   - supabase/README.md
   - supabase/config.toml
@@ -12,6 +12,7 @@ related_files:
   - supabase/functions/_shared/auth.ts
   - supabase/functions/_shared/db.ts
   - supabase/migrations/20260904000000_init.sql
+  - supabase/migrations/20260913030000_progression_tuning.sql
   - packages/shared/src/api.ts
   - scripts/sync-shared.mjs
 ---
@@ -76,9 +77,23 @@ Then deploy (see `docs/runbooks/deploy-backend.md`).
 
 ## Part B: Add a database migration
 
-1. **Create the migration file.** In `supabase/migrations/`, use the naming pattern `<YYYYMMDDHHMMSS>_<name>.sql`.
+`supabase/migrations/` currently has 7 files (see [`supabase/README.md`](../../supabase/README.md)
+for what each one changed); this is expected to keep growing, not stay at the original `_init.sql`.
 
-2. **Keep SQL formulas in sync.** If your migration adds or changes level/stage/stat logic, mirror the changes from `packages/shared/src/game/levels.ts` and `packages/shared/src/game/species.ts` in the SQL functions `level_from_xp`, `stage_for_level`, `stat_at_level`, and `roll_species` in `supabase/migrations/20260904000000_init.sql`.
+1. **Create the migration file.** In `supabase/migrations/`, use the naming pattern
+   `<YYYYMMDDHHMMSS>_<name>.sql`. **Never edit an already-applied migration file** (including
+   `20260904000000_init.sql`) to change its logic — a new migration overrides the function or table
+   with `create or replace`/`alter table` instead. `supabase/migrations/20260913030000_progression_tuning.sql`
+   is a worked example: it re-tunes `recompute_mon` (originally defined in `20260904000000_init.sql`,
+   then already overridden once by `20260913020000_progression_phase_a.sql`) with a fresh
+   `create or replace function public.recompute_mon(...)` rather than touching either earlier file.
+
+2. **Keep SQL formulas in sync.** If your migration adds or changes level/stage/stat logic, mirror the
+   changes from `packages/shared/src/game/levels.ts` and `packages/shared/src/game/species.ts` in your
+   new migration's `create or replace function public.level_from_xp`/`stage_for_level`/`roll_species`
+   (originally defined in `supabase/migrations/20260904000000_init.sql`; `stat_at_level` is computed
+   inline inside `recompute_mon` rather than as its own function — see
+   `supabase/migrations/20260913030000_progression_tuning.sql` for the current version).
 
 3. **Apply RLS and grant rules.** Follow the trust model: clients may only read specified tables and update one column (`battle_notifications.seen_at`). All writes go through service-role RPCs:
 

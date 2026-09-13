@@ -3,10 +3,11 @@ doc_type: reference
 purpose: "Read this when deploying the backend, debugging database issues, or contributing to Edge Functions."
 audience: agent
 last_verified: 2026-09-13
-last_verified_commit: 1196eff
+last_verified_commit: 8a24ac9
 related_files:
   - supabase/migrations/20260904000000_init.sql
   - supabase/migrations/20260913020000_progression_phase_a.sql
+  - supabase/migrations/20260913050000_nations_exclude_orphan_battles.sql
   - supabase/config.toml
   - supabase/functions/heartbeat/index.ts
   - supabase/functions/create-profile/index.ts
@@ -36,19 +37,28 @@ sync with `packages/shared/src/game/levels.ts` and `packages/shared/src/game/spe
 ```
 supabase/
   config.toml                             CLI config (anonymous sign-ins on, per-function verify_jwt)
-  migrations/20260904000000_init.sql                            schema, views, RLS, RPCs
-  migrations/20260913000000_suspicion_and_nations_filter.sql     leaderboard_nations suspicion filter, apply_xp decay
-  migrations/20260913010000_battle_limits.sql                    claim_battle_slot: 10 min cooldown, 50 challenges/day
-  migrations/20260913020000_progression_phase_a.sql              mons.loadout/win_streak/last_respec_at, battles.protocol_version, evolution multiplier in recompute_mon, pick_opponent asymmetric windows, settle_battle streak multiplier
-  migrations/20260913030000_progression_tuning.sql                recompute_mon evolution-stage multiplier retuned 1.15/1.30 -> 1.03/1.06
-  migrations/20260913040000_progression_phase_b.sql               docs-only: mons.loadout column comment (moves settable from Phase B; no backfill, see the migration's own comment)
+  migrations/                             7 files, applied in filename-timestamp order — see Migrations below
   functions/
     deno.json                             import map (@supabase/supabase-js)
     _shared/                              auth.ts db.ts http.ts monState.ts pipeline.ts queries.ts random.ts
     _shared/pipeline.test.ts              deno test for the pure XP pipeline
-    _shared/game/                         generated copy of packages/shared/src (do not edit)
+    _shared/game/                         generated, gitignored copy of packages/shared/src, made by `pnpm sync:shared` (do not edit; mirrors packages/shared/README.md 1:1)
     heartbeat/  create-profile/  ingest-xp/  battle-request/  set-loadout/
 ```
+
+## Migrations
+
+Applied in filename-timestamp order by `npx supabase db push` / `npx supabase db reset`; the schema, RLS, views and RPCs referenced elsewhere in this doc are the result of applying all seven.
+
+| Migration | What it does |
+|---|---|
+| `supabase/migrations/20260904000000_init.sql` | Initial schema: enums, tables, RLS policies, the three leaderboard views, and the security-definer RPCs (`apply_xp`, `recompute_mon`, `pick_opponent`, `settle_battle`, `claim_battle_slot`, `touch_player`, `prune_ephemeral`, `roll_species`, `level_from_xp`, `stage_for_level`) |
+| `supabase/migrations/20260913000000_suspicion_and_nations_filter.sql` | Filters `leaderboard_nations`'s weekly-XP CTE by `suspicion < 10` (parity with the other two leaderboards); makes `apply_xp` decay `players.suspicion` by 1 (floor 0) whenever a batch activates a new day |
+| `supabase/migrations/20260913010000_battle_limits.sql` | `claim_battle_slot`: challenge cooldown 5 min → 10 min, daily challenge cap 10 → 50 |
+| `supabase/migrations/20260913020000_progression_phase_a.sql` | Adds `mons.loadout`/`win_streak`/`last_respec_at` and `battles.protocol_version`; `recompute_mon` gains an evolution-stage stat multiplier (baby/teen/adult ×1.00/1.15/1.30); `pick_opponent` takes explicit min/max level bounds for asymmetric widening matchmaking windows; `settle_battle` applies a win-streak XP multiplier |
+| `supabase/migrations/20260913030000_progression_tuning.sql` | Retunes `recompute_mon`'s evolution-stage multiplier from 1.15/1.30 to 1.03/1.06 — the balance harness found the wider gap won stage-boundary matchups only ~27-28% of the time for the low-level side |
+| `supabase/migrations/20260913040000_progression_phase_b.sql` | Docs-only: updates the `mons.loadout` column comment now that `moves` is settable via `set-loadout` (Phase B); deliberately no schema change and no backfill — a mon with no stored `moves` battles with `defaultLoadoutMoveIds(species, level)`, recomputed fresh every battle |
+| `supabase/migrations/20260913050000_nations_exclude_orphan_battles.sql` | Redefines `leaderboard_nations` so nation battle-win/loss tallies only count battles whose `challenger_id` still exists (a deleted account's snapshot previously kept inflating that nation's tally) and only credit the defender side when `opponent_id` is a real player (Wild Mons have `opponent_id` null) |
 
 ## Trust model
 
@@ -86,7 +96,7 @@ supabase/
 
 - `leaderboard_alltime` (security_invoker): ranks players by total_xp, excludes eggs and suspicion ≥10
 - `leaderboard_weekly` (owned by postgres): ranks by this UTC week's work+bonus+battle XP
-- `leaderboard_nations` (owned by postgres): aggregates members, XP, level, and weekly battles per nation, excluding suspicion ≥10 players from every aggregated column (not just `total_xp`)
+- `leaderboard_nations` (owned by postgres): aggregates members, XP, level, and weekly battles per nation, excluding suspicion ≥10 players from every aggregated column (not just `total_xp`); weekly battle-win/loss tallies only count battles whose challenger still exists and only credit the defender side for real players (see `supabase/migrations/20260913050000_nations_exclude_orphan_battles.sql` in Migrations)
 
 ## RLS policies
 

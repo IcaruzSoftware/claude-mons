@@ -2,8 +2,8 @@
 doc_type: design
 purpose: "Read this when adding/changing a nation, species, hatch rarity, stage threshold, or sprite id, and need every place that must stay in sync."
 audience: agent
-last_verified: 2026-09-05
-last_verified_commit: 6d99ae3
+last_verified: 2026-09-13
+last_verified_commit: 8a24ac9
 related_files:
   - packages/shared/src/game/nations.ts
   - packages/shared/src/game/species.ts
@@ -11,6 +11,7 @@ related_files:
   - packages/sprites/src/index.ts
   - packages/sprites/src/egg.ts
   - supabase/migrations/20260904000000_init.sql
+  - docs/design/progression.md
 ---
 
 # Species & Nations
@@ -44,16 +45,20 @@ Each nation beats exactly one other and is resisted by exactly one other; the fo
 
 Eight species, two per nation (one common, one rare), defined in `packages/shared/src/game/species.ts` and mirrored in `supabase/migrations/20260904000000_init.sql` (`species_base_stats`). Rarity weights: `RARITY_WEIGHT = { common: 75, rare: 25 }`.
 
-| Nation | Id | Rarity | Baby → Teen → Adult | HP/ATK/DEF/SPD | Moves (normal / typed / special) |
-|---|---|---|---|---|---|
-| Water | dripple | common | Dripple → Pipefin → Torrentide | 85/45/50/30 | Drip Tap / Stream Splash / Backpressure |
-| Water | bubblit | rare | Bubblit → Cachecoral → Deepseaquel | 80/50/55/30 | Bubble Pop / Cache Wave / Full Outer Join |
-| Fire | sparkit | common | Sparkit → Blazebit → Infernode | 70/60/40/40 | Spark Nip / Hot Reload / Force Push |
-| Fire | cinderpup | rare | Cinderpup → Hotfixhound → Overclockwolf | 75/60/40/40 | Ember Bite / Hotfix Howl / Overclock |
-| Earth | pebblet | common | Pebblet → Boulderbyte → Monolithor | 90/45/55/20 | Pebble Toss / Bedrock Slam / Monolith Drop |
-| Earth | mossling | rare | Mossling → Rootling → Terraformer | 85/50/55/25 | Moss Pat / Root Bind / `terraform apply` |
-| Air | puffle | common | Puffle → Gustling → Nimbyte | 65/50/40/55 | Puff / Gust Draft / Thunderclap |
-| Air | wispit | rare | Wispit → Zephyrix → Stratosphinx | 70/50/40/55 | Wisp Flick / Zephyr Cut / Riddle of the Docs |
+| Nation | Id | Rarity | Baby → Teen → Adult | HP/ATK/DEF/SPD |
+|---|---|---|---|---|
+| Water | dripple | common | Dripple → Pipefin → Torrentide | 85/45/50/30 |
+| Water | bubblit | rare | Bubblit → Cachecoral → Deepseaquel | 80/50/55/30 |
+| Fire | sparkit | common | Sparkit → Blazebit → Infernode | 70/60/40/40 |
+| Fire | cinderpup | rare | Cinderpup → Hotfixhound → Overclockwolf | 75/60/40/40 |
+| Earth | pebblet | common | Pebblet → Boulderbyte → Monolithor | 90/45/55/20 |
+| Earth | mossling | rare | Mossling → Rootling → Terraformer | 85/50/55/25 |
+| Air | puffle | common | Puffle → Gustling → Nimbyte | 65/50/40/55 |
+| Air | wispit | rare | Wispit → Zephyrix → Stratosphinx | 70/50/40/55 |
+
+Each species also carries a 6-move pool (`Species.movePool`, unlocked progressively from level 2 to
+level 20) used by battle; the full per-species move table (power, type, effect, unlock level) lives
+in `docs/design/progression.md` Move pool and effects — not restated here since a fact has one home.
 
 `speciesOf(id)` throws on an unknown id; `speciesForNation(nation)` filters `SPECIES` by nation; `displayName(speciesId, stage)` returns `'Egg'` for stage `'egg'`, else the per-stage name above.
 
@@ -76,7 +81,18 @@ The species is chosen server-side, restricted to the player's own nation, weight
 
 ## Sprite id convention
 
-`packages/sprites/src/index.ts:spriteIdFor` returns the shared id `'egg'` for stage `'egg'`, otherwise `` `${speciesId}-${stage}` `` (e.g. `dripple-teen`). Species sprite files live in `packages/sprites/src/species/{water,fire,earth,air}.ts`, one file per species exporting an id of the form `<babyName>-baby|teen|adult`.
+`packages/sprites/src/index.ts:spriteIdFor` returns the shared id `'egg'` for stage `'egg'`,
+otherwise looks up the species id in `EVOLUTION_LINES` (same file) to get that stage's *sprite
+form name* and returns `` `${form}-${stage}` `` (e.g. `spriteIdFor('pebblet', 'teen')` →
+`'boulderbyte-teen'`, since Pebblet's teen form is drawn as Boulderbyte). A mon keeps its species id
+(`pebblet`) for life; only the sprite changes form per stage. `EVOLUTION_LINES` also accepts a
+stage-form name as input (falls back to a reverse lookup) so a caller already holding a display name
+keeps working.
+
+> Fixed 0.2.0: `spriteIdFor` used to build `` `${speciesId}-${stage}` `` directly, which produced
+> ids like `pebblet-teen` that no sprite is registered under (sprites are registered under the stage
+> form, `boulderbyte-teen`) — every evolved (teen/adult) mon rendered with no sprite. The
+> `EVOLUTION_LINES` table fixes this by mapping species id → per-stage form name explicitly.
 
 ## Species data lives in three places
 
@@ -86,7 +102,7 @@ These must agree on id, nation, rarity, and (for the first two) stats — the co
 |---|---|---|
 | Shared game table | `packages/shared/src/game/species.ts` | Canonical: id, nation, rarity, names, base stats, moves, flavor |
 | SQL seed | `supabase/migrations/20260904000000_init.sql` (`species_base_stats`) | id, nation, rarity, weight, stats, `sort_order` — used by `roll_species` and the nation leaderboard |
-| Sprite files | `packages/sprites/src/species/{water,fire,earth,air}.ts` | One `SpriteDef` per species per stage, id `<babyName>-baby|teen|adult` |
+| Sprite files | `packages/sprites/src/species/<stageFormName>.ts` (one file per stage form, e.g. `pebblet.ts`, `boulderbyte.ts`, `monolithor.ts`; 24 files total, aggregated per nation by `packages/sprites/src/species/{water,fire,earth,air}.ts`) | One `SpriteDef` per stage form, id `<stageFormName>-baby\|teen\|adult`; mapped back to a species id by `EVOLUTION_LINES` above |
 
 ## Egg cracking
 

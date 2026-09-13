@@ -3,7 +3,7 @@ doc_type: architecture
 purpose: "Read this when changing the pet overlay window, click-through detection, drag/shake gestures, or hover-card timing."
 audience: agent
 last_verified: 2026-09-13
-last_verified_commit: ec08bb6
+last_verified_commit: 8a24ac9
 related_files:
   - apps/desktop/src/main/windows/PetWindow.ts
   - apps/desktop/src/main/input/CursorTracker.ts

@@ -2,11 +2,12 @@
 doc_type: runbook
 purpose: "Reset or recover local game state when testing or troubleshooting the desktop app."
 audience: both
-last_verified: 2026-09-09
-last_verified_commit: 9635b29
+last_verified: 2026-09-13
+last_verified_commit: 8a24ac9
 related_files:
   - apps/desktop/src/main/persistence/state.ts
   - apps/desktop/src/main/persistence/JsonStore.ts
+  - apps/desktop/src/common/ipc.ts
   - apps/desktop/README.md
   - PRIVACY.md
 ---
@@ -14,6 +15,27 @@ related_files:
 # Reset Local State
 
 Use this runbook to reset app state, recover from corruption, or clear a specific part of the game for testing. Resetting state creates a new anonymous player on the server; the old player row becomes orphaned if it was ever synced.
+
+## Schema versions
+
+`JsonStore` (`apps/desktop/src/main/persistence/JsonStore.ts`) derives the current schema version
+as `migrations.length + 1`; `apps/desktop/src/main/persistence/state.ts:MIGRATIONS` currently holds
+6 migrations, so the current version is **7**. A state file with an older `schemaVersion` is
+migrated forward automatically on load, one step at a time, in order:
+
+| Version | Added by | What it added |
+|---|---|---|
+| 1 | `defaultState()` | Initial shape: `device`, `profile`, `pet`, `progress`, `ledger`, `streak`, `bonusXp`, `battleXp`, `behavior`, `settings`, `ui`, `auth`, `battles` |
+| 2 | `addHookEndpoint` | `hooks.port`, `hooks.token`, `hooks.mode` — the persistent script-mode hook endpoint (`docs/decisions/0014-curl-script-mode-hook-fallback.md`) |
+| 3 | `addWaterReminder` | `settings.waterReminder` (enabled, `intervalMin`) and the `water` section (`lastDoneAt`, `snoozedUntil`, `todayCount`, `todayKey`) |
+| 4 | `addProfileEmail` | `profile.email` (account linking; `null` while still anonymous-only) |
+| 5 | `addProgressionPhaseA` | `battles.streak` (win streak) and `loadout.stance` (prepared loadout, stance only) |
+| 6 | `addTalentTree` | `loadout.lastRespecAt` (local mirror of the server's 7-day respec cooldown) |
+| 7 | `addOpponentLoadoutSummary` | `battles.history[].opponent.loadout` on every stored `BattleSummary` (backfilled to `{}` for pre-existing entries) |
+
+A file from a newer app version (`schemaVersion` above 7) is loaded as-is rather than downgraded;
+see `JsonStore.migrate`. `MIGRATIONS` only ever grows at the end — never edited in place — so this
+table's rows are permanent history for whichever version they describe.
 
 ## Full reset
 
@@ -42,9 +64,13 @@ Quit the app first. Edit `<userData>/state.json` (or `.bak` if the primary is co
 | `progress` | Set `localXp: 0`, `serverXp: null`, `stage: 'egg'` to restart leveling |
 | `ledger` | Set `credited: []`, `pending: []`, `lastSyncAt: null` to clear XP sync queue |
 | `hooks.installedAt` | Set to `null`; hooks will be re-verified on next launch |
+| `hooks.mode` | Set to `'auto'` to stop forcing binary or script mode |
+| `hooks.port` / `hooks.token` | Delete the whole `hooks` key (or the whole file) to force a fresh port/token; editing them individually breaks the already-installed script-mode `curl` command until hooks are reinstalled |
 | `ui.panel` | Set to `null` to reset window position to default |
 | `auth.session` | Set to `null` to sign out of Supabase |
-| `battles` | Set `history: []`, `lastBattleAt: null`, `today: { day: '', count: 0 }` to clear battle log and daily cap |
+| `battles` | Set `history: []`, `lastBattleAt: null`, `today: { day: '', count: 0 }`, `streak: 0` to clear battle log, daily cap, and win streak |
+| `loadout` | Set `{ stance: 'bulwark', lastRespecAt: null }` (or another `Stance`) and drop `moves`/`tree` to reset the prepared loadout and talent tree |
+| `water` | Set `{ lastDoneAt: null, snoozedUntil: null, todayCount: 0, todayKey: '' }` to reset the water reminder's daily sip counter |
 
 After editing, save the file and restart the app.
 

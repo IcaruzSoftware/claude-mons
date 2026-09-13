@@ -3,7 +3,7 @@ doc_type: runbook
 purpose: "Create a new release of claude-mons with signed Windows binaries."
 audience: both
 last_verified: 2026-09-13
-last_verified_commit: 5363066
+last_verified_commit: 8a24ac9
 related_files:
   - .github/workflows/release.yml
   - scripts/signpath-sign.ps1
@@ -78,15 +78,18 @@ updaterCacheDirName: claude-mons-updater
 
 1. **Bump version and changelog**
 
-   Edit `apps/desktop/package.json` and set `version` to the new semver (e.g., `0.2.0`). Edit `CHANGELOG.md`, move the "Unreleased" section under a new `## [0.2.0] - YYYY-MM-DD` heading.
+   Edit `apps/desktop/package.json` and set `version` to the new semver (e.g., `0.3.0` — the current
+   released version is `0.2.0`, see `CHANGELOG.md`). Edit `CHANGELOG.md`, move the "Unreleased"
+   section under a new `## [0.3.0] - YYYY-MM-DD` heading. Recent releases (`git log --oneline -- CHANGELOG.md`)
+   bump both files in the same commit, package.json alongside the changelog entry.
 
 2. **Commit and create a git tag**
 
    ```bash
    git add -A
-   git commit -m "Release 0.2.0"
-   git tag v0.2.0
-   git push origin main v0.2.0
+   git commit -m "Release 0.3.0"
+   git tag v0.3.0
+   git push origin main v0.3.0
    ```
 
 3. **Trigger the release workflow**
@@ -180,7 +183,28 @@ The repository variable `SIGNPATH_ENABLED` must be `true` for any signing to hap
 
 ## Releases before 1.0
 
-Tags `v0.*` are published as GitHub pre-releases and the app accepts pre-releases (`allowPrerelease`), so auto-update works during the preview phase. Each release needs a version bump in `apps/desktop/package.json` and a `CHANGELOG.md` section.
+Tags `v0.*` (and any tag containing a `-`, e.g. a `v1.0.0-beta1` pre-release) are published as GitHub
+pre-releases (`prerelease: ${{ startsWith(github.ref_name, 'v0.') || contains(github.ref_name, '-') }}`
+in both the `linux` and `windows` jobs' publish steps). Releases `0.1.1` through `0.2.0` have shipped
+this way. `apps/desktop/src/main/updater/Updater.ts` sets `autoUpdater.allowPrerelease = true` so
+auto-update keeps working during this preview phase — see the "Updater accepts pre-releases" fix
+below. Each release needs a version bump in `apps/desktop/package.json` and a `CHANGELOG.md` section.
+
+### Updater fixes behind this
+
+Two bugs had to be fixed for auto-update to work at all during the pre-release phase:
+
+- **Pre-releases were invisible to the updater.** Before the "Release 0.1.1" commit, electron-updater's
+  default feed only considers full (non-pre-release) GitHub Releases, so `v0.1.0`-style tags published
+  as pre-releases were never offered as updates. `Updater.ts` now sets `allowPrerelease = true`, and a
+  missing/absent release now reads as "up to date" instead of surfacing a failed check.
+- **`autoUpdater` resolved to `undefined` at runtime.** Per commit "Updater: resolve autoUpdater from
+  the CommonJS default export": `electron-updater`'s `autoUpdater` export is a CommonJS lazy getter,
+  which Node's CJS→ESM named-export detection cannot see — so in the packaged (ESM) main bundle,
+  importing the named export directly yielded `undefined` even though `module.exports.autoUpdater`
+  (the `default` export) still carried it. `apps/desktop/src/main/updater/interop.ts`'s
+  `pickAutoUpdater()` now tries both `mod.autoUpdater` and `mod.default.autoUpdater` and picks
+  whichever actually has a working `checkForUpdates` method, so both interop shapes work.
 
 ## Signing quota
 

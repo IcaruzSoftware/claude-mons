@@ -2,8 +2,8 @@
 doc_type: architecture
 purpose: "Read this when tracing what happens between first launch and a hatched mon: nation choice, anonymous sign-in, create-profile, and who decides the hatch."
 audience: agent
-last_verified: 2026-09-09
-last_verified_commit: b0a0308
+last_verified: 2026-09-13
+last_verified_commit: 8a24ac9
 related_files:
   - apps/desktop/src/main/App.ts
   - apps/desktop/src/main/PetHost.ts

@@ -2,8 +2,8 @@
 doc_type: runbook
 purpose: "Read this when you need to change the Supabase auth email config (templates, site_url, manual linking) for account linking, or when a player reports never receiving a sign-in code."
 audience: both
-last_verified: 2026-09-09
-last_verified_commit: c062864
+last_verified: 2026-09-13
+last_verified_commit: 8a24ac9
 related_files:
   - scripts/supabase-auth-config.mjs
   - apps/desktop/src/main/net/SupabaseClient.ts

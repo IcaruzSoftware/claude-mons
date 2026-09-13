@@ -2,8 +2,8 @@
 doc_type: design
 purpose: "Read this when you need to change pet behavior states, priorities, stimuli, or how hook/input events drive the pet."
 audience: agent
-last_verified: 2026-09-09
-last_verified_commit: 9635b29
+last_verified: 2026-09-13
+last_verified_commit: 8a24ac9
 related_files:
   - packages/shared/src/behavior/states.ts
   - packages/shared/src/behavior/priorities.ts
@@ -12,6 +12,7 @@ related_files:
   - packages/shared/test/behavior.test.ts
   - apps/desktop/src/main/hooks/ActivityTracker.ts
   - apps/desktop/src/renderer/pet/loop.ts
+  - apps/desktop/src/main/tray/Tray.ts
 ---
 
 # Behavior engine
@@ -84,7 +85,7 @@ celebration/error/hatch/evolve fixed lengths, plus `SCHEDULE.IDLE_TO_WALK`, `SCH
 | Pointer input | `input:grab`, `input:drag`, `input:release`, `input:shake-progress`, `input:shake`, `input:click`, `input:any` |
 | Game events | `game:levelup`, `game:hatch`, `game:evolve`, `game:cheer` (celebration with no progress attached, e.g. the water reminder's "Done" button — `apps/desktop/src/main/reminders/WaterReminder.ts`) |
 | Battle playback | `battle:play`, `battle:attack`, `battle:hit`, `battle:win`, `battle:lose`, `battle:done` |
-| World/host | `world:bounds`, `stage:set` |
+| World/host | `world:bounds`, `world:recenter` (tray "Bring pet back": snaps to world center on the ground, cancels any drag/fall/walk in progress; left alone mid-battle), `stage:set` |
 
 ## Hook event → stimulus → state mapping
 

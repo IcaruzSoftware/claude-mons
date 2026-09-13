@@ -2,8 +2,8 @@
 doc_type: design
 purpose: "Read this when you need the exact XP numbers, caps, or streak/bonus rules for the pet's activity economy."
 audience: agent
-last_verified: 2026-09-05
-last_verified_commit: 6d99ae3
+last_verified: 2026-09-13
+last_verified_commit: 8a24ac9
 related_files:
   - packages/shared/src/game/xp.ts
   - packages/shared/test/xp.test.ts

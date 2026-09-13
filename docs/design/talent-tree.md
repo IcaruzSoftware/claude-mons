@@ -3,7 +3,7 @@ doc_type: design
 purpose: "Read this when changing talent-tree nodes, budgets, respec rules, or the loadout editor's Talents section."
 audience: agent
 last_verified: 2026-09-13
-last_verified_commit: 1196eff
+last_verified_commit: 8a24ac9
 related_files:
   - packages/shared/src/game/tree.ts
   - packages/shared/src/battle/battle.ts
@@ -136,7 +136,7 @@ Ten passives, available regardless of nation, from a separate small pool (1 poin
 | Tailwind | Loadout slot 1 always crits |
 | Tidal Recovery | Heal 10% max HP on landing a crit |
 | Updraft | Guaranteed to act first on turn 1 |
-| Second Breath | Survive one KO per battle at 1 HP (only if the mon has no Phoenix Reborn capstone, or it already fired) |
+| Second Breath | Survive one KO per battle at 1 HP (per KO, Phoenix Reborn is checked first if equipped; Second Breath only fires when Phoenix doesn't trigger that KO -- `packages/shared/src/battle/battle.ts`) |
 | Ember Heart | The first time this mon's HP drops below 50%, its next move gets +20pp crit chance |
 
 ## Implementation notes and simplifications

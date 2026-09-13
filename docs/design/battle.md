@@ -3,7 +3,7 @@ doc_type: design
 purpose: "Read this when changing battle math, matchmaking, rewards, or the battle log shape."
 audience: agent
 last_verified: 2026-09-13
-last_verified_commit: 1196eff
+last_verified_commit: 8a24ac9
 related_files:
   - packages/shared/src/battle/battle.ts
   - packages/shared/src/battle/effects.ts

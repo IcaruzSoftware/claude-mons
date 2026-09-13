@@ -2,8 +2,8 @@
 doc_type: runbook
 purpose: "Read this when setting up, publishing to, or rotating keys for the claude-mons APT repository on GitHub Pages."
 audience: both
-last_verified: 2026-09-05
-last_verified_commit: ab12392
+last_verified: 2026-09-13
+last_verified_commit: 8a24ac9
 related_files:
   - scripts/build-apt-repo.sh
   - scripts/install-claude-mons.sh

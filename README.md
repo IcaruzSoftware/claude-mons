@@ -2,8 +2,8 @@
 doc_type: root
 purpose: "Read this when starting with claude-mons, installing, or getting the app running locally."
 audience: both
-last_verified: 2026-09-05
-last_verified_commit: ab12392
+last_verified: 2026-09-13
+last_verified_commit: 8a24ac9
 related_files:
   - CONTRIBUTING.md
   - PRIVACY.md
@@ -11,8 +11,11 @@ related_files:
   - docs/design/economy.md
   - docs/design/species-and-nations.md
   - docs/design/battle.md
+  - docs/design/progression.md
+  - docs/design/talent-tree.md
   - docs/architecture/overview.md
   - docs/runbooks/apt-repository.md
+  - docs/CODE_SIGNING_POLICY.md
   - CHANGELOG.md
   - docs/ROADMAP.md
 ---
@@ -27,23 +30,25 @@ related_files:
 2. An egg appears on your taskbar edge. Connect Claude Code with one click (adds hooks to `~/.claude/settings.json`; start a new Claude Code session afterwards).
 3. Work with Claude Code as usual. Prompts, tool calls and finished turns earn [XP](docs/design/economy.md). At the [hatch threshold](docs/design/species-and-nations.md), the egg hatches into one of your nation's species, rarity-weighted and rolled by the server.
 4. Level up through Baby → Teen → Adult. Your nation's weekly XP is its power on the leaderboard.
-5. Grab your mon and shake it to [challenge a mon from another nation](docs/design/battle.md). Battles are automatic, deterministic and replayed as an animation, subject to a [daily cap and cooldown](docs/design/battle.md).
+5. Grab your mon and shake it to [challenge a mon from another nation](docs/design/battle.md). Battles are automatic, deterministic and replayed as an animation, subject to a [daily cap and cooldown](docs/design/battle.md). Loadouts (moves, battle stance, a per-nation talent tree) shape how a battle plays out — see [docs/design/progression.md](docs/design/progression.md) and [docs/design/talent-tree.md](docs/design/talent-tree.md).
 
-The pet is a minimal overlay: it idles, walks along the taskbar, sleeps when you're away, and reacts while Claude thinks, edits and runs commands. Hover for a stats card, click for the panel, right-click for the menu.
+The pet is a minimal overlay: it idles, walks along the taskbar, sleeps when you're away, reacts while Claude thinks, edits and runs commands, and nags for a water break on a timer. Hover for a stats card, click for the game-styled panel (Mon, Leaderboard, Battles, Settings), right-click for the menu. Optionally link an email in Settings to carry the same mon to a second computer (see [PRIVACY.md](PRIVACY.md)).
 
 ## Install
 
-Signed Windows installers and Linux packages are published by the release workflow (`.github/workflows/release.yml`) on tags `v*`.
+Windows installers and Linux packages are published by the release workflow (`.github/workflows/release.yml`) on tags `v*`.
 
-**Linux (Debian/Ubuntu-family):**
+**Windows and Linux (AppImage/deb):** installers and packages for every tagged release (`v0.1.1` onward) are on [GitHub Releases](https://github.com/IcaruzSoftware/claude-mons/releases).
+
+**Linux (Debian/Ubuntu-family) APT repository:** publishing to GitHub Pages is set up (see [docs/runbooks/apt-repository.md](docs/runbooks/apt-repository.md)) but not live yet — see [docs/ROADMAP.md](docs/ROADMAP.md). Once published, the one-line install will be:
 
 ```bash
 curl -fsSL https://icaruzsoftware.github.io/claude-mons/install.sh | sudo bash
 ```
 
-Registers a signed APT repository and installs claude-mons; `sudo apt upgrade` picks up future releases. See [docs/runbooks/apt-repository.md](docs/runbooks/apt-repository.md). An AppImage is also published on [GitHub Releases](https://github.com/IcaruzSoftware/claude-mons/releases) for users who prefer not to add a repository.
+Until then, use the AppImage or `.deb` from GitHub Releases directly.
 
-Until the first tagged release, build locally:
+Building from source:
 
 ```bash
 pnpm install
@@ -51,7 +56,7 @@ pnpm hook:build                      # Go 1.22+ required; cross-compiles the hoo
 pnpm --filter @claude-mons/desktop package:win    # or package:linux
 ```
 
-The installer lands in `apps/desktop/release/`. Release builds are code-signed via SignPath Foundation; see [docs/CODE_SIGNING_POLICY.md](docs/CODE_SIGNING_POLICY.md) and [docs/runbooks/release.md](docs/runbooks/release.md). Unsigned local builds may be blocked by Windows Smart App Control.
+The installer lands in `apps/desktop/release/`. Windows builds are signed through SignPath once a Foundation certificate is attached (currently pending — see [docs/ROADMAP.md](docs/ROADMAP.md)); until then, tagged releases and local builds alike are unsigned and may be blocked by Windows Smart App Control. See [docs/CODE_SIGNING_POLICY.md](docs/CODE_SIGNING_POLICY.md) and [docs/runbooks/release.md](docs/runbooks/release.md).
 
 ## Development
 
@@ -65,9 +70,8 @@ pnpm dev            # Electron with hot reload
 Before opening a pull request, run:
 
 ```bash
-pnpm check          # lint + typecheck + unit tests
+pnpm check          # lint + typecheck + unit tests + script tests + docs check
 pnpm deno:check     # Edge Functions + shared code under Deno
-pnpm docs:check     # validate documentation frontmatter and links
 pnpm hook:build     # cross-compile the Go hook binary (if you modified it)
 ```
 
@@ -93,7 +97,7 @@ For development flags (e.g. `--dev-nation fire`, `--dev-xp 150`, `--simulate <sc
 
 ## Privacy
 
-claude-mons sends only aggregated event counts and anonymous game state to the server. Prompt text, tool inputs, tool outputs and file paths never leave your machine. Full details in [PRIVACY.md](PRIVACY.md).
+claude-mons sends only aggregated event counts and anonymous game state to the server. Prompt text, tool inputs, tool outputs and file paths never leave your machine. Linking an email (optional, for using the same mon on a second computer) is the only other personal data ever stored. Full details in [PRIVACY.md](PRIVACY.md).
 
 ## Uninstall
 
@@ -101,7 +105,7 @@ Windows: Settings → Apps → claude-mons → Uninstall. Linux: remove the AppI
 
 ## Code signing
 
-Windows builds are signed through SignPath Foundation at no cost. See [docs/CODE_SIGNING_POLICY.md](docs/CODE_SIGNING_POLICY.md) for the policy and [docs/runbooks/release.md](docs/runbooks/release.md) for the release procedure. Free code signing provided by SignPath.io, certificate by SignPath Foundation.
+Windows builds are signed through SignPath at no cost once a SignPath Foundation certificate is attached to the release-signing policy; that step is still pending (see [docs/ROADMAP.md](docs/ROADMAP.md)), so current builds are unsigned. See [docs/CODE_SIGNING_POLICY.md](docs/CODE_SIGNING_POLICY.md) for the policy and [docs/runbooks/release.md](docs/runbooks/release.md) for the release procedure. Free code signing provided by SignPath.io, certificate by SignPath Foundation.
 
 ## License
 

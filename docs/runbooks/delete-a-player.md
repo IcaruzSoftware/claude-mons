@@ -2,8 +2,8 @@
 doc_type: runbook
 purpose: "Read this when a player requests account deletion via PRIVACY.md."
 audience: both
-last_verified: 2026-09-05
-last_verified_commit: d7db9c0
+last_verified: 2026-09-13
+last_verified_commit: 8a24ac9
 related_files:
   - supabase/migrations/20260904000000_init.sql
   - PRIVACY.md

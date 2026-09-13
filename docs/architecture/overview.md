@@ -2,12 +2,15 @@
 doc_type: architecture
 purpose: "Read this when you need the system-wide runtime picture before touching code that crosses package boundaries."
 audience: agent
-last_verified: 2026-09-05
-last_verified_commit: d7db9c0
+last_verified: 2026-09-13
+last_verified_commit: 8a24ac9
 related_files:
   - package.json
   - pnpm-workspace.yaml
   - apps/desktop/src/main/App.ts
+  - apps/desktop/src/main/hooks/mode.ts
+  - apps/desktop/src/main/net/SyncQueue.ts
+  - apps/desktop/src/main/windows/ReminderWindow.ts
   - apps/desktop/src/common/ipc.ts
   - packages/shared/src/index.ts
   - .github/workflows/ci.yml
@@ -15,20 +18,22 @@ related_files:
 
 # System overview
 
-claude-mons is an always-on-top Electron desktop pet that levels up by watching Claude Code activity: a Go CLI hook reports session/tool events, the desktop app turns those into XP and shake-triggered battles for a pixel-art creature, and a Supabase backend (Postgres plus Deno Edge Functions) holds the authoritative XP ledger, resolves battles, and serves cross-player leaderboards. The rules that decide leveling, XP, and battle outcomes live once, in `packages/shared`, and run unchanged on both the client and the server.
+claude-mons is an always-on-top Electron desktop pet that levels up by watching Claude Code activity: a Go CLI hook (or, when it can't run, a `curl` script fallback) reports session/tool events, the desktop app turns those into XP and shake-triggered battles for a pixel-art creature, and a Supabase backend (Postgres plus Deno Edge Functions) holds the authoritative XP ledger, resolves battles, and serves cross-player leaderboards. The rules that decide leveling, XP, and battle outcomes live once, in `packages/shared`, and run unchanged on both the client and the server.
 
 ## Runtime topology
 
-`ClaudeCode` invokes the `hook-cli` binary on every tool call; it posts a stripped-down event envelope to a localhost endpoint owned by the desktop main process, `App` (`apps/desktop/src/main/App.ts`). `App` fans state out over IPC to the three renderers it owns — `PetWindow`, `PanelWindow`, `HoverCardWindow` — and, through `SupabaseClient`, calls the `EdgeFunctions` in `supabase/functions`, which are the only code path allowed to write to `Postgres`. Separately, `GitHubActions` builds and publishes `Releases`, which the packaged app polls via `electron-updater`.
+`ClaudeCode` invokes either the `hook-cli` binary or, in script mode (`apps/desktop/src/main/hooks/mode.ts`, see `docs/architecture/flows/hook-to-xp.md`), a `curl` command on every tool call; either way it posts a stripped-down event envelope to a localhost endpoint owned by the desktop main process, `App` (`apps/desktop/src/main/App.ts`). `App` fans state out over IPC to the four renderers it owns — `PetWindow`, `PanelWindow`, `HoverCardWindow`, `ReminderWindow` — and, through `SyncQueue`/`SupabaseClient`, calls the `EdgeFunctions` in `supabase/functions`, which are the only code path allowed to write to `Postgres`. Separately, `GitHubActions` builds and publishes `Releases`, which the packaged app polls via `electron-updater`.
 
 ```mermaid
 flowchart TD
-    ClaudeCode[Claude Code] --> hook_cli["hook-cli"]
+    ClaudeCode[Claude Code] --> hook_cli["hook-cli / curl script mode"]
     hook_cli --> App
     App --> PetWindow
     App --> PanelWindow
     App --> HoverCardWindow
-    App --> SupabaseClient
+    App --> ReminderWindow
+    App --> SyncQueue
+    SyncQueue --> SupabaseClient
     SupabaseClient --> EdgeFunctions["Edge Functions"]
     EdgeFunctions --> Postgres
     GitHubActions["GitHub Actions"] --> Releases
@@ -39,7 +44,7 @@ flowchart TD
 
 | Path | What lives there | README |
 |---|---|---|
-| `apps/desktop` | Electron app: main process (windows, IPC, persistence, networking), preload bridge, and the pet/panel/hovercard renderers | `apps/desktop/README.md` |
+| `apps/desktop` | Electron app: main process (windows, IPC, persistence, networking, hooks, tray, updater, reminders), preload bridge, and the pet/panel/hovercard/reminder renderers | `apps/desktop/README.md` |
 | `packages/shared` | Dependency-free game rules (levels, XP economy, battle simulator, behavior state machine, species/nations) consumed as source by both runtimes | `packages/shared/README.md` |
 | `packages/sprites` | Pixel-art sprites authored as string-row matrices, palettes, and the rasterizer | `packages/sprites/README.md` |
 | `packages/hook-cli` | Go binary that reports Claude Code hook events to the desktop app | `packages/hook-cli/README.md` |
@@ -68,7 +73,7 @@ flowchart TD
 
 ## The trust boundary
 
-`hook-cli` runs outside Electron on every Claude Code tool call and is deliberately minimal: it whitelists a small set of stdin fields, strips prompt text, tool input/output, and transcript paths, and posts only the resulting envelope to a localhost endpoint authenticated with a bearer token from `<userData>/hook-endpoint.json`. Inside the desktop app, `App` is the sole owner of persisted state and the sole caller of Supabase, while the pet/panel/hovercard renderers are sandboxed and reach it only through the typed channels in `apps/desktop/src/common/ipc.ts`. On the server, Postgres enforces its own boundary independent of application code: Row Level Security restricts every table to the caller's own rows (or the public leaderboard views), and privileged writes run only through `security definer` RPCs invoked by the Edge Functions' service-role client.
+`hook-cli` runs outside Electron on every Claude Code tool call and is deliberately minimal: it whitelists a small set of stdin fields, strips prompt text, tool input/output, and transcript paths, and posts only the resulting envelope to a localhost endpoint authenticated with a bearer token from `<userData>/hook-endpoint.json`. When the binary can't run (e.g. Windows Smart App Control), Claude Code instead runs a plain `curl` command in script mode (`apps/desktop/src/main/hooks/mode.ts`, `apps/desktop/src/main/hooks/HookInstaller.ts`) that posts the same kind of stripped-down envelope to a separate token-authenticated endpoint — no third-party binary at all, at the cost of no spool if the app isn't listening; see `docs/architecture/flows/hook-to-xp.md`. Inside the desktop app, `App` is the sole owner of persisted state and the sole caller of Supabase, while the pet/panel/hovercard/reminder renderers are sandboxed and reach it only through the typed channels in `apps/desktop/src/common/ipc.ts`. On the server, Postgres enforces its own boundary independent of application code: Row Level Security restricts every table to the caller's own rows (or the public leaderboard views), and privileged writes run only through `security definer` RPCs invoked by the Edge Functions' service-role client.
 
 ## Where to go next
 

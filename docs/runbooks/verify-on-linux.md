@@ -2,8 +2,8 @@
 doc_type: runbook
 purpose: "Verify that claude-mons works correctly on Linux (X11/Wayland, graphics, tray, autostart, updates, hook binary)."
 audience: both
-last_verified: 2026-09-09
-last_verified_commit: 256f0c3
+last_verified: 2026-09-13
+last_verified_commit: 8a24ac9
 related_files:
   - docs/history/v1-handoff-2026-09-04.md
   - apps/desktop/src/main/index.ts
@@ -31,9 +31,32 @@ all mainstream distributions (GNOME, KDE, Sway with xwayland enabled).
 **Confirm the app runs under XWayland:** check for an X11 window with `xprop` on the window or
 `xlsclients` in the terminal; debug logs (`CLAUDE_MONS_DEBUG=1 claude-mons`) show "X11 backend forced"
 at startup. To experiment with native Wayland (currently unsupported), set `CLAUDE_MONS_NATIVE_WAYLAND=1`
-and expect the failures listed in steps 1–8 below (issues #1–#8): window spawns centred, sprite
-lands below ground, sprite drifts past horizontal bounds, pet disappears from top z-order, and
-hover/right-click/shake stop working altogether.
+and expect the native-Wayland failures below (issues #1, #4–#7, and most likely #2–#3; see the table).
+
+### Known Linux issues (#1–#9)
+
+Tracked during the first Ubuntu 24.04 (GNOME, Wayland session) test; see the commit `5363066`
+("Linux: force the X11 backend (XWayland), re-assert topmost, add 'Battle now'") for the original
+report. #1 and #4–#7 were directly observed under native Wayland; #2 and #3 were "most likely" also
+caused by the same native-Wayland gap but the specific symptom was never isolated (marked
+`> Unverified:` below — if you reproduce native Wayland and find a symptom not covered by #1/#4–#7,
+it is probably one of these two).
+
+| # | Symptom | Root cause | Status |
+|---|---|---|---|
+| #1 | Pet window spawns centred on screen instead of on the bottom edge | Native Wayland (xdg-shell) gives a client no window positioning | Fixed — X11 backend forced by default ([ADR 0017](../decisions/0017-force-x11-backend-on-linux.md)) |
+| #2 | Symptom not isolated (see note below) | Native Wayland (suspected) | Fixed by the same X11 backend force; symptom unconfirmed |
+| #3 | Symptom not isolated (see note below) | Native Wayland (suspected) | Fixed by the same X11 backend force; symptom unconfirmed |
+| #4 | Pet sinks below the ground line after a drag-release or fall | Native Wayland gives a client no window positioning | Fixed — X11 backend forced |
+| #5 | Sprite/window drifts past horizontal or monitor bounds while dragging | Native Wayland gives a client no window positioning | Fixed — X11 backend forced |
+| #6 | Pet disappears from the top z-order (hidden behind other windows) | Native Wayland gives a client no always-on-top | Fixed — X11 backend forced; `PetWindow` (`apps/desktop/src/main/windows/PetWindow.ts`) also re-asserts always-on-top every 5 s on Linux, since some X11 window managers drop `_NET_WM_STATE_ABOVE` after focus changes |
+| #7 | Hover, right-click, and shake stop registering at all | Native Wayland gives a client no global cursor position | Fixed — X11 backend forced (cursor polling restored) |
+| #8 | Shake gesture to start a battle is unreliable or hard to trigger | Gesture-detection sensitivity, not Wayland-specific | Mitigated — "Battle now" added to the tray and right-click menus as a gesture-free fallback (`apps/desktop/src/main/tray/Tray.ts`, `apps/desktop/src/main/PetHost.ts`) |
+| #9 | GPU process segfaults (exit 139) on AMD radeonsi under XWayland | Chromium GPU process crash seen under XWayland | Open — GPU acceleration is off by default on Linux (`apps/desktop/src/main/index.ts`); set `CLAUDE_MONS_ENABLE_GPU=1` to opt back in and test whether it still reproduces on your hardware |
+
+> Unverified: #2 and #3's exact symptoms were never recorded separately from #1/#4–#7 in the
+> original report (commit `5363066`); both are believed fixed by the same X11-backend change but
+> this is not confirmed against a specific reproduction.
 
 ## Prerequisites
 
@@ -105,27 +128,35 @@ hover/right-click/shake stop working altogether.
    (X11 backend) so behavior should be identical to step 3. If you see the native Wayland failures
    (below), the `CLAUDE_MONS_NATIVE_WAYLAND=1` override was accidentally set.
 
-5. **Test transparency fallback**
+5. **Verify GPU is off by default, and test transparency**
 
-   If step 3 or 4 produced a black opaque window, verify the GPU-disable fallback:
+   GPU acceleration is disabled by default on Linux (`apps/desktop/src/main/index.ts`; issue #9 —
+   the GPU process was seen segfaulting on AMD radeonsi under XWayland), so the app already renders
+   with software compositing unless you opt back in:
 
    ```bash
+   # Default on Linux: GPU already off, no flag needed.
+   claude-mons
+   # Opt back into GPU (only to test whether issue #9 still reproduces on your hardware):
+   CLAUDE_MONS_ENABLE_GPU=1 claude-mons
+   # Force GPU off explicitly on any platform (same effect as the Linux default):
    CLAUDE_MONS_DISABLE_GPU=1 claude-mons
    ```
 
-   (Check `apps/desktop/src/main/index.ts` for the flag.) Window should render; if still black, the compositor lacks transparency support (rare on modern systems).
+   If step 3 or 4 still produced a black opaque window with GPU off, the compositor itself lacks
+   transparency support (rare on modern systems) — this is not issue #9.
 
 6. **Verify click-through and interaction**
 
    - Move the mouse over the pet but not the sprite itself → click the desktop/taskbar behind it (click-through works; issue #7)
    - Move the mouse over the sprite → left-click opens the panel (sprite is clickable; issue #7)
    - Right-click the sprite → context menu appears (issue #7; menu is set in `apps/desktop/src/main/tray/Tray.ts`)
-   - **Drag the pet with left-click + drag** → pet follows the cursor within bounds (issue #5 if sprite drifts past edges; issue #4 if window doesn't reposition); release and pet falls to ground (issue #2 if sprite lands below ground line)
-   - **Shake the pet side-to-side** → after ~1 s of shaking, the pet enters battle (issue #7 if shake doesn't register; the tray "Battle now" menu item is an alternative if shaking fails)
+   - **Drag the pet with left-click + drag** → pet follows the cursor within bounds (issue #5 if it drifts past bounds; issue #6 if it drops behind another window mid-drag); release and pet falls to ground (issue #4 if it sinks below the ground line)
+   - **Shake the pet side-to-side** → after ~1 s of shaking, the pet enters battle (issue #7 if shake doesn't register at all under native Wayland; issue #8 if shake is simply unreliable under X11/XWayland — the tray or right-click **"Battle now"** menu item is the fallback either way)
 
 7. **Test multi-monitor drag**
 
-   (If only one display, skip.) Connect a second display or use virtual desktops. Drag the pet to the edge and onto the other monitor. Verify the window re-anchors and stays on-screen (anchor memory from `apps/desktop/src/main/display.ts`; issue #5 if sprite drifts past monitor edge).
+   (If only one display, skip.) Connect a second display or use virtual desktops. Drag the pet to the edge and onto the other monitor. Verify the window re-anchors and stays on-screen (anchor memory from `apps/desktop/src/main/display.ts`; issue #5 if it drifts past the monitor edge).
 
 8. **Verify tray icon and fallback**
 

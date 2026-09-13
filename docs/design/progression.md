@@ -3,7 +3,7 @@ doc_type: design
 purpose: "Read this when changing moves, stances, talents, matchmaking windows, streaks or evolution stat multipliers, or building the loadout editor."
 audience: agent
 last_verified: 2026-09-13
-last_verified_commit: e3483fc
+last_verified_commit: 8a24ac9
 related_files:
   - packages/shared/src/battle/battle.ts
   - packages/shared/src/battle/effects.ts
@@ -28,7 +28,7 @@ related_files:
 
 # Progression system
 
-The battle itself stays a deterministic autobattle (`packages/shared/src/battle/battle.ts:simulateBattle`, see `docs/design/battle.md`); this doc adds the skill players exercise *before* a battle: which 6 moves a mon knows, which 3 it brings, its stance, and its talent tree. **Design target for phases A–D** (see Phases); not all shipped yet — each change lands with its phase.
+The battle itself stays a deterministic autobattle (`packages/shared/src/battle/battle.ts:simulateBattle`, see `docs/design/battle.md`); this doc adds the skill players exercise *before* a battle: which 6 moves a mon knows, which 3 it brings, its stance, and its talent tree. Phases A–D (see Phases) have all shipped; several magnitudes below were **retuned by simulation on 2026-09-13**, after shipping, to hit their balance targets (see each section's tuning note).
 
 ## Goals
 
@@ -44,29 +44,19 @@ Every species gets a 6-move pool. Each move has a `power`, a `type` of `neutral`
 | Effect | Meaning |
 |---|---|
 | `priority` | Acts first this turn, overriding the normal speed-probability roll |
-| `crit_up` | +20pp critical-hit chance on this move |
+| `crit_up` | +20pp critical-hit chance on this move, up to its own 50% ceiling (not the shared 30% crit cap) |
 | `drain` | Heals the user 50% of damage dealt |
 | `shield_first` | The first hit this mon takes in the battle is reduced 50% (once per battle) |
-| `def_down` | Target's DEF −25% for 3 turns; reapplying refreshes the duration, does not stack |
+| `def_down` | Target's DEF −12% for 3 turns; reapplying refreshes the duration, does not stack |
 | `burn` | Target loses 8% max HP at the end of each turn for 3 turns (one instance active at a time) |
 | `true_hit` | Ignores the target's dodge chance |
 | `charge` | Turn 1 telegraphs for 0 damage; turn 2 auto-releases at 2.2× power |
 
-**Tuned by simulation on 2026-09-13** (implemented in `packages/shared/src/battle/effects.ts`,
-original spec was `def_down` = −25% DEF / `crit_up` = +20pp capped at the normal 30% crit ceiling):
-with the loadout policy's 80%-probability slot-2 weighting, a refreshing 3-turn `def_down` stays up
-almost every turn, so −25% DEF (a sustained +33% damage multiplier) dwarfed the other slot-2 effects
-it sits alongside — e.g. pebblet (`def_down` in slot 2) beat same-level, same-loadout-policy sparkit
-(`crit_up` in slot 2) roughly 70% of the time, and the pre-existing "+3 level advantage" balance test
-(`packages/shared/test/balance.test.ts`) dropped from its 60–90% target to ~49%. Root cause for
-`crit_up` specifically: a flat +20pp bonus very often did nothing, since most matchups' base crit
-chance already sits well above the 30% ceiling minus 20pp, so the bonus just hit the same cap the
-base roll would have anyway. Fix: `def_down`'s multiplier moved from 0.75 to **0.88** (−12% DEF, a
-+14% damage multiplier — comparable to the other slot-2 effects instead of dominating them), and
-`crit_up` got its own, higher ceiling, **`CRIT_UP_MAX` = 0.5** (uncapped by the normal 30% ceiling up
-to 50%), instead of sharing it. Both constants live in `packages/shared/src/battle/effects.ts`; see
-`packages/shared/test/balance.test.ts`'s archetype matrix (Balance targets below) for the search that
-confirmed these numbers.
+**Tuned by simulation on 2026-09-13** (`packages/shared/src/battle/effects.ts`; original spec was
+`def_down` = −25% DEF, `crit_up` capped by the shared 30% crit ceiling): a refreshing `def_down`
+dwarfed the other slot-2 effects (~70% win rate over `crit_up`) while `crit_up`'s flat bonus was
+often wasted near the shared cap. Fix: `DEF_DOWN_MULT` 0.75 -> **0.88**, `crit_up` gained its own
+**`CRIT_UP_MAX` = 0.5** ceiling. See `packages/shared/test/balance.test.ts`'s archetype matrix.
 
 Unlock schedule (by mon level): 2 moves at hatch (level 2), 3rd at 5, 4th at 10, 5th at 15, 6th at 20. Slots 1–3 are each species' current `normal`/`typed`/`special` move, kept as-is (unlock 2/2/5); slots 4–6 are new (unlock 10/15/20). Slot 1 is always `priority` — it doubles as the loadout's fixed opener (see Loadout policy). Renaming the existing moves to the new convention is a possible follow-up, not part of this design.
 
@@ -144,23 +134,12 @@ damage dealt and −2% damage taken for the whole battle.
 | Bulwark | DEF +2% | ATK −6% | Fury | Gale |
 | Gale | SPD +2% | ATK −6% | Bulwark | Fury |
 
-**Tuned by simulation on 2026-09-13** (original spec was ±18%/±18% grant/cost with a ±10% counter
-bonus). The original numbers were internally consistent but produced two of the three counter
-pairings winning 80-97% of the time while the third swung anywhere from ~37-64% (sometimes not even
-an advantage), against a 55-62% target for every pairing. The root cause was structural, not just
-magnitude: Fury was the only stance touching both ATK and DEF (the two stats the damage formula's
-atk/def ratio actually uses) — its grant boosts ATK *and* its cost cuts DEF — so both pairings
-involving Fury got a "double" swing, while Bulwark and Gale (each touching only one of ATK/DEF, plus
-SPD) produced a much flatter Bulwark-vs-Gale pairing. Fixing this required changing *which* stat a
-stance costs, not only shrinking the numbers: Bulwark's cost moved from SPD to ATK (Gale's stays
-ATK), so every pairing now touches the ATK/DEF axis symmetrically — Fury costs DEF, Bulwark and Gale
-both cost ATK. Flavor still reads cleanly: Bulwark and Gale each give up raw power for their
-specialty (bulk or speed, respectively); Fury gives up survivability for power. Combined with the
-much smaller grant/cost/counter magnitudes above, this lands every pairing at 55-62%, all three
-within a few points of each other (see `packages/shared/test/balance.test.ts`'s stance-triangle
-test, and the sweep script referenced in the Phase A implementation report for the search that
-found these numbers). Constants: `STANCE_INFO`, `STANCE_COUNTER_DEALT_MULT`/
-`STANCE_COUNTER_TAKEN_MULT` in `packages/shared/src/game/progression.ts`.
+**Tuned by simulation on 2026-09-13** (`packages/shared/src/game/progression.ts`; original spec was
+±18% grant/cost, ±10% counter bonus): two of three counter pairings won 80-97% of the time (Fury
+alone touched both ATK and DEF, giving pairings against it a "double" swing), the third as low as
+~37%. Fix: shrink the magnitudes above *and* move Bulwark's cost stat from SPD to ATK, so all three
+pairings touch ATK/DEF symmetrically — lands every pairing at 55-62%; see
+`packages/shared/test/balance.test.ts`'s stance-triangle test.
 
 ## Talent tree
 
@@ -173,15 +152,12 @@ just the pointer so this doc stays under its length budget.
 
 `packages/shared/src/game/levels.ts:statAtLevel` gains a per-stage multiplier on top of its existing linear level scaling: Baby ×1.00, Teen ×1.03, Adult ×1.06, keyed off `stageForLevel(level)` (same file). This changes the stat curve `docs/design/battle.md` describes without changing its `(level + 49) / 50` shape; the balance test must be re-verified against the new curve (see Balance targets).
 
-**Tuned by simulation on 2026-09-13** (original spec was ×1.15/×1.30). Those multipliers made a
-stage-boundary matchup (a level-9 baby vs. a level-11 teen, or a level-24 teen vs. a level-26 adult)
-win only ~27-28% for the low-level side — the 2-level gap and the full stage-multiplier jump both
-push the same way (more damage dealt *and* less damage taken), well outside the 35-65% band
-`docs/design/battle.md`'s balance harness targets elsewhere. ×1.03/×1.06 lands both boundary
-matchups at 38-48% for the low side (see `packages/shared/test/balance.test.ts`'s boundary tests) —
-still a real, smaller handicap by design, not the full 35-65% band, since a stage-boundary matchup
-is genuinely lopsided. `supabase/migrations/20260913030000_progression_tuning.sql` mirrors this in
-`recompute_mon`.
+**Tuned by simulation on 2026-09-13** (`packages/shared/src/game/levels.ts`; original spec was
+×1.15/×1.30): a stage-boundary matchup (level 9 vs. 11, or 24 vs. 26) won only ~27-28% for the
+low-level side, outside the 35-65% band. ×1.03/×1.06 lands both boundaries at 38-48% — a real,
+smaller handicap by design, since a stage-boundary matchup is genuinely lopsided (see
+`packages/shared/test/balance.test.ts`'s boundary tests). `supabase/migrations/
+20260913030000_progression_tuning.sql` mirrors this in `recompute_mon`.
 
 ## Matchmaking and streaks
 
@@ -191,10 +167,10 @@ Win streaks add +10% challenger XP per consecutive win, capped at +50% (5 wins),
 
 ## Data model and API
 
-Fields on `public.mons` (`supabase/migrations/20260904000000_init.sql`), added across two
-migrations per the `CLAUDE.md` Gotcha that the init migration is not edited in place —
+Fields on `public.mons` (`supabase/migrations/20260904000000_init.sql`), added across two later
+migrations per `CLAUDE.md`'s "init migration is not edited in place" gotcha --
 `supabase/migrations/20260913020000_progression_phase_a.sql` (columns) and
-`supabase/migrations/20260913040000_progression_phase_b.sql` (docs only, see below):
+`supabase/migrations/20260913040000_progression_phase_b.sql` (docs only):
 
 | Column | Type | Holds |
 |---|---|---|
@@ -202,94 +178,74 @@ migrations per the `CLAUDE.md` Gotcha that the init migration is not edited in p
 | `win_streak` | `int` | Consecutive real-player wins, see Matchmaking above |
 | `last_respec_at` | `timestamptz` | Enforces the once-per-7-days respec cooldown past level 10 |
 
-`loadout.moves` has no backfill for mons that predate Phase B: `packages/shared/src/battle/
+`loadout.moves` has no backfill for mons predating Phase B: `packages/shared/src/battle/
 battle.ts:snapshotFor` always defaults an absent/incomplete `moves` to
-`defaultLoadoutMoveIds(species, level)` (`packages/shared/src/game/species.ts`) when it builds a
-snapshot, so every mon always battles with a valid, level-appropriate loadout whether or not it has
-ever called `set-loadout`; see `supabase/migrations/20260913040000_progression_phase_b.sql`'s
-comment for the reasoning against a backfill migration.
-
-The `set-loadout` Edge Function validates a submitted `{ stance?, moves?, tree?, respec? }` against
-the mon's level (which moves are unlocked, the talent tree's node/prereq/budget/respec-cooldown
-rules — see `docs/design/talent-tree.md`) via the pure shared `validateLoadout`
-(`packages/shared/src/game/progression.ts`). Rejection reasons are typed (`LoadoutErrorCode`, e.g.
-`MOVE_LOCKED`, `MOVES_NOT_DISTINCT`, `TREE_OVER_BUDGET`, `RESPEC_COOLDOWN`), returned as
-`error.details.code` alongside the human-readable `error.message`. `MonSnapshot`
-(`packages/shared/src/battle/battle.ts`) has a `loadout` field (always populated by `snapshotFor`),
-stored in `public.battles.challenger_snapshot`/`opponent_snapshot` so old battle logs keep replaying
-against the loadout that was actually equipped. `MonState` (`packages/shared/src/api.ts`) carries
-the mon's own `loadout`, `unlockedMoveIds`, `treePoints`/`sharedPassivePoints` and `lastRespecAt` so
-the client can render the loadout editor without a separate call.
-`apps/desktop/src/renderer/panel/views/Battles.tsx` has a loadout editor overlay (move dropdowns
-per slot with reorder, locked moves greyed with "unlocks at level N", the stance picker, and a
-Talents section — see `docs/design/talent-tree.md`) and, since Phase D, "Recent opponents" cards —
-see Recent-opponent intel below.
+`defaultLoadoutMoveIds(species, level)` (`packages/shared/src/game/species.ts`), so every mon battles
+with a valid loadout whether or not it has ever called `set-loadout`. The `set-loadout` Edge
+Function validates a submitted `{ stance?, moves?, tree?, respec? }` against
+the mon's level (unlocked moves, the talent tree's node/prereq/budget/respec-cooldown rules — see
+`docs/design/talent-tree.md`) via the pure shared `validateLoadout`
+(`packages/shared/src/game/progression.ts`), returning typed `LoadoutErrorCode`s (e.g. `MOVE_LOCKED`,
+`MOVES_NOT_DISTINCT`, `TREE_OVER_BUDGET`, `RESPEC_COOLDOWN`) as `error.details.code`. `MonSnapshot`
+(`packages/shared/src/battle/battle.ts`) carries a `loadout` field, stored in
+`public.battles.challenger_snapshot`/`opponent_snapshot` so old battle logs keep replaying against
+the loadout actually equipped. `MonState` (`packages/shared/src/api.ts`) carries the mon's own
+`loadout`, `unlockedMoveIds`, `treePoints`/`sharedPassivePoints` and `lastRespecAt` so the client
+renders the loadout editor without a separate call. `apps/desktop/src/renderer/panel/views/
+Battles.tsx` hosts that editor (move dropdowns with reorder, locked moves greyed with "unlocks at
+level N", the stance picker, a Talents section — see `docs/design/talent-tree.md`) and, since Phase
+D, "Recent opponents" cards — see below.
 
 ## Recent-opponent intel
 
-Phase D adds no new battle math -- it is a read-only explainer over facts the battle system already
-computes, so the Battles tab can teach a player *why* a recent fight went the way it did and what to
-try next, without a server round-trip. The shared pure `explainMatchup(me, opp)`
-(`packages/shared/src/battle/matchup.ts`, `MonSnapshot` on both sides) returns:
+Phase D adds no new battle math -- a read-only explainer over facts the battle system already
+computes, so the Battles tab can teach a player *why* a recent fight went the way it did, without a
+server round-trip. The shared pure `explainMatchup(me, opp)` (`packages/shared/src/battle/
+matchup.ts`, `MonSnapshot` on both sides) returns `nationLine` (which side's nation type has the
+advantage, or an even trade — `effectiveness()`, `packages/shared/src/game/nations.ts`), `stanceLine`
+(whether either stance counters the other, `stanceBeats()`), `openerLine`/`finisherLine` (the
+opponent's loadout slot 1/3 move name plus a one-line gloss), `topBranchLine` (the opponent's
+highest-ranked talent branch, `treeSummary()`, `docs/design/talent-tree.md`, or null with no spent
+tree), and one rule-derived `suggestion` (`suggestedStance` set only for a stance-switch tip), first
+match wins:
 
-- `nationLine` -- which side's nation type has the advantage (`effectiveness()`,
-  `packages/shared/src/game/nations.ts`), or that they trade evenly;
-- `stanceLine` -- whether either stance counters the other (`stanceBeats()`, Stances above), or that
-  both picked the same stance;
-- `openerLine`/`finisherLine` -- the opponent's loadout slot 1/3 move name plus a one-line gloss on
-  its effect (defaulting to `defaultLoadoutMoveIds` for a snapshot with fewer than 3 stored moves,
-  same fallback `snapshotFor` itself uses);
-- `topBranchLine` -- the opponent's nation talent-tree branch with the highest rank total
-  (`treeSummary()`, `docs/design/talent-tree.md`), or null with no spent tree;
-- `suggestion` (with `suggestedStance` set only when it recommends a stance switch) -- exactly one
-  rule-derived tip, first match wins:
-  1. the opponent's stance counters mine -> switch to the stance that counters theirs;
-  2. the opponent has a `shield_first` move equipped, or the Stone Skin shared passive -> `burn`
-     ignores a one-hit shield (it is end-of-turn damage, not a hit `shield_first`/Stone Skin ever
-     reduce);
-  3. the opponent is in Gale (its SPD grant raises their dodge chance, Move pool and effects'
-     dodge formula) -> a `true_hit` opener ignores dodge entirely;
-  4. my nation type is resisted by theirs -> avoid trading nation-type hits;
-  5. my nation type has the advantage -> lean on nation-type moves;
-  6. none of the above -> a neutral fallback line.
-
-Every field falls back the same way `snapshotFor`/`resolveLoadoutMoves` already do for a snapshot
-that predates a field entirely (an absent `loadout` -> `DEFAULT_STANCE` + `defaultLoadoutMoveIds`,
-an absent `tree` -> no branch line) -- `packages/shared/test/matchup.test.ts` covers this alongside
-the rule priority above (12 cases).
-
-The Battles tab's "Recent opponents" cards (last 10, `apps/desktop/src/renderer/panel/views/
-Battles.tsx`) call `explainMatchup` with `opp` rebuilt from the recorded `BattleSummary.opponent`
-(nickname/nation/speciesId/level/loadout -- `apps/desktop/src/common/ipc.ts`, recorded by
-`BattleService.finish`) and `me` rebuilt from the player's *current* loadout (`UiSnapshot.battles.
-loadout`), not the loadout that was actually equipped in that stored battle -- re-run on every
-render, so the explanation and the "Counter this" button (pre-selects `suggestedStance` in the
-loadout editor without saving it) track loadout edits without a round-trip. Each card also shows the
-opponent's nation badge, species + level, stance, its 3 equipped move names, and a "Branch RankSum"
-badge (roman numeral, e.g. "Tremor III") from the same `topBranch`/`toRoman` helpers
-`packages/shared/src/battle/matchup.ts` exports.
+1. opponent's stance counters mine -> switch to the stance that counters theirs;
+2. opponent has `shield_first` equipped or the Stone Skin passive -> `burn` ignores a one-hit shield;
+3. opponent is in Gale (SPD grant raises dodge chance) -> a `true_hit` opener ignores dodge;
+4. my nation type is resisted by theirs -> avoid trading nation-type hits;
+5. my nation type has the advantage -> lean on nation-type moves;
+6. none of the above -> a neutral fallback line.
+Every field falls back the same way `snapshotFor`/`resolveLoadoutMoves` do for a pre-field snapshot
+(absent `loadout` -> `DEFAULT_STANCE` + `defaultLoadoutMoveIds`, absent `tree` -> no branch line) --
+`packages/shared/test/matchup.test.ts` covers this and the rule priority above (12 cases). The
+Battles tab's "Recent opponents" cards (last 10, `apps/desktop/src/renderer/panel/views/
+Battles.tsx`) call `explainMatchup` with `opp` rebuilt from the recorded `BattleSummary.opponent` and
+`me` rebuilt from the player's *current* loadout, re-run on every render so the explanation and the
+"Counter this" button (pre-selects `suggestedStance` without saving it) track loadout edits without a
+round-trip. Each card also shows the opponent's nation badge, species + level, stance, its 3 move
+names, and a "Branch RankSum" badge (e.g. "Tremor III") from the same `topBranch`/`toRoman` helpers.
 
 ## Balance targets
 
-`packages/shared/test/balance.test.ts` runs two matrices: the original cross-nation round-robin
-(35–65% per species, level 10 and 30) plus a Phase B archetype matrix — every species × 4 loadout
-archetypes (aggro/bulk/dot/tempo, each a 3-move pick favoring a cluster of effects — see the test's
-own `ARCHETYPE_EFFECTS`) × 4 opposing archetypes × cross-nation pairs, at levels 10 and 30 (stances
-cycled across the matrix rather than fully crossed, to keep the battle count tractable):
+`packages/shared/test/balance.test.ts` runs the original cross-nation round-robin (35–65% per
+species, level 10 and 30) plus a Phase B archetype matrix — every species × 4 loadout archetypes
+(aggro/bulk/dot/tempo, each a 3-move pick favoring a cluster of effects) × 4 opposing archetypes ×
+cross-nation pairs, at levels 10 and 30 (stances cycled rather than fully crossed, to keep the battle
+count tractable):
 
-- every species stays within **35–65%** win rate across its matchups (unchanged threshold from
-  `docs/design/battle.md`), both in the original matrix and aggregated across the archetype matrix;
-- no single archetype exceeds **60%** win rate across the matrix (measured: all 8
-  level × archetype combinations landed 46–55%);
-- the stance triangle holds at **55–62%** for the counter side, on every pairing, within 5 points of
-  each other (see Stances above for the 2026-09-13 tuning that made this achievable);
-- boundary matchups (level 9 vs. 11, level 24 vs. 26 — either side of a stage transition) land the
-  low-level side at **38–48%** (see Evolution multipliers above);
-- Phase C's talent-tree matrix (a maxed tree vs. an empty one, and every pair of a nation's
-  branches against each other) — see `docs/design/talent-tree.md` Balance targets for the numbers
-  and the tuning that got there.
+- every species stays within **35–65%** win rate (unchanged threshold from `docs/design/battle.md`);
+- no single archetype exceeds **60%** win rate (measured: all 8 level × archetype combos landed 46–55%);
+- the stance triangle holds at **55–62%** for the counter side, every pairing within 5 points of each
+  other (see Stances above);
+- boundary matchups (level 9 vs. 11, level 24 vs. 26) land the low-level side at **38–48%** (see
+  Evolution multipliers above);
+- Phase C's talent-tree matrix (a maxed tree vs. an empty one, and every pair of a nation's branches
+  against each other) — see `docs/design/talent-tree.md` Balance targets.
 
-Any change to `simulateBattle`'s RNG call order (a talent-tree roll, a stance check, etc.) resets the golden log snapshot (`docs/design/battle.md` Determinism contract) and bumps the battle protocol version. `BATTLE_PROTOCOL_VERSION` is **4** as of Phase C (talent-tree stat nodes folded into snapshot stats, move-upgrade/capstone nodes and the 10 shared passives; the golden log itself was unaffected since an untreed mon's battle is bit-identical to Phase B).
+Any change to `simulateBattle`'s RNG call order resets the golden log snapshot (`docs/design/battle.md`
+Determinism contract) and bumps `BATTLE_PROTOCOL_VERSION` (**4** as of Phase C: talent-tree stat
+nodes folded into snapshot stats, move-upgrade/capstone nodes and the 10 shared passives; an untreed
+mon's battle stays bit-identical to Phase B).
 
 ## Phases
 

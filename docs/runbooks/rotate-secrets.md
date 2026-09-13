@@ -2,8 +2,8 @@
 doc_type: runbook
 purpose: "Read this when rotating API tokens, database passwords, or code signing credentials that workflows and local development depend on."
 audience: both
-last_verified: 2026-09-05
-last_verified_commit: ab12392
+last_verified: 2026-09-13
+last_verified_commit: 8a24ac9
 related_files:
   - .github/workflows/release.yml
   - .github/workflows/supabase-deploy.yml
@@ -43,6 +43,25 @@ Organization ID for the SignPath account (rarely changes).
 
 ```bash
 gh secret set SIGNPATH_ORGANIZATION_ID
+```
+
+## SIGNPATH_PROJECT_SLUG and SIGNPATH_ENABLED (repository variables, not secrets)
+
+Not credentials to rotate, but required alongside `SIGNPATH_API_TOKEN`/`SIGNPATH_ORGANIZATION_ID`
+for signing to run at all (`.github/workflows/release.yml`'s `windows` job), so a signing failure is
+often one of these being unset rather than an expired secret. Both are **repository variables**
+(**Settings → Secrets and variables → Actions → Variables** tab, not **Secrets**):
+
+- `SIGNPATH_PROJECT_SLUG` — the SignPath project slug (`claude-mons`). Rarely changes; only needed
+  if the SignPath project is renamed or recreated.
+- `SIGNPATH_ENABLED` — must be `true` for any signing to happen at all; it is off while the only
+  certificate is the SignPath trial's self-signed one (see
+  [`docs/runbooks/release.md`](../runbooks/release.md#signing-switch)). Set it to `true` only once
+  the SignPath Foundation certificate is attached to the `release-signing` policy.
+
+```bash
+gh variable set SIGNPATH_PROJECT_SLUG --body claude-mons
+gh variable set SIGNPATH_ENABLED --body true
 ```
 
 ## SUPABASE_ACCESS_TOKEN
@@ -124,8 +143,8 @@ once both secrets are set.
 
 ## Acceptance
 
-- All secret names match those used in `.github/workflows/*.yml`.
+- All secret and variable names match those used in `.github/workflows/*.yml`.
 - `.env.local` contains non-empty values for `SUPABASE_ACCESS_TOKEN`, `SUPABASE_DB_PASSWORD`, and `SUPABASE_PROJECT_REF`.
 - Trigger `.github/workflows/supabase-deploy.yml` to verify `SUPABASE_ACCESS_TOKEN` and `SUPABASE_DB_PASSWORD` work.
-- Trigger `.github/workflows/release.yml` via `workflow_dispatch` to verify `SIGNPATH_API_TOKEN` and `SIGNPATH_ORGANIZATION_ID` work.
+- Trigger `.github/workflows/release.yml` via `workflow_dispatch` to verify `SIGNPATH_API_TOKEN` and `SIGNPATH_ORGANIZATION_ID` work; `gh variable list` shows `SIGNPATH_PROJECT_SLUG` set (and `SIGNPATH_ENABLED` set deliberately, per [`docs/runbooks/release.md`](../runbooks/release.md#signing-switch)).
 - After the next tagged release, confirm the `publish apt repository` job signed successfully (no `::notice::` skip in its log) to verify `APT_GPG_PRIVATE_KEY` and `APT_GPG_PASSPHRASE` work; `workflow_dispatch` with `apt_dry_run: true` only checks the unsigned tree, not the secrets.

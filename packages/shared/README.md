@@ -2,8 +2,8 @@
 doc_type: reference
 purpose: "Read this when understanding the game-logic module shared between the desktop app and Supabase Edge Functions."
 audience: agent
-last_verified: 2026-09-05
-last_verified_commit: 6d99ae3
+last_verified: 2026-09-13
+last_verified_commit: 8a24ac9
 related_files:
   - packages/shared/src/*
   - packages/shared/package.json
@@ -14,7 +14,7 @@ related_files:
 
 # packages/shared
 
-Dependency-free game logic consumed as TypeScript source by both `apps/desktop` (Node) and `supabase/functions` (Deno). The package exports 13 modules re-exported through `packages/shared/src/index.ts`; callers import these or use path exports from `packages/shared/src/*`.
+Dependency-free game logic consumed as TypeScript source by both `apps/desktop` (Node) and `supabase/functions` (Deno). The package exports 17 modules re-exported through `packages/shared/src/index.ts`; callers import these or use path exports from `packages/shared/src/*`.
 
 Build is a no-op; the source is consumed directly. Consumed by Deno via a sync operation (`pnpm sync:shared`) that copies this directory into `supabase/functions/_shared/game/` and sets it to ESLint-ignore.
 
@@ -28,9 +28,13 @@ Build is a no-op; the source is consumed directly. Consumed by Deno via a sync o
 | `src/game/xp.ts` | XP economy: tool classification, caps, bonuses, streaks | ToolClass, TOOL_XP, EVENT_XP, CAPS, BONUS; classifyTool(), creditBucket(), streak functions |
 | `src/game/nations.ts` | Nation metadata, palettes, type effectiveness | NationInfo, NATION_INFO, NATION_BEATS; effectiveness(), otherNations() |
 | `src/game/nickname.ts` | Nickname validation + deterministic generator | NICKNAME_RE, RESERVED, BLOCKLIST; validateNickname(), generateNickname() |
-| `src/game/species.ts` | Species table (8), rarity rolls, display names | Species, SPECIES, SPECIES_IDS; speciesOf(), rollSpecies() |
+| `src/game/species.ts` | Species table (8), rarity rolls, display names, move pools | Species, SPECIES, SPECIES_IDS, Move; speciesOf(), rollSpecies(), unlockedMoves(), findMove(), defaultLoadoutMoveIds() |
+| `src/game/progression.ts` | Battle stances, loadout shape, respec rules (progression Phase A) | Stance, STANCES, DEFAULT_STANCE, STANCE_INFO, MonLoadout, RESPEC_FREE_BELOW_LEVEL, RESPEC_COOLDOWN_MS; isStance(), stanceBeats(), applyStanceModifiers(), validateLoadout() |
+| `src/game/tree.ts` | Talent tree: node tables, point budgets, validation (progression Phase C; full tables in `docs/design/talent-tree.md`) | TreeNodeKind, StatKey, TreeNode, SharedPassiveNode, CapstoneEffect, TREE_NODES, SHARED_PASSIVE_NODES; validateTree(), treeSpent(), pointsAvailable(), sharedPassivePoints(), treeSummary(), resolveTree() |
 | `src/battle/rng.ts` | Seedable PRNG (cyrb128 → sfc32) | Rng, makeRng() — bit-exact across V8 and Deno |
+| `src/battle/effects.ts` | Move-effect ids, magnitudes, and side-effect state (progression Phase B) | EffectId, EFFECT_IDS, EFFECT_DESCRIPTIONS; isEffectId(), initSideEffectState(), burnTickDamage() |
 | `src/battle/battle.ts` | Deterministic auto-battle simulator + rewards | MonSnapshot, BattleAction, simulateBattle(), BATTLE_RULES; challengerReward(), defenderReward() |
+| `src/battle/matchup.ts` | Pure recent-opponent matchup explainer (progression Phase D) | MatchupExplanation; explainMatchup() |
 | `src/behavior/index.ts` | Behavior-engine submodule barrel | Re-exports states, priorities, stimuli, reducer |
 | `src/behavior/states.ts` | Pet state enum, state→sprite/FX mapping | PetState, PET_STATES, AnimName; isBaseState(), isBattleState(), animationFor() |
 | `src/behavior/priorities.ts` | Priority table, durations, scheduler config | PRIORITY, DURATIONS, SCHEDULE, DECAY_TARGET |

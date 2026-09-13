@@ -23,18 +23,6 @@ export function isEffectId(value: unknown): value is EffectId {
   return typeof value === 'string' && (EFFECT_IDS as readonly string[]).includes(value);
 }
 
-/** One-line descriptions for the loadout editor's move dropdown. */
-export const EFFECT_DESCRIPTIONS: Record<EffectId, string> = {
-  priority: 'Acts first this turn, overriding the normal speed roll.',
-  crit_up: '+20pp critical-hit chance on this move.',
-  drain: 'Heals the user 50% of the damage this move deals.',
-  shield_first: 'The first hit this mon takes in the battle is reduced 50% (once per battle).',
-  def_down: "Target's DEF -25% for 3 turns; reapplying refreshes the duration, does not stack.",
-  burn: 'Target loses 8% max HP at the end of each turn for 3 turns (one instance at a time).',
-  true_hit: "Ignores the target's dodge chance.",
-  charge: 'Telegraphs for 0 damage this turn, then auto-releases at 2.2x power next turn.',
-};
-
 // --- magnitudes (docs/design/progression.md Move pool and effects) ----------------------------
 
 /**
@@ -70,6 +58,21 @@ export const BURN_FRACTION = 0.08;
 export const BURN_TURNS = 3;
 /** `charge`: the release turn's power multiplier. */
 export const CHARGE_MULTIPLIER = 2.2;
+
+/**
+ * One-line descriptions for the loadout editor's move dropdown. Built from the magnitude
+ * constants above so the text can never drift from the tuned values again.
+ */
+export const EFFECT_DESCRIPTIONS: Record<EffectId, string> = {
+  priority: 'Acts first this turn, overriding the normal speed roll.',
+  crit_up: `+${Math.round(CRIT_UP_BONUS * 100)}pp critical-hit chance on this move.`,
+  drain: `Heals the user ${Math.round(DRAIN_FRACTION * 100)}% of the damage this move deals.`,
+  shield_first: `The first hit this mon takes in the battle is reduced ${Math.round(SHIELD_FIRST_REDUCTION * 100)}% (once per battle).`,
+  def_down: `Target's DEF -${Math.round((1 - DEF_DOWN_MULT) * 100)}% for ${DEF_DOWN_TURNS} turns; reapplying refreshes the duration, does not stack.`,
+  burn: `Target loses ${Math.round(BURN_FRACTION * 100)}% max HP at the end of each turn for ${BURN_TURNS} turns (one instance at a time).`,
+  true_hit: "Ignores the target's dodge chance.",
+  charge: `Telegraphs for 0 damage this turn, then auto-releases at ${CHARGE_MULTIPLIER}x power next turn.`,
+};
 
 /**
  * Per-side, per-battle effect bookkeeping: shield/finisher one-shot flags, `def_down`/`burn` turn

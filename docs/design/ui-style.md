@@ -3,7 +3,7 @@ doc_type: design
 purpose: "Read this when changing the panel's visual language, design tokens, or a shared UI component (gems, segmented bars, chips, the game-menu bar) before it looks like a generic web app."
 audience: agent
 last_verified: 2026-09-13
-last_verified_commit: cfc8bc7
+last_verified_commit: 8a24ac9
 related_files:
   - apps/desktop/src/renderer/ui/theme.css
   - apps/desktop/src/renderer/panel/panel.css
@@ -15,13 +15,17 @@ related_files:
   - packages/sprites/README.md
   - docs/design/species-and-nations.md
   - docs/design/ui-panels.md
+  - docs/decisions/0019-game-style-panel-ui.md
 ---
 
 # Panel visual language
 
-**Status: implemented** (commit `cfc8bc7`) — tokens, the bundled display font and the shared
-components below all landed in `apps/desktop/src/renderer/ui/`. Two deviations from this doc, found
-during the visual-capture pass (`docs/design/ui-panels.md`'s Verification section):
+**Status: shipped** in the 0.2.0 "game-style panel redesign" (commit `6d1d1c3`) — tokens, the
+bundled display font and the shared components below all landed in
+`apps/desktop/src/renderer/ui/`; see `docs/decisions/0019-game-style-panel-ui.md` for why this
+reskin happened. A follow-up, commit `8a24ac9`, hid the Leaderboard's win-rate bar for a nation
+with no tallied battles instead of drawing it at 0% (`docs/design/ui-panels.md` Leaderboard).
+Two deviations from this doc, found during the pre-release visual-capture pass:
 
 - **Display font choice**: this doc names no specific pixel/bitmap face; **Pixelify Sans** (OFL
   1.1) was chosen over Press Start 2P/Silkscreen for legibility at small sizes, per the
@@ -31,10 +35,11 @@ during the visual-capture pass (`docs/design/ui-panels.md`'s Verification sectio
   and "8" collapse into similar shapes at that size. Rather than rely on a soft "~11px" cutoff, every
   spot that shows an exact count, level or rank at 11px or below (badges, chip labels, the game-menu
   tab labels, the talent tree's rank pips and point counter, board-row XP, the stance triangle's
-  corner labels) now uses the bold system font instead of `--font-display`; the display font is used
-  only at 12px and up (hero name, stat gem values, banner XP figures, the cooldown timer, podium
-  place numbers). This is a stricter version of this doc's own Typography rule, not a departure from
-  its intent.
+  corner labels, and — found in this pass — the podium's 1st/2nd/3rd place number, which sits at 13px
+  but was still moved to the system font since it is exactly this kind of exact-rank digit) now uses
+  the bold system font instead of `--font-display`; the display font is used only at 12px and up for
+  everything else (hero name, stat gem values, banner XP figures, the cooldown timer). This is a
+  stricter version of this doc's own Typography rule, not a departure from its intent.
 
 The 440x660 panel (`apps/desktop/src/renderer/panel/panel.css`, tokens in
 `apps/desktop/src/renderer/ui/theme.css`) currently reads as a settings web page: flat rows, a soft
@@ -120,7 +125,8 @@ Four-pixel base grid, five steps, replacing ad hoc `8px`/`12px`/`16px`/`18px`/`2
   border. Buttons in a pressed/active state (the active game-menu tab, a selected pixel-tab) invert it
   to read as pushed in.
 - Existing `.stat`/`.hero`/`.board-row` etc. keep their current DOM structure; only the border width,
-  radius and box-shadow change — see `docs/design/ui-panels.md`'s implementation plan for order of work.
+  radius and box-shadow change — see `docs/design/ui-panels.md`'s "Build order and follow-ups"
+  section for the order this was built in.
 
 ## Iconography
 
@@ -131,10 +137,9 @@ sources:
    used directly wherever a mon is depicted (hero, arena, podium, opponent cards), including its idle
    animation loop, never a static crop.
 2. **8x8 pixel glyphs**, drawn as inline SVG `<rect>` grids (matching the sprite package's own
-   `size: 32` string-row convention conceptually, just smaller) or a CSS grid of `box-shadow` pixels.
-   Used for: the four game-menu bar tabs (mon head / trophy-like board / crossed-blades / gear), the
-   streak flame, and the talent tree's leaf/point-counter badge. Keep every glyph the same 8x8 logical
-   grid and 1-2 colors so the set reads as one family.
+   `size: 32` string-row convention conceptually, just smaller), one color (`currentColor`) per
+   glyph so the set reads as one family — see the `Glyph` row in Shared components above for the
+   full name/usage inventory.
 
 ## Motion
 
@@ -148,6 +153,21 @@ sources:
 - No motion is required to convey information (a locked talent node is dim and non-interactive, not
   merely animated); this keeps the panel calm at a glance, matching CLAUDE.md's existing behavior-engine
   restraint.
+
+## Shared components
+
+The pieces every tab reuses, all in `apps/desktop/src/renderer/ui/` (CHANGELOG 0.2.0). A screen
+composes these rather than styling its own one-off markup for the same shape:
+
+| Component | File | Props | Used for |
+|---|---|---|---|
+| `PixelPanel` | `apps/desktop/src/renderer/ui/PixelPanel.tsx` | `class?`, `style?`, `children` | Generic bevelled `.pixel-panel` card — every Settings section card, the Mon tab's streak/training card |
+| `SegmentedBar` | `apps/desktop/src/renderer/ui/SegmentedBar.tsx` | `pct` (0-100), `segments?` (default 16), `class?` | The hero/egg XP bar's discrete-segment fill |
+| `StatGem` | `apps/desktop/src/renderer/ui/StatGem.tsx` | `kind: 'hp' \| 'atk' \| 'def' \| 'spd'`, `value`, `label` | The Mon tab's 4 diamond stat gems |
+| `TypeChip` | `apps/desktop/src/renderer/ui/TypeChip.tsx` | `nation: Nation \| 'neutral'`, `label` | Move-type chips (Mon's known moves, Battles' loadout) and the Leaderboard board rows' nation chip |
+| `NationBadge` | `apps/desktop/src/renderer/ui/NationBadge.tsx` | `nation: Nation` | The 3-letter crest tile on a Leaderboard nation banner |
+| `Glyph` | `apps/desktop/src/renderer/ui/Glyph.tsx` | `name: GlyphName`, `size?` (default 8), `class?` | 8x8 pixel icon set: `mon`/`trophy`/`swords`/`gear` (bottom tab bar), `flame` (streak badges), `leaf` (talent tree point counter), `drop` (water reminder card). `clock`/`spark`/`wind` are drawn in the set but not used by any screen yet. |
+| `BottomTabBar` | `apps/desktop/src/renderer/ui/BottomTabBar.tsx` | `tabs: BottomTab<T>[]`, `active: T`, `onChange` | The bottom game-menu bar (`apps/desktop/src/renderer/panel/App.tsx`), replacing the old top `.tabs` strip |
 
 ## Component specs
 
