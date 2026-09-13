@@ -18,7 +18,7 @@ related_files:
 
 All notable changes to claude-mons are documented here. See [Keep a Changelog](https://keepachangelog.com/) for format details.
 
-## [Unreleased]
+## [0.2.1] - 2026-09-13
 
 ### Fixed
 
