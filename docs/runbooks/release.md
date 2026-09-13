@@ -174,6 +174,14 @@ Two artifact configurations with XML are needed to sign the executables (pass 1)
 
 4. Run the workflow once via `workflow_dispatch` to test; it uses `test-signing`.
 
+## Signing switch
+
+The repository variable `SIGNPATH_ENABLED` must be `true` for any signing to happen. It is `false` while the SignPath trial quota is exhausted and the only certificate is self-signed; set it to `true` once the Foundation certificate is attached to `release-signing`.
+
+## Releases before 1.0
+
+Tags `v0.*` are published as GitHub pre-releases and the app accepts pre-releases (`allowPrerelease`), so auto-update works during the preview phase. Each release needs a version bump in `apps/desktop/package.json` and a `CHANGELOG.md` section.
+
 ## Signing quota
 
 SignPath's free trial meters the yearly artifact size. Manual `workflow_dispatch` runs therefore build **unsigned** Windows artifacts unless the `sign_test` input is set; only `v*` tag builds sign with `release-signing`. A run that fails with "Yearly quota for artifact size has been exceeded" needs the quota reset or a plan change on the SignPath side; the Linux job and the unsigned Windows artifact are unaffected.

@@ -1,9 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { describeUpdateError, pickAutoUpdater } from '../src/main/updater/interop.ts';
+import {
+  describeUpdateError,
+  isNoReleaseError,
+  pickAutoUpdater,
+} from '../src/main/updater/interop.ts';
 
 const fake = () => ({
   autoDownload: false,
   autoInstallOnAppQuit: false,
+  allowPrerelease: false,
   on: () => undefined,
   checkForUpdates: async () => null,
   quitAndInstall: () => undefined,
@@ -44,5 +49,12 @@ describe('describeUpdateError', () => {
     const msg = describeUpdateError(new Error(`${'x'.repeat(300)}\nsecond line`));
     expect(msg.length).toBeLessThanOrEqual(160);
     expect(msg).not.toMatch(/second line/);
+  });
+});
+
+describe('isNoReleaseError', () => {
+  it('recognises a missing release and nothing else', () => {
+    expect(isNoReleaseError(new Error('HttpError: 404 latest.yml'))).toBe(true);
+    expect(isNoReleaseError(new Error('ENOTFOUND github.com'))).toBe(false);
   });
 });

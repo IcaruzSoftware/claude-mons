@@ -20,6 +20,10 @@ All notable changes to claude-mons are documented here. See [Keep a Changelog](h
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-09-13
+
+First published pre-release: everything below plus the v0.1.0 feature set.
+
 ### Added
 - Optional email account linking: Settings' Account section lets a player link an email (6-digit code, no password ever) so the same mon can be used on a second computer, and sign in with that email on a fresh install (Onboarding's "Already have a mon? Sign in") to adopt the server profile instead of choosing a nation. `apps/desktop/src/main/net/SupabaseClient.ts` gains `linkEmail`/`verifyLinkCode`/`requestSignInCode`/`verifySignInCode`/`linkedEmail`/`signOutToAnonymous`; `apps/desktop/src/main/net/account.ts` holds the pure email-validation and profile-adoption/reset transforms. `scripts/supabase-auth-config.mjs` configures the required Supabase auth settings (manual linking, autoconfirm off, code-carrying email templates). See `docs/decisions/0016-email-otp-account-linking.md` and `docs/architecture/flows/account-linking.md`. `LocalState` gains `profile.email` (`MIGRATIONS[2]`, schema v3 → v4).
 - Confirmation-link fallback for linking an email on the free-tier default mailer, which cannot deliver the 6-digit code (only its own built-in link): `SupabaseClient.refreshLinkedEmail()` (`auth.refreshSession()` + `auth.getUser()`, resolved through the new pure `resolveConfirmedEmail` in `apps/desktop/src/main/net/account.ts`) detects a link the player clicked in their mail client, exposed as `IPC.accountLinkRefresh` (`account:link-refresh`). `apps/desktop/src/renderer/ui/AccountEmailCode.tsx` shows an "I clicked the link" button for the linking widget and auto-polls the same call every 5 s for up to 10 minutes so the panel notices on its own; the sign-in-on-a-new-device widgets show a one-line hint instead, since that path has no link-based equivalent and still needs custom SMTP. See `docs/architecture/flows/account-linking.md` and the updated `docs/runbooks/auth-email-config.md` (adds a Gmail app-password SMTP recipe).

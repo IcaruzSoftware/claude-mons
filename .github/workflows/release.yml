@@ -54,6 +54,7 @@ jobs:
         if: env.PUBLISH == 'always'
         uses: softprops/action-gh-release@v2
         with:
+          prerelease: ${{ startsWith(github.ref_name, 'v0.') || contains(github.ref_name, '-') }}
           files: |
             apps/desktop/release/*.AppImage
             apps/desktop/release/*.deb
@@ -200,6 +201,9 @@ jobs:
           if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.sign_test == true }}" != "true" ]; then
             echo "enabled=false" >> "$GITHUB_OUTPUT"
             echo "::notice::Manual run: signing skipped to save the SignPath artifact-size quota (set sign_test to sign)"
+          elif [ "${{ vars.SIGNPATH_ENABLED }}" != "true" ]; then
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::SIGNPATH_ENABLED is not true; producing unsigned Windows build"
           elif [ -n "${{ secrets.SIGNPATH_API_TOKEN }}" ] && [ -n "${{ secrets.SIGNPATH_ORGANIZATION_ID }}" ] && [ -n "${{ vars.SIGNPATH_PROJECT_SLUG }}" ]; then
             echo "enabled=true" >> "$GITHUB_OUTPUT"
           else
@@ -256,6 +260,7 @@ jobs:
         if: env.PUBLISH == 'always'
         uses: softprops/action-gh-release@v2
         with:
+          prerelease: ${{ startsWith(github.ref_name, 'v0.') || contains(github.ref_name, '-') }}
           files: |
             apps/desktop/release/*.exe
             apps/desktop/release/*.blockmap

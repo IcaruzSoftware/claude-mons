@@ -13,6 +13,7 @@ export interface UpdatePayload {
 export interface AutoUpdaterLike {
   autoDownload: boolean;
   autoInstallOnAppQuit: boolean;
+  allowPrerelease: boolean;
   on(event: string, listener: (payload: UpdatePayload) => void): unknown;
   checkForUpdates(): Promise<unknown>;
   quitAndInstall(): void;
@@ -32,6 +33,12 @@ export function pickAutoUpdater(mod: unknown): AutoUpdaterLike {
       return c as AutoUpdaterLike;
   }
   throw new Error('electron-updater did not expose autoUpdater (module shape not recognised)');
+}
+
+/** True when the failure only means that no GitHub Release exists yet (not an error for the user). */
+export function isNoReleaseError(err: unknown): boolean {
+  const raw = err instanceof Error ? err.message : String(err);
+  return /404|latest.yml|Cannot find|No published versions/i.test(raw);
 }
 
 /** Turns electron-updater failures into one short line a user can act on. */

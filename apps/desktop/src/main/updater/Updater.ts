@@ -1,5 +1,5 @@
 import { app } from 'electron';
-import { describeUpdateError, pickAutoUpdater } from './interop.ts';
+import { describeUpdateError, isNoReleaseError, pickAutoUpdater } from './interop.ts';
 
 const DEBUG = process.env.CLAUDE_MONS_DEBUG === '1';
 
@@ -41,6 +41,8 @@ export class Updater {
     try {
       const autoUpdater = pickAutoUpdater(await import('electron-updater'));
       autoUpdater.autoDownload = true;
+      // Releases before 1.0 are published as GitHub pre-releases.
+      autoUpdater.allowPrerelease = true;
       autoUpdater.autoInstallOnAppQuit = true;
       autoUpdater.on('checking-for-update', () => this.set({ kind: 'checking' }));
       autoUpdater.on('update-available', (info) =>
@@ -51,13 +53,21 @@ export class Updater {
         this.set({ kind: 'downloaded', version: info.version ?? 'unknown' }),
       );
       autoUpdater.on('error', (err) =>
-        this.set({ kind: 'error', message: describeUpdateError(err) }),
+        this.set(
+          isNoReleaseError(err)
+            ? { kind: 'up-to-date' }
+            : { kind: 'error', message: describeUpdateError(err) },
+        ),
       );
       const check = () => autoUpdater.checkForUpdates().catch(() => {});
       setTimeout(check, 30_000);
       this.timer = setInterval(check, 6 * 60 * 60 * 1000);
     } catch (err) {
-      this.set({ kind: 'error', message: describeUpdateError(err) });
+      this.set(
+        isNoReleaseError(err)
+          ? { kind: 'up-to-date' }
+          : { kind: 'error', message: describeUpdateError(err) },
+      );
     }
   }
 
@@ -67,7 +77,11 @@ export class Updater {
       const autoUpdater = pickAutoUpdater(await import('electron-updater'));
       await autoUpdater.checkForUpdates();
     } catch (err) {
-      this.set({ kind: 'error', message: describeUpdateError(err) });
+      this.set(
+        isNoReleaseError(err)
+          ? { kind: 'up-to-date' }
+          : { kind: 'error', message: describeUpdateError(err) },
+      );
     }
   }
 
