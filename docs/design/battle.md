@@ -3,15 +3,18 @@ doc_type: design
 purpose: "Read this when changing battle math, matchmaking, rewards, or the battle log shape."
 audience: agent
 last_verified: 2026-09-13
-last_verified_commit: 8f6efa8
+last_verified_commit: 1abb898
 related_files:
   - packages/shared/src/battle/battle.ts
   - packages/shared/src/battle/rng.ts
   - packages/shared/src/game/levels.ts
+  - packages/shared/src/game/progression.ts
   - packages/shared/test/battle.test.ts
   - packages/shared/test/balance.test.ts
   - supabase/migrations/20260904000000_init.sql
   - supabase/migrations/20260913010000_battle_limits.sql
+  - supabase/migrations/20260913020000_progression_phase_a.sql
+  - supabase/migrations/20260913030000_progression_tuning.sql
   - supabase/functions/battle-request/index.ts
   - docs/design/progression.md
 ---
@@ -26,11 +29,26 @@ Move pools, loadouts, stances, talent trees and the future matchmaking/streak de
 
 ## Level curve and stats
 
-Level curve, stage thresholds (`HATCH_XP`, `TEEN_LEVEL`, `ADULT_LEVEL`, `MAX_LEVEL`) and the per-stat
-growth curve live in `packages/shared/src/game/levels.ts:statAtLevel` — this doc does not restate the
-numbers, only how battle code uses them. A mon's battle stats are `statsAtLevel()`
+Level curve, stage thresholds (`HATCH_XP`, `TEEN_LEVEL`, `ADULT_LEVEL`, `MAX_LEVEL`), the per-stat
+growth curve, and the evolution-stage multiplier layered on top of it live in
+`packages/shared/src/game/levels.ts:statAtLevel` (numbers and rationale:
+`docs/design/progression.md` Evolution multipliers) — this doc does not restate them, only how
+battle code uses them. A mon's battle stats are `statsAtLevel()`
 (`packages/shared/src/battle/battle.ts:statsAtLevel`), which applies
 `packages/shared/src/game/levels.ts:statAtLevel` to each of `hp`, `atk`, `def`, `spd` independently.
+
+## Stances
+
+A mon's `MonSnapshot.loadout?.stance` (default `DEFAULT_STANCE` when unset, e.g. for a pre-Phase-A
+stored snapshot) modifies its effective `atk`/`def`/`spd` for the whole battle before the damage
+formula below runs, and grants a flat damage-dealt/damage-taken bonus against the stance it counters.
+Numbers, names and the rock-paper-scissors triangle live in `docs/design/progression.md` Stances;
+this doc only notes where it plugs in: `packages/shared/src/game/progression.ts:applyStanceModifiers`
+computes the modified stats once per battle (not per turn — a stance is fixed for the whole fight),
+and `stanceBeats` decides which side (if either) gets the counter multiplier
+(`STANCE_COUNTER_DEALT_MULT` / `STANCE_COUNTER_TAKEN_MULT`) applied in `simulateBattle`'s `act()`.
+Stance does not change RNG call order, but it does change the stats/damage formula, hence
+`BATTLE_PROTOCOL_VERSION` bumping to 2 for Phase A.
 
 ## Damage formula (as shipped)
 
@@ -120,11 +138,17 @@ that acted that turn (the second actor's entry is omitted if the first action al
 |---|---|---|
 | Win vs. player | `30 + 5 * clamp(oppLevel - myLevel, -3, 3)` (15–45) | 3 |
 | Loss vs. player | 10 | 8 |
-| Win vs. Wild Mon (bot) | 20 | — (bots never pay) |
+| Win vs. Wild Mon (bot) | 20 (doubled if the wild mon rolled elite, see Matchmaking) | — (bots never pay) |
 | Loss vs. Wild Mon (bot) | 5 | — |
 
 `isBot` is true whenever the opponent is a Wild Mon (see Matchmaking); bot battles never credit an opponent,
 since there is no real player behind the snapshot.
+
+The table above is the *pre-streak* amount `battle-request` passes to `settle_battle`; the actual
+XP credited (and reported in the response's `reward.xp`) is further multiplied by the challenger's
+win streak. Numbers and the `mons.win_streak` column live in `docs/design/progression.md`
+Matchmaking and streaks; `packages/shared/src/battle/battle.ts:winStreakMultiplier` is the shared
+mirror of the multiplier `settle_battle` applies server-side (the SQL copy is authoritative).
 
 ## Cooldown and daily caps
 
@@ -146,22 +170,31 @@ rules are enforced server-side, not just advisory client constants:
 
 ## Matchmaking (`battle-request` Edge Function)
 
+Numbers below are `docs/design/progression.md`'s Matchmaking and streaks section; this is how they
+plug into the Edge Function.
+
 `supabase/functions/battle-request/index.ts:findOpponent` queries `pick_opponent`
-(`supabase/migrations/20260904000000_init.sql`), which is restricted to **other nations only**
-(`p.nation <> p_nation`) and further excludes: eggs, mons with no species, players inactive > 30 days,
-`suspicion >= 10`, the requester themselves, and the requester's `last_opponent_id`.
+(`supabase/migrations/20260904000000_init.sql`, windows updated in
+`supabase/migrations/20260913020000_progression_phase_a.sql`), which is restricted to **other
+nations only** (`p.nation <> p_nation`) and further excludes: eggs, mons with no species, players
+inactive > 30 days, `suspicion >= 10`, the requester themselves, and the requester's
+`last_opponent_id`.
 
 `findOpponent` widens the search in two nested passes:
 
 1. Outer loop: `p_exclude_recent = true` first (skip anyone the challenger fought via this challenger's own
    `battles` rows in the last 24 h), then `false`.
-2. Inner loop: `LEVEL_WINDOWS = [3, 6, 10, null]` — level difference `<= 3`, then `<= 6`, then `<= 10`, then
-   `null` (any level) — stopping at the first window that returns a row.
+2. Inner loop: `LEVEL_WINDOWS` — three asymmetric passes relative to the challenger's own level,
+   `[-2, +1]`, then `[-4, +2]`, then any level (`p_min_level`/`p_max_level` both `null`) — stopping at
+   the first pass that returns a row. `pick_opponent` also returns the opponent's `loadout` so their
+   stance carries into the battle snapshot.
 
 If every combination returns nothing, `findOpponent` returns `null` and `battle-request` falls back to a
 **Wild Mon** (`wildMon()`): a random species from a random other nation, at
-`level = max(2, challenger.level)`, `nickname = "Wild <BabyName>"`, `playerId: null`. A Wild Mon opponent
-sets `isBot = true`, which is what routes rewards to the bot-only rows in the table above.
+`level = max(2, challenger.level + rng(-3, +1))`, `nickname = "Wild <BabyName>"`, `playerId: null`.
+10 % of these roll **elite** instead (fixed `+3` levels, `isElite: true` in the response, doubles the
+challenger's win XP). A Wild Mon opponent sets `isBot = true`, which is what routes rewards to the
+bot-only rows in the Rewards table above.
 
 `simulateBattle` is called with `seed = battleId = crypto.randomUUID()`, generated fresh per request; the
 challenger is always side `a`.
@@ -169,16 +202,30 @@ challenger is always side `a`.
 ## Balance harness
 
 `packages/shared/test/balance.test.ts` simulates the matchups matchmaking can actually produce — cross-
-nation only, no mirror matches — at level 10, 150 battles per ordered species pair, and asserts:
+nation only, no mirror matches — at level 10 **and** level 30 (150 battles per ordered species pair
+at each), and asserts:
 
-- every species' win rate stays within **35–65 %** across all its cross-nation matchups;
+- every species' win rate stays within **35–65 %** across all its cross-nation matchups, at both levels;
 - mean battle length is between **3 and 8 turns**;
-- timeouts (`reason !== 'ko'`) stay under **2 %** of battles;
+- timeouts (`reason !== 'ko'`) stay under **2 %** of battles at level 10, under **4 %** at level 30 (a
+  pre-existing, minor characteristic of the damage formula's level `scale` term, not something the
+  evolution multiplier introduces — see the test's own comment);
 - a **+3 level** advantage (`sparkit` L13 vs. `pebblet` L10, 600 battles) wins between **60 % and 90 %** of
   the time.
 
 If a rebalance is needed, the test's own comment says to adjust base stats in
 `packages/shared/src/game/species.ts` first, not loosen the thresholds.
+
+Two more scenarios were added for Phase A: stage-transition boundary matchups (L9 vs. L11, L24 vs.
+L26) and the stance triangle (`docs/design/progression.md` Stances). Both initially missed their
+design-doc targets by a wide margin (a 2-level gap plus the original evolution-stage multiplier
+compounded into the low side winning only ~27–28 %; the original ±18 %/±10 % stance modifiers landed
+two of the three counter pairings at 80–97 % and the third anywhere from ~37–64 %). Both were fixed
+by simulation-tuned constants, not by loosening these test bounds — the tuned magnitudes, the
+stance-mapping change that fixed the structural stance asymmetry, and the "tuned by simulation on
+2026-09-13" notes live in `docs/design/progression.md` (Evolution multipliers and Stances). The
+current, passing targets are **38–48 %** for the boundary matchups' low side and **55–62 %** (all
+three pairings within 5 points of each other) for the stance triangle.
 
 ## History
 

@@ -7,6 +7,7 @@
  * Timestamps are ISO-8601 strings in UTC; `MinuteBucket.minute` is epoch milliseconds.
  */
 import type { BattleResult, MonSnapshot } from './battle/battle.ts';
+import type { MonLoadout } from './game/progression.ts';
 import type { DropReason, MinuteBucket } from './game/xp.ts';
 import type { Nation, Stage, Stats } from './types.ts';
 
@@ -51,6 +52,8 @@ export interface MonState {
   /** already scaled to `level`; empty object while egg */
   stats: Stats | Record<string, never>;
   streakDays: number;
+  /** Consecutive real-player challenger wins (docs/design/progression.md Matchmaking and streaks). */
+  winStreak: number;
   battle: {
     /** ISO timestamp when the next challenge is allowed, or null if allowed now */
     cooldownUntil: string | null;
@@ -129,10 +132,24 @@ export interface BattleRequestResponse {
     /** the opponent; `playerId` is null for a Wild Mon */
     b: MonSnapshot;
     isBot: boolean;
+    /** true for the 10% of Wild Mon encounters that roll +3 levels and double challenger XP */
+    isElite: boolean;
   };
   reward: { xp: number; kind: BattleRewardKind };
   mon: MonState;
   cooldownUntil: string;
+}
+
+// --- set-loadout ------------------------------------------------------------------------------
+
+/** Only `stance` is accepted in Phase A; `moves`/`tree` are reserved for Phase B/C. */
+export interface SetLoadoutRequest {
+  stance?: string;
+}
+
+export interface SetLoadoutResponse {
+  loadout: MonLoadout;
+  mon: MonState;
 }
 
 // --- heartbeat --------------------------------------------------------------------------------

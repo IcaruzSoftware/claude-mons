@@ -3,7 +3,7 @@ doc_type: reference
 purpose: "Check this for what is shipping next and blocked work items for v1 and beyond."
 audience: both
 last_verified: 2026-09-13
-last_verified_commit: 8f6efa8
+last_verified_commit: 1abb898
 related_files:
   - docs/history/v1-design-2026-09-04.md
   - docs/history/v1-handoff-2026-09-04.md
@@ -30,8 +30,14 @@ v1 is feature-complete and end-to-end tested on Windows 11. Below are the blocke
 
 ## Next (v1.1 features & UX)
 
-- **Progression system phases A–D (in progress).** Move pool per species, pre-battle loadout/stance
-  selection, per-nation talent trees and richer matchmaking/streaks — see [docs/design/progression.md](design/progression.md).
+- **Progression system phases B–D (in progress; Phase A shipped).** Phase A landed stances, evolution
+  stat multipliers, widened asymmetric matchmaking windows + elite Wild Mons, and win streaks. Still
+  ahead: the 6-move-per-species pool and loadout policy (Phase B), per-nation talent trees + respec
+  (Phase C), and recent-opponent intel on the Battles tab (Phase D) — see
+  [docs/design/progression.md](design/progression.md). Phase A also surfaced a real balance gap
+  against that doc's own targets (stage-transition boundary matchups and the stance triangle land
+  well outside its 35-65%/55-45% aspirations); see `docs/design/battle.md`'s Balance harness section
+  for the measured numbers — worth revisiting before Phase B tunes loadout archetypes on top.
 - **Changing nation.** UI + server-side support for a one-time or cooldown nation swap (ties to leaderboard changes for nation stats).
 - **More species.** Add 2–3 per nation on top of the [current roster](design/species-and-nations.md) with new sprite sets and balancing.
 - **Seasonal nation events.** Nation-wide challenges with special battle mechanics, bonus XP, limited-time cosmetics.

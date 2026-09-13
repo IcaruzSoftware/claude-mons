@@ -2,8 +2,8 @@
 doc_type: runbook
 purpose: "Read this when deploying backend changes to Supabase."
 audience: both
-last_verified: 2026-09-05
-last_verified_commit: d7db9c0
+last_verified: 2026-09-13
+last_verified_commit: 1abb898
 related_files:
   - supabase/README.md
   - supabase/config.toml
@@ -12,8 +12,11 @@ related_files:
   - supabase/functions/create-profile/index.ts
   - supabase/functions/ingest-xp/index.ts
   - supabase/functions/battle-request/index.ts
+  - supabase/functions/set-loadout/index.ts
   - .github/workflows/supabase-deploy.yml
   - scripts/sync-shared.mjs
+  - scripts/supabase-auth-config.mjs
+  - docs/runbooks/auth-email-config.md
 ---
 
 # Deploy backend to Supabase
@@ -47,6 +50,17 @@ npx supabase db push --yes
 npx supabase config push --yes
 ```
 
+**Caution, hit live during Phase A of `docs/design/progression.md`:** this project's account-linking
+auth settings (`site_url`, `external_email_enabled`, `security_manual_linking_enabled`,
+`mailer_autoconfirm`) are managed out-of-band by `scripts/supabase-auth-config.mjs`
+(`docs/runbooks/auth-email-config.md`) because they either aren't in `[auth]` in
+`supabase/config.toml` at all (the mailer/manual-linking keys) or the repo's checked-in value is a
+local-dev default (`site_url = "http://127.0.0.1:3000"`) that the live project deliberately
+overrides. `supabase config push` does not know that and silently resets all four to
+`supabase/config.toml`'s values on every push — it happened running this exact step. **Immediately after any
+`config push`, re-run `node scripts/supabase-auth-config.mjs` (dry run) and `--apply` if it reports
+any diff**, then verify with a `GET /v1/projects/$SUPABASE_PROJECT_REF/config/auth`.
+
 5. Refresh the Edge Functions' shared game code:
 
 ```bash
@@ -61,7 +75,7 @@ This copies `packages/shared/src/` to `supabase/functions/_shared/game/` (gitign
 npx supabase functions deploy
 ```
 
-The `heartbeat` function deploys with `verify_jwt = false`; the other three (`create-profile`, `ingest-xp`, `battle-request`) require a valid JWT.
+The `heartbeat` function deploys with `verify_jwt = false`; the other four (`create-profile`, `ingest-xp`, `battle-request`, `set-loadout`) require a valid JWT.
 
 ## Verification
 

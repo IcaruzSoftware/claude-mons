@@ -16,6 +16,7 @@ import type {
   MonSnapshot,
   Nation,
   PetState,
+  Stance,
   Stimulus,
   World,
   Stage,
@@ -55,6 +56,7 @@ export const IPC = {
   uiSyncNow: 'ui:sync-now',
   uiSetWaterEnabled: 'ui:set-water-enabled',
   uiSetWaterInterval: 'ui:set-water-interval',
+  battleSetStance: 'battle:set-stance',
   accountLinkStart: 'account:link-start',
   accountLinkVerify: 'account:link-verify',
   accountLinkRefresh: 'account:link-refresh',
@@ -153,6 +155,10 @@ export interface BattlePlayMessage {
   /** XP the player earns; shown at the end */
   reward: number;
   isBot: boolean;
+  /** true for the 10% of Wild Mon encounters that roll +3 levels and double challenger XP */
+  isElite: boolean;
+  /** the challenger's consecutive-win streak after this battle (0 on a loss) */
+  winStreak: number;
 }
 
 /** One line in the battle history. */
@@ -162,6 +168,8 @@ export interface BattleSummary {
   won: boolean;
   xp: number;
   isBot: boolean;
+  isElite: boolean;
+  winStreak: number;
   turns: number;
   reason: BattleResult['reason'];
   me: { speciesId: string; stage: Stage; level: number };
@@ -216,7 +224,15 @@ export interface UiSnapshot {
   };
   update: UpdateStatusValue;
   notifications: BattleNotification[];
-  battles: { history: BattleSummary[]; cooldownUntil: number | null; remainingToday: number };
+  battles: {
+    history: BattleSummary[];
+    cooldownUntil: number | null;
+    remainingToday: number;
+    /** current consecutive-win streak (docs/design/progression.md Matchmaking and streaks) */
+    winStreak: number;
+    /** this mon's current battle stance (docs/design/progression.md Stances) */
+    stance: Stance;
+  };
 }
 
 export type UpdateStatusValue =

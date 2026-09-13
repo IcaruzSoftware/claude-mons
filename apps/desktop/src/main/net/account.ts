@@ -63,7 +63,7 @@ export function buildAdoptedProfile(
     streak: { streakDays: res.mon.streakDays, lastActiveDay: null },
     bonusXp: 0,
     battleXp: 0,
-    battles: { history: [], lastBattleAt: null, today: { day: '', count: 0 } },
+    battles: { history: [], lastBattleAt: null, today: { day: '', count: 0 }, streak: 0 },
   };
 }
 
@@ -82,6 +82,6 @@ export function resetToAnonymousProfile(newSeed: number): ProfileReplacement {
     streak: { streakDays: 0, lastActiveDay: null },
     bonusXp: 0,
     battleXp: 0,
-    battles: { history: [], lastBattleAt: null, today: { day: '', count: 0 } },
+    battles: { history: [], lastBattleAt: null, today: { day: '', count: 0 }, streak: 0 },
   };
 }

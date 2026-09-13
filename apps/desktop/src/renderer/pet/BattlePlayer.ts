@@ -72,7 +72,7 @@ export class BattlePlayer {
       hp: { me: msg.result.maxHp.a, opp: msg.result.maxHp.b },
       maxHp: { me: msg.result.maxHp.a, opp: msg.result.maxHp.b },
       popups: [],
-      banner: `${msg.opponent.nickname} challenges you!`,
+      banner: `${msg.opponent.nickname}${msg.isElite ? ' (Elite)' : ''} challenges you!`,
       intro: 0,
     };
     this.build();
@@ -101,8 +101,9 @@ export class BattlePlayer {
       run: () => {
         this.emit({ type: won ? 'battle:win' : 'battle:lose' });
         this.view.opponentAnim = won ? 'hurt' : 'happy';
+        const streakNote = won && this.msg.winStreak > 1 ? ` (streak x${this.msg.winStreak})` : '';
         this.view.banner = won
-          ? `You win! +${this.msg.reward} XP`
+          ? `You win! +${this.msg.reward} XP${streakNote}`
           : `${this.msg.opponent.nickname} wins. +${this.msg.reward} XP`;
       },
     });

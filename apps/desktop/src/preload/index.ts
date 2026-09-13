@@ -3,7 +3,7 @@
  * pet API and the UI API live in one file; each window only uses the part it needs.
  */
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron';
-import type { World } from '@claude-mons/shared';
+import type { Stance, World } from '@claude-mons/shared';
 import {
   IPC,
   type AccountOpResult,
@@ -79,6 +79,8 @@ const uiApi = {
     ipcRenderer.invoke(IPC.uiSetWaterEnabled, enabled),
   setWaterInterval: (intervalMin: number): Promise<UiSnapshot> =>
     ipcRenderer.invoke(IPC.uiSetWaterInterval, intervalMin),
+  setStance: (stance: Stance): Promise<{ ok: boolean; error: string | null }> =>
+    ipcRenderer.invoke(IPC.battleSetStance, stance),
   water: {
     done: (): Promise<UiSnapshot> => ipcRenderer.invoke(IPC.waterDone),
     snooze: (): Promise<UiSnapshot> => ipcRenderer.invoke(IPC.waterSnooze),

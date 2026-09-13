@@ -24,6 +24,7 @@ function fakeResponse(
       xpToNext: 400,
       stats: { hp: 1, atk: 1, def: 1, spd: 1 },
       streakDays: 7,
+      winStreak: 0,
       battle: { cooldownUntil: null, remainingToday: 3 },
       ...overrides,
     },
@@ -82,6 +83,7 @@ describe('buildAdoptedProfile', () => {
       history: [],
       lastBattleAt: null,
       today: { day: '', count: 0 },
+      streak: 0,
     });
   });
 });

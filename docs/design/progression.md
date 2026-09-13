@@ -3,7 +3,7 @@ doc_type: design
 purpose: "Read this when changing moves, stances, talents, matchmaking windows, streaks or evolution stat multipliers, or building the loadout editor."
 audience: agent
 last_verified: 2026-09-13
-last_verified_commit: 8f6efa8
+last_verified_commit: 1abb898
 related_files:
   - packages/shared/src/battle/battle.ts
   - packages/shared/src/game/species.ts
@@ -12,6 +12,8 @@ related_files:
   - docs/design/battle.md
   - docs/design/species-and-nations.md
   - supabase/migrations/20260904000000_init.sql
+  - supabase/migrations/20260913030000_progression_tuning.sql
+  - packages/shared/src/game/progression.ts
   - packages/shared/test/balance.test.ts
   - apps/desktop/src/renderer/panel/views/Battles.tsx
 ---
@@ -108,13 +110,33 @@ This supersedes `docs/design/battle.md`'s `special`-at-≤50%-own-HP rule once P
 
 ## Stances
 
-Three stances, ±18% opposed stat trade-offs in a rock-paper-scissors triangle. Countering the opponent's stance grants +10% damage dealt and −10% damage taken for the whole battle.
+Three stances in a rock-paper-scissors triangle: each grants +2% to one stat and costs −6% on
+another (independently tunable, not opposed-and-equal). Countering the opponent's stance grants +2%
+damage dealt and −2% damage taken for the whole battle.
 
 | Stance | Grants | Costs | Beats | Loses to |
 |---|---|---|---|---|
-| Fury | ATK +18% | DEF −18% | Gale | Bulwark |
-| Bulwark | DEF +18% | SPD −18% | Fury | Gale |
-| Gale | SPD +18% | ATK −18% | Bulwark | Fury |
+| Fury | ATK +2% | DEF −6% | Gale | Bulwark |
+| Bulwark | DEF +2% | ATK −6% | Fury | Gale |
+| Gale | SPD +2% | ATK −6% | Bulwark | Fury |
+
+**Tuned by simulation on 2026-09-13** (original spec was ±18%/±18% grant/cost with a ±10% counter
+bonus). The original numbers were internally consistent but produced two of the three counter
+pairings winning 80-97% of the time while the third swung anywhere from ~37-64% (sometimes not even
+an advantage), against a 55-62% target for every pairing. The root cause was structural, not just
+magnitude: Fury was the only stance touching both ATK and DEF (the two stats the damage formula's
+atk/def ratio actually uses) — its grant boosts ATK *and* its cost cuts DEF — so both pairings
+involving Fury got a "double" swing, while Bulwark and Gale (each touching only one of ATK/DEF, plus
+SPD) produced a much flatter Bulwark-vs-Gale pairing. Fixing this required changing *which* stat a
+stance costs, not only shrinking the numbers: Bulwark's cost moved from SPD to ATK (Gale's stays
+ATK), so every pairing now touches the ATK/DEF axis symmetrically — Fury costs DEF, Bulwark and Gale
+both cost ATK. Flavor still reads cleanly: Bulwark and Gale each give up raw power for their
+specialty (bulk or speed, respectively); Fury gives up survivability for power. Combined with the
+much smaller grant/cost/counter magnitudes above, this lands every pairing at 55-62%, all three
+within a few points of each other (see `packages/shared/test/balance.test.ts`'s stance-triangle
+test, and the sweep script referenced in the Phase A implementation report for the search that
+found these numbers). Constants: `STANCE_INFO`, `STANCE_COUNTER_DEALT_MULT`/
+`STANCE_COUNTER_TAKEN_MULT` in `packages/shared/src/game/progression.ts`.
 
 ## Talent tree
 
@@ -216,7 +238,17 @@ Ten passives, available regardless of nation, occupying their own small pool of 
 
 ## Evolution multipliers
 
-`packages/shared/src/game/levels.ts:statAtLevel` gains a per-stage multiplier on top of its existing linear level scaling: Baby ×1.00, Teen ×1.15, Adult ×1.30, keyed off `stageForLevel(level)` (same file). This changes the stat curve `docs/design/battle.md` describes without changing its `(level + 49) / 50` shape; the balance test must be re-verified against the new curve (see Balance targets).
+`packages/shared/src/game/levels.ts:statAtLevel` gains a per-stage multiplier on top of its existing linear level scaling: Baby ×1.00, Teen ×1.03, Adult ×1.06, keyed off `stageForLevel(level)` (same file). This changes the stat curve `docs/design/battle.md` describes without changing its `(level + 49) / 50` shape; the balance test must be re-verified against the new curve (see Balance targets).
+
+**Tuned by simulation on 2026-09-13** (original spec was ×1.15/×1.30). Those multipliers made a
+stage-boundary matchup (a level-9 baby vs. a level-11 teen, or a level-24 teen vs. a level-26 adult)
+win only ~27-28% for the low-level side — the 2-level gap and the full stage-multiplier jump both
+push the same way (more damage dealt *and* less damage taken), well outside the 35-65% band
+`docs/design/battle.md`'s balance harness targets elsewhere. ×1.03/×1.06 lands both boundary
+matchups at 38-48% for the low side (see `packages/shared/test/balance.test.ts`'s boundary tests) —
+still a real, smaller handicap by design, not the full 35-65% band, since a stage-boundary matchup
+is genuinely lopsided. `supabase/migrations/20260913030000_progression_tuning.sql` mirrors this in
+`recompute_mon`.
 
 ## Matchmaking and streaks
 
@@ -243,8 +275,10 @@ Extends `packages/shared/test/balance.test.ts`'s matrix (currently cross-nation 
 - every species stays within **35–65%** win rate across its matchups (unchanged threshold from
   `docs/design/battle.md`);
 - no single archetype exceeds **60%** win rate across the matrix;
-- the stance triangle holds at roughly **55/45** for the counter side;
-- boundary matchups (level 9 vs. 11, level 24 vs. 26 — either side of a stage transition) stay in bounds.
+- the stance triangle holds at **55–62%** for the counter side, on every pairing, within 5 points of
+  each other (see Stances above for the 2026-09-13 tuning that made this achievable);
+- boundary matchups (level 9 vs. 11, level 24 vs. 26 — either side of a stage transition) land the
+  low-level side at **38–48%** (see Evolution multipliers above).
 
 Any change to `simulateBattle`'s RNG call order (adding a talent roll, a stance check, etc.) resets the golden log snapshot (`docs/design/battle.md` Determinism contract) and bumps the battle protocol version.
 

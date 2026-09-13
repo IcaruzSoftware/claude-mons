@@ -1,5 +1,54 @@
-import { NATION_INFO, displayName } from '@claude-mons/shared';
+import { useState } from 'preact/hooks';
+import { NATION_INFO, STANCES, displayName, type Stance } from '@claude-mons/shared';
 import type { UiSnapshot } from '../../../common/ipc.ts';
+
+const STANCE_INFO: Record<Stance, { name: string; description: string }> = {
+  fury: { name: 'Fury', description: 'ATK +18% / DEF -18%. Beats Gale, loses to Bulwark.' },
+  bulwark: { name: 'Bulwark', description: 'DEF +18% / SPD -18%. Beats Fury, loses to Gale.' },
+  gale: { name: 'Gale', description: 'SPD +18% / ATK -18%. Beats Bulwark, loses to Fury.' },
+};
+
+function StancePicker({ stance }: { stance: Stance }) {
+  const [busy, setBusy] = useState<Stance | null>(null);
+  const [msg, setMsg] = useState<string | null>(null);
+  const pick = async (next: Stance) => {
+    if (next === stance || busy) return;
+    setBusy(next);
+    setMsg(null);
+    const r = await window.monsUi.setStance(next);
+    setBusy(null);
+    if (!r.ok) setMsg(r.error ?? 'Failed to set stance');
+  };
+  return (
+    <div class="section">
+      <h3>Stance</h3>
+      <p class="flavor" style={{ margin: 0 }}>
+        Fury beats Gale, Gale beats Bulwark, Bulwark beats Fury. Countering the opponent's stance
+        grants +10% damage dealt and -10% damage taken for the whole battle.
+      </p>
+      <div class="row" style={{ marginTop: 8, gap: 8 }}>
+        {STANCES.map((id) => (
+          <button
+            key={id}
+            class={id === stance ? 'primary' : ''}
+            disabled={busy !== null}
+            onClick={() => void pick(id)}
+            style={{ flex: 1, textAlign: 'left' }}
+          >
+            <b>{STANCE_INFO[id].name}</b>
+            {id === stance ? ' (active)' : ''}
+            <div class="hint">{STANCE_INFO[id].description}</div>
+          </button>
+        ))}
+      </div>
+      {msg && (
+        <p class="flavor" style={{ marginTop: 4 }}>
+          {msg}
+        </p>
+      )}
+    </div>
+  );
+}
 
 function ago(ts: number): string {
   const s = Math.max(0, Math.round((Date.now() - ts) / 1000));
@@ -29,8 +78,11 @@ export function BattlesView({ s }: { s: UiSnapshot }) {
           <span>{cdLeft > 0 ? `${cdLeft} min` : 'ready'}</span>
           <span>Challenges left today</span>
           <span>{s.battles.remainingToday}</span>
+          <span>Win streak</span>
+          <span>{s.battles.winStreak > 0 ? `${s.battles.winStreak} in a row` : '—'}</span>
         </div>
       </div>
+      <StancePicker stance={s.battles.stance} />
       <div class="section">
         <h3>History</h3>
         {history.length === 0 ? (
@@ -44,11 +96,13 @@ export function BattlesView({ s }: { s: UiSnapshot }) {
                 <span class={`badge ${b.opponent.nation}`}>
                   {NATION_INFO[b.opponent.nation].name}
                 </span>
+                {b.isElite && <span class="badge">Elite</span>}
                 <div class="hint">
                   {displayName(b.opponent.speciesId, b.opponent.stage)} Lv {b.opponent.level} ·{' '}
                   {b.turns} turn{b.turns === 1 ? '' : 's'} ·{' '}
                   {b.reason === 'ko' ? 'knockout' : 'timeout'}
-                  {b.isBot ? ' · wild' : ''} · {ago(b.at)}
+                  {b.isBot ? ' · wild' : ''}
+                  {b.won && b.winStreak > 1 ? ` · streak x${b.winStreak}` : ''} · {ago(b.at)}
                 </div>
               </div>
               <div style={{ color: 'var(--accent)', fontWeight: 600 }}>+{b.xp} XP</div>

@@ -64,6 +64,10 @@ export interface MonRow {
   battle_xp: number;
   bonus_xp: number;
   stats: Record<string, number>;
+  /** `{ stance?, moves?, tree? }` (docs/design/progression.md); `{}` before the first set-loadout. */
+  loadout: Record<string, unknown>;
+  win_streak: number;
+  last_respec_at: string | null;
   hatched_at: string | null;
   teen_at: string | null;
   adult_at: string | null;

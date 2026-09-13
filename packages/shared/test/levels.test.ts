@@ -84,9 +84,24 @@ describe('levelProgress', () => {
 });
 
 describe('statAtLevel', () => {
-  it('grows 2 % per level: ~1.5x at 26, ~2x at 50', () => {
+  // Evolution-stage multipliers tuned by simulation on 2026-09-13 (down from 1.15/1.30 to 1.03/
+  // 1.06; see docs/design/progression.md Evolution multipliers) -- the larger originals made a
+  // stage-boundary matchup (e.g. level 9 vs. 11) win only ~27-28 % for the low side, well outside
+  // the design doc's 35-65 % band.
+  it('grows 2 % per level before the evolution multiplier: ~1.5x at 26, ~2x at 50', () => {
+    // Level 1 is egg (multiplier 1.00): pure level scaling.
     expect(statAtLevel(100, 1)).toBe(100);
-    expect(statAtLevel(100, 26)).toBe(150);
-    expect(statAtLevel(100, 50)).toBe(198);
+    // Level 26 and 50 are adult (x1.06): 1.5x and ~2x level scaling, then x1.06.
+    expect(statAtLevel(100, 26)).toBe(159);
+    expect(statAtLevel(100, 50)).toBe(209);
+  });
+
+  it('applies the evolution-stage multiplier keyed off stageForLevel (docs/design/progression.md)', () => {
+    // Baby (x1.00): unchanged from pure level scaling.
+    expect(statAtLevel(100, 9)).toBe(Math.floor((100 * (9 + 49)) / 50));
+    // Teen (x1.03) right at the threshold.
+    expect(statAtLevel(100, 10)).toBe(Math.floor(((100 * (10 + 49)) / 50) * 1.03));
+    // Adult (x1.06) right at the threshold.
+    expect(statAtLevel(100, 25)).toBe(Math.floor(((100 * (25 + 49)) / 50) * 1.06));
   });
 });

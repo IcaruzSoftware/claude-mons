@@ -1,9 +1,16 @@
 import { describe, expect, it } from 'vitest';
-import { MAX_TURNS, challengerReward, simulateBattle, snapshotFor } from '../src/battle/battle.ts';
+import {
+  MAX_TURNS,
+  challengerReward,
+  simulateBattle,
+  snapshotFor,
+  winStreakMultiplier,
+} from '../src/battle/battle.ts';
 import { makeRng } from '../src/battle/rng.ts';
 import { NATIONS } from '../src/types.ts';
 import { effectiveness, otherNations } from '../src/game/nations.ts';
 import { SPECIES, SPECIES_IDS, rollSpecies, speciesForNation } from '../src/game/species.ts';
+import { STANCE_INFO, stanceBeats } from '../src/game/progression.ts';
 
 const snap = (speciesId: string, level: number, side: string) =>
   snapshotFor({ monId: side, playerId: side, nickname: side, speciesId, stage: 'baby', level });
@@ -109,5 +116,68 @@ describe('simulateBattle', () => {
     expect(challengerReward({ won: false, isBot: false, myLevel: 10, oppLevel: 10 })).toBe(10);
     expect(challengerReward({ won: true, isBot: true, myLevel: 10, oppLevel: 10 })).toBe(20);
     expect(challengerReward({ won: false, isBot: true, myLevel: 10, oppLevel: 10 })).toBe(5);
+  });
+
+  it('win-streak multiplier is +10%/win, capped at +50% (5 wins)', () => {
+    expect(winStreakMultiplier(0)).toBe(1);
+    expect(winStreakMultiplier(1)).toBeCloseTo(1.1);
+    expect(winStreakMultiplier(5)).toBeCloseTo(1.5);
+    expect(winStreakMultiplier(9)).toBeCloseTo(1.5);
+  });
+});
+
+describe('stances', () => {
+  it('form a triangle where each stance beats exactly one other', () => {
+    for (const s of Object.keys(STANCE_INFO) as Array<keyof typeof STANCE_INFO>) {
+      const beats = (Object.keys(STANCE_INFO) as Array<keyof typeof STANCE_INFO>).filter((o) =>
+        stanceBeats(s, o),
+      );
+      expect(beats).toEqual([STANCE_INFO[s].beats]);
+      expect(stanceBeats(s, s)).toBe(false);
+    }
+  });
+
+  // See packages/shared/test/balance.test.ts's stance-triangle test for the tuned target (every
+  // pairing 55-62%, all three within 5pp); this test just pins direction (the counter side wins
+  // more) and a sanity ceiling for this one pairing (fury beats gale), same species both sides.
+  it('counter bonus favors the countering stance, same species both sides', () => {
+    const a = snapshotFor({
+      monId: 'a',
+      playerId: 'a',
+      nickname: 'a',
+      speciesId: 'sparkit',
+      stage: 'teen',
+      level: 10,
+      loadout: { stance: 'fury' },
+    });
+    const b = snapshotFor({
+      monId: 'b',
+      playerId: 'b',
+      nickname: 'b',
+      speciesId: 'sparkit',
+      stage: 'teen',
+      level: 10,
+      loadout: { stance: 'gale' },
+    });
+    let wins = 0;
+    const N = 400;
+    for (let i = 0; i < N; i++) {
+      if (simulateBattle(a, b, `stance-unit-${i}`).winner === 'a') wins++;
+    }
+    const rate = wins / N;
+    expect(rate).toBeGreaterThan(0.5);
+    expect(rate).toBeLessThan(1);
+  });
+
+  it('a snapshot with no loadout defaults to Bulwark (mirrors DEFAULT_STANCE)', () => {
+    const a = snapshotFor({
+      monId: 'a',
+      playerId: 'a',
+      nickname: 'a',
+      speciesId: 'dripple',
+      stage: 'baby',
+      level: 5,
+    });
+    expect(a.loadout?.stance).toBe('bulwark');
   });
 });

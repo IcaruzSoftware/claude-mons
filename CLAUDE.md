@@ -33,7 +33,7 @@ claude-mons is a desktop-pet overlay (Electron) crossed with Pokémon: the pet e
 | deploy the backend | [docs/runbooks/deploy-backend.md](docs/runbooks/deploy-backend.md) |
 | debug "the pet does not react" | [docs/runbooks/debug-hook-pipeline.md](docs/runbooks/debug-hook-pipeline.md) |
 | reset local state or test a fresh first launch | [docs/runbooks/reset-local-state.md](docs/runbooks/reset-local-state.md) |
-| understand why something was built this way | [docs/decisions](docs/decisions) (ADRs 0001–0013) |
+| understand why something was built this way | [docs/decisions](docs/decisions) (ADRs, numbered; newest first in the index) |
 | write or edit any documentation | the Doc rules below and [CONTRIBUTING.md](CONTRIBUTING.md) |
 
 ## Hard rules
@@ -72,7 +72,7 @@ Dev flags (`--dev-nation`, `--dev-xp`, `--dev-battle`, `--capture`, `--simulate`
 
 ## Gotchas
 
-- The only migration is `supabase/migrations/20260904000000_init.sql`; new schema changes get a new timestamped file.
+- Migrations live in `supabase/migrations` with 14-digit UTC timestamps; never edit an applied one, add a new file. `npx supabase db push` fails on the dev machine (wrong DB password), so migrations are applied through the Management API fallback in the deploy runbook.
 - The profile Edge Function is `create-profile`; older plans called it claim-nickname.
 - There is no constants file in `packages/shared`; constants live in the module that owns them.
 - The Supabase function bundler ignores import maps, so Edge Functions import supabase-js with an explicit npm specifier.
@@ -81,4 +81,4 @@ Dev flags (`--dev-nation`, `--dev-xp`, `--dev-battle`, `--capture`, `--simulate`
 - GDI screenshots cannot capture the composited Electron overlay; use `--capture`.
 - The Windows credential manager hangs git pushes from non-interactive shells; on the dev machine git uses the GitHub CLI as credential helper.
 - The database password in `.env.local` may not authenticate; [docs/runbooks/deploy-backend.md](docs/runbooks/deploy-backend.md) has the Management API fallback.
-- Nothing has been verified on Linux yet; see [docs/runbooks/verify-on-linux.md](docs/runbooks/verify-on-linux.md).
+- Linux runs on the X11 backend (XWayland) with hardware acceleration off by default (ADR 0017); native Wayland is unsupported. Retest checklist: [docs/runbooks/verify-on-linux.md](docs/runbooks/verify-on-linux.md).

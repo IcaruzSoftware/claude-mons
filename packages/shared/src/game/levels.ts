@@ -73,9 +73,31 @@ export function levelProgress(totalXp: number): LevelProgress {
   };
 }
 
-/** Linear stat growth: 2 % of base per level. L1 = base, L50 ~ 2x. */
+/**
+ * Per-stage multiplier layered on top of the linear level scaling (docs/design/progression.md
+ * Evolution multipliers). Keyed off `stageForLevel(level)`, not a snapshot's own `stage` field, so
+ * it always reflects the level actually passed in. Mirrored in SQL by `recompute_mon`
+ * (`supabase/migrations/20260904000000_init.sql`, multiplier added in
+ * `supabase/migrations/20260913020000_progression_phase_a.sql`, retuned in
+ * `supabase/migrations/20260913030000_progression_tuning.sql`) -- keep the two in sync.
+ *
+ * Tuned by simulation on 2026-09-13 (down from 1.15/1.30; see docs/design/progression.md Evolution
+ * multipliers and Balance targets): the original values made the low-level side of a stage-boundary
+ * matchup (level 9 vs. 11, level 24 vs. 26) win only ~27-28% of the time, well outside the 35-65%
+ * band the design doc asks for. These smaller multipliers land both boundary matchups at ~40%.
+ */
+export const STAGE_STAT_MULTIPLIER: Record<Exclude<Stage, 'egg'>, number> = {
+  baby: 1.0,
+  teen: 1.03,
+  adult: 1.06,
+};
+
+/** Linear stat growth (2 % of base per level) times the evolution-stage multiplier above. */
 export function statAtLevel(base: number, level: number): number {
-  return Math.floor((base * (clampLevel(level) + 49)) / 50);
+  const lvl = clampLevel(level);
+  const stage = stageForLevel(lvl);
+  const mult = stage === 'egg' ? 1 : STAGE_STAT_MULTIPLIER[stage];
+  return Math.floor((base * (lvl + 49) * mult) / 50);
 }
 
 function clampLevel(level: number): number {

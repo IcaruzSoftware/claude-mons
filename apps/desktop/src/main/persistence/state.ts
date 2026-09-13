@@ -1,5 +1,13 @@
 import { randomBytes } from 'node:crypto';
-import type { CreditedMinute, MinuteBucket, Nation, Stage, StreakState } from '@claude-mons/shared';
+import type {
+  CreditedMinute,
+  MinuteBucket,
+  Nation,
+  Stage,
+  Stance,
+  StreakState,
+} from '@claude-mons/shared';
+import { DEFAULT_STANCE } from '@claude-mons/shared';
 import type { BattleSummary } from '../../common/ipc.ts';
 import type { AnchorMemory } from '../display.ts';
 import type { WaterIntervalMin } from '../reminders/WaterReminder.ts';
@@ -74,7 +82,11 @@ export interface LocalState {
     lastBattleAt: number | null;
     /** UTC day key and count, for the local daily cap while offline */
     today: { day: string; count: number };
+    /** consecutive-win streak; mirrors the server's `mons.win_streak` when online */
+    streak: number;
   };
+  /** Prepared loadout (docs/design/progression.md); only `stance` exists before Phase B/C. */
+  loadout: { stance: Stance };
   water: {
     /** Last time the player clicked "Done" on the water reminder card, or null. */
     lastDoneAt: number | null;
@@ -116,8 +128,9 @@ export function defaultState(): LocalState {
     },
     ui: { panel: null },
     auth: { session: null },
-    battles: { history: [], lastBattleAt: null, today: { day: '', count: 0 } },
+    battles: { history: [], lastBattleAt: null, today: { day: '', count: 0 }, streak: 0 },
     water: { lastDoneAt: null, snoozedUntil: null, todayCount: 0, todayKey: '' },
+    loadout: { stance: DEFAULT_STANCE },
   };
 }
 
@@ -151,9 +164,20 @@ function addProfileEmail(state: Record<string, unknown>): Record<string, unknown
   return { ...state, profile: { ...profile, email: null } };
 }
 
+/** v4 -> v5: adds the win-streak counter and the (stance-only, for now) prepared loadout. */
+function addProgressionPhaseA(state: Record<string, unknown>): Record<string, unknown> {
+  const battles = (state.battles as Record<string, unknown> | undefined) ?? {};
+  return {
+    ...state,
+    battles: { ...battles, streak: 0 },
+    loadout: { stance: DEFAULT_STANCE },
+  };
+}
+
 /** migrations[i] upgrades version i+1 -> i+2. Add new ones at the end; never edit old ones. */
 export const MIGRATIONS: readonly Migration[] = [
   addHookEndpoint,
   addWaterReminder,
   addProfileEmail,
+  addProgressionPhaseA,
 ];

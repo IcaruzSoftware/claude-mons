@@ -32,6 +32,8 @@ export class RemoteBattleBackend implements BattleBackend {
         opponent: res.battle.b,
         reward: res.reward.xp,
         isBot: res.battle.isBot,
+        isElite: res.battle.isElite,
+        winStreak: res.mon.winStreak,
       };
     } catch (err) {
       if (

@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { app, dialog, ipcMain, shell } from 'electron';
 import {
   isNation,
+  isStance,
   type BattleNotification,
   type CreateProfileResponse,
   type HookEnvelope,
@@ -315,6 +316,8 @@ export class App {
         history: s.battles.history,
         cooldownUntil: this.battles.cooldownUntil(),
         remainingToday: this.battles.remainingToday(),
+        winStreak: s.battles.streak,
+        stance: s.loadout.stance,
       },
     };
   }
@@ -390,6 +393,20 @@ export class App {
         const msg = err instanceof ApiCallError ? `${err.code}: ${err.message}` : String(err);
         return { ok: false, error: msg };
       }
+    });
+    ipcMain.handle(IPC.battleSetStance, async (_e, stance: unknown) => {
+      if (!isStance(stance)) return { ok: false, error: 'invalid stance' };
+      this.store.update((s) => (s.loadout.stance = stance));
+      this.pushSnapshot();
+      if (this.api) {
+        try {
+          await this.api.invoke('set-loadout', { stance });
+        } catch (err) {
+          const msg = err instanceof ApiCallError ? `${err.code}: ${err.message}` : String(err);
+          return { ok: false, error: msg };
+        }
+      }
+      return { ok: true, error: null };
     });
     ipcMain.handle(IPC.uiSetWaterEnabled, (_e, enabled: unknown) => {
       if (typeof enabled === 'boolean') {

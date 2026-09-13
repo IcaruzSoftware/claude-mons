@@ -3,23 +3,26 @@ doc_type: reference
 purpose: "Read this when deploying the backend, debugging database issues, or contributing to Edge Functions."
 audience: agent
 last_verified: 2026-09-13
-last_verified_commit: 5363066
+last_verified_commit: 1abb898
 related_files:
   - supabase/migrations/20260904000000_init.sql
+  - supabase/migrations/20260913020000_progression_phase_a.sql
   - supabase/config.toml
   - supabase/functions/heartbeat/index.ts
   - supabase/functions/create-profile/index.ts
   - supabase/functions/ingest-xp/index.ts
   - supabase/functions/battle-request/index.ts
+  - supabase/functions/set-loadout/index.ts
   - packages/shared/src/game/levels.ts
   - packages/shared/src/game/species.ts
+  - packages/shared/src/game/progression.ts
   - scripts/supabase-auth-config.mjs
   - docs/runbooks/auth-email-config.md
 ---
 
 # claude-mons backend (Supabase)
 
-Postgres schema, RLS, security-definer RPCs and four Deno Edge Functions. Game math is not
+Postgres schema, RLS, security-definer RPCs and five Deno Edge Functions. Game math is not
 duplicated here: the functions import `packages/shared` through the copy in
 `supabase/functions/_shared/game/` (gitignored, produced by `pnpm sync:shared`). The only
 duplicated pieces are the level/stage/stat formulas and the species table inside
@@ -34,12 +37,13 @@ supabase/
   migrations/20260904000000_init.sql                            schema, views, RLS, RPCs
   migrations/20260913000000_suspicion_and_nations_filter.sql     leaderboard_nations suspicion filter, apply_xp decay
   migrations/20260913010000_battle_limits.sql                    claim_battle_slot: 10 min cooldown, 50 challenges/day
+  migrations/20260913020000_progression_phase_a.sql              mons.loadout/win_streak/last_respec_at, battles.protocol_version, evolution multiplier in recompute_mon, pick_opponent asymmetric windows, settle_battle streak multiplier
   functions/
     deno.json                             import map (@supabase/supabase-js)
     _shared/                              auth.ts db.ts http.ts monState.ts pipeline.ts queries.ts random.ts
     _shared/pipeline.test.ts              deno test for the pure XP pipeline
     _shared/game/                         generated copy of packages/shared/src (do not edit)
-    heartbeat/  create-profile/  ingest-xp/  battle-request/
+    heartbeat/  create-profile/  ingest-xp/  battle-request/  set-loadout/
 ```
 
 ## Trust model
@@ -67,11 +71,11 @@ supabase/
 |---|---|---|
 | `players` | `id` (PK, auth.users FK) | One per user; nickname citext; suspicion tracks XP drops (≥10 excludes from leaderboards) |
 | `species_base_stats` | `species_id` (PK) | 8 species (1 per rarity per nation); hp/atk/def/spd base stats; seeded order for rarity rolls |
-| `mons` | `id` (PK), `player_id` (UQ FK) | One per player; egg until `HATCH_XP`, then rolls species; stage/level derived from total_xp |
+| `mons` | `id` (PK), `player_id` (UQ FK) | One per player; egg until `HATCH_XP`, then rolls species; stage/level derived from total_xp; `loadout` jsonb (`{ stance? }` in Phase A, see `docs/design/progression.md`), `win_streak` int (consecutive real-player wins), `last_respec_at` (reserved for the Phase C talent respec cooldown, unused in Phase A) |
 | `xp_daily` | `player_id`, `day` (PK) | Per-UTC-day counters: work/bonus/battle XP, prompts, stops, battles_started/_defended |
 | `xp_minutes` | `player_id`, `minute` (PK) | Per-minute credited XP for rolling caps; pruned after 48 h |
 | `ingest_batches` | `batch_id` (PK) | Idempotency keys for ingest-xp; pruned after 48 h |
-| `battles` | `id` (PK, = seed) | Challenger/opponent snapshots, winner, log, XP paid; opponent_id null = Wild Mon |
+| `battles` | `id` (PK, = seed) | Challenger/opponent snapshots, winner, log, XP paid; opponent_id null = Wild Mon; `protocol_version` int = `BATTLE_PROTOCOL_VERSION` at simulation time |
 | `battle_notifications` | `id` (PK) | Defenders notified of challenges; clients mark seen_at |
 
 ## Views
@@ -90,7 +94,8 @@ All tables have RLS enabled. Readable tables grant `select to authenticated`: `p
 |---|---|---|---|
 | `create-profile` | yes | `POST { nickname?, nation? }` → `CreateProfileResponse` (201 on create, 200 on rename) | 400 INVALID_NATION / NICKNAME_INVALID, 409 NICKNAME_TAKEN / NATION_LOCKED, 429 RENAME_COOLDOWN |
 | `ingest-xp` | yes | `POST IngestXpRequest` (≤ 64 KB, ≤ 180 buckets) → `IngestXpResponse` | 400 BAD_REQUEST, 409 NO_PROFILE, 413 PAYLOAD_TOO_LARGE |
-| `battle-request` | yes | `POST {}` → `BattleRequestResponse` | 400 EGG_CANNOT_BATTLE, 409 NO_PROFILE, 429 COOLDOWN / DAILY_CAP |
+| `battle-request` | yes | `POST {}` → `BattleRequestResponse` (now carries `battle.isElite` and `mon.winStreak`) | 400 EGG_CANNOT_BATTLE, 409 NO_PROFILE, 429 COOLDOWN / DAILY_CAP |
+| `set-loadout` | yes | `POST SetLoadoutRequest` (`{ stance? }` in Phase A) → `SetLoadoutResponse` | 400 BAD_REQUEST (invalid stance, or `moves`/`tree` — not settable yet), 409 NO_PROFILE |
 | `heartbeat` | **no** | `GET` → `{ ok, pruned, players, ts }` | — |
 
 All error bodies are `{ error: { code, message, details? } }` (`ApiError` in `packages/shared/src/api.ts`).
@@ -111,9 +116,23 @@ All error bodies are `{ error: { code, message, details? } }` (`ApiError` in `pa
 
 `sanitizeBucket()` (in `supabase/functions/ingest-xp/index.ts`) coerces untrusted client buckets to safe `MinuteBucket` objects: floors minute to 60s granularity, drops non-positive counts, and rejects tool names >128 chars. The pure `runIngestPipeline()` (in `supabase/functions/_shared/pipeline.ts`) applies per-minute and daily caps and returns `out.suspicious`: true only when a batch claimed at least `SUSPICION_MIN_CLAIMED_XP` (100) XP *and* more than half of it was dropped for a non-cap reason (`stale`/`future`/`implausible`/`no_prompt_context`) — cap drops (`cap_minute`/`cap_hour`/`cap_day`) never count, since they are the normal shape of a heavy legitimate day. `ingest-xp` increments `players.suspicion` only when `out.suspicious`; `apply_xp` decays it by 1 (floor 0) every time a batch activates a new day. Players with suspicion ≥10 are hidden from leaderboards and excluded from opponent matchmaking. See `docs/design/backend-rules.md` for the full reasoning.
 
-## Matchmaking and Wild Mons
+## Matchmaking, Wild Mons and streaks
 
-`battle-request` calls `findOpponent()` with `LEVEL_WINDOWS = [3, 6, 10, null]` for a first pass (exact ±3 levels preferred) before trying wider windows. Each window tries once excluding recent 24-h repeats, then again without the recency filter. If no opponent is found, the challenger faces `wildMon()`, a random species from a random other nation at `max(2, challenger_level)`, nicknamed `Wild <BabyName>`, with `playerId: null`. Wild Mons pay the challenger full XP but don't count toward nations' weekly battle records.
+`battle-request` calls `findOpponent()` with three asymmetric, widening passes relative to the
+challenger's own level (`LEVEL_WINDOWS` in `supabase/functions/battle-request/index.ts`):
+`[-2, +1]`, then `[-4, +2]`, then any level (`pick_opponent`'s `p_min_level`/`p_max_level`, both
+`null` on the last pass). Each pass tries once excluding recent 24-h repeats, then again without the
+recency filter, stopping at the first candidate. If no opponent is found, the challenger faces
+`wildMon()`: a random species from a random other nation at `challenger_level + rng(-3, +1)`
+(clamped ≥ 2), nicknamed `Wild <BabyName>`, `playerId: null`. 10 % of these roll **elite** instead:
+fixed `+3` levels and `isElite: true`, which doubles the challenger's win XP
+(`docs/design/progression.md` Matchmaking and streaks).
+
+Win streaks: `mons.win_streak` is +1 per challenger win (any opponent), reset to 0 on a loss.
+`settle_battle` multiplies the challenger's XP (already elite-doubled by `battle-request` if
+applicable) by `1 + 0.10 * min(new_streak, 5)` and returns the actual amount paid as
+`challenger_xp_paid`, which is what `battle-request` reports in `reward.xp` — the pre-multiplier
+value computed in TypeScript is never what's actually credited or returned once a streak is active.
 
 ## Environment
 

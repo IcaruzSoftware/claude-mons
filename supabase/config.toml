@@ -74,3 +74,8 @@ entrypoint = "./functions/ingest-xp/index.ts"
 enabled = true
 verify_jwt = true
 entrypoint = "./functions/battle-request/index.ts"
+
+[functions.set-loadout]
+enabled = true
+verify_jwt = true
+entrypoint = "./functions/set-loadout/index.ts"

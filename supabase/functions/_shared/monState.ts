@@ -34,6 +34,7 @@ export function buildMonState(
     xpToNext: progress.xpToNext,
     stats,
     streakDays,
+    winStreak: mon.win_streak,
     battle: {
       cooldownUntil,
       remainingToday: Math.max(0, BATTLE_RULES.challengesPerDay - started),

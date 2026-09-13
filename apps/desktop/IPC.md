@@ -3,7 +3,7 @@ doc_type: reference
 purpose: "Look up IPC channel names and payload types for renderer-to-main and main-to-renderer communication."
 audience: agent
 last_verified: 2026-09-13
-last_verified_commit: 5363066
+last_verified_commit: 1abb898
 related_files:
   - apps/desktop/src/common/ipc.ts
   - apps/desktop/README.md
@@ -61,6 +61,7 @@ Handled by `App.registerUiIpc`.
 | `ui:sync-now` | — | `UiSnapshot` | Force sync of pending XP buckets |
 | `ui:set-water-enabled` | `boolean` | `UiSnapshot` | Turn the water reminder on/off (mirrored by the tray checkbox) |
 | `ui:set-water-interval` | `number` (one of 30\|45\|60\|90\|120, validated by `isWaterIntervalMin`) | `UiSnapshot` | Change the reminder interval |
+| `battle:set-stance` | `Stance` (validated by `isStance`; `'fury' \| 'bulwark' \| 'gale'`) | `{ok, error}` | Set the mon's battle stance (`docs/design/progression.md`); stored locally and, when online, via the `set-loadout` Edge Function |
 | `water:done` | — | `UiSnapshot` | Reminder card "Done": hides the card, records the sip, sends a `game:cheer` celebration stimulus to the pet (no XP) |
 | `water:snooze` | — | `UiSnapshot` | Reminder card "Snooze 10 min": hides the card, re-arms in 10 minutes |
 | `account:link-start` | `string` (email) | `AccountOpResult` | Sends a 6-digit code to link an email to the current (anonymous) account |
@@ -86,9 +87,9 @@ Handled by `App.registerUiIpc`.
 - **PointerMessage:** type (down/up/move/enter/leave/contextmenu), button, x, y (window-local).
 - **StateMessage:** pet state, stage, x/y (world DIPs).
 - **StimulusMessage:** = shared Stimulus (union type from @claude-mons/shared).
-- **BattlePlayMessage:** id, result (BattleResult), me/opponent (MonSnapshot), reward XP, isBot.
-- **BattleSummary:** id, at (timestamp), won, xp, isBot, turns, reason, me stats, opponent (nickname, nation, stats).
-- **UiSnapshot:** version, isDev, profile (nickname, nation, userId), account (email, anonymous), pet (speciesId, stage, state), progress (localXp, serverXp, streakDays), hooks (status, mode, effectiveMode, probe), settings (scale, autostart), online (connected, lastSyncAt, lastError, configured), update status, notifications, battles (history, cooldownUntil, remainingToday), water (enabled, intervalMin, todayCount, nextDueAt).
+- **BattlePlayMessage:** id, result (BattleResult), me/opponent (MonSnapshot, now carrying `loadout.stance`), reward XP, isBot, isElite (10% elite Wild Mon encounter), winStreak (challenger's streak after this battle).
+- **BattleSummary:** id, at (timestamp), won, xp, isBot, isElite, winStreak, turns, reason, me stats, opponent (nickname, nation, stats).
+- **UiSnapshot:** version, isDev, profile (nickname, nation, userId), account (email, anonymous), pet (speciesId, stage, state), progress (localXp, serverXp, streakDays), hooks (status, mode, effectiveMode, probe), settings (scale, autostart), online (connected, lastSyncAt, lastError, configured), update status, notifications, battles (history, cooldownUntil, remainingToday, winStreak, stance), water (enabled, intervalMin, todayCount, nextDueAt).
 - **AccountOpResult:** `{ok: boolean, error: string | null}`; `error` is a short user-facing string (see `apps/desktop/src/main/net/SupabaseClient.ts`'s `describeAuthError`). See `docs/architecture/flows/account-linking.md`.
 - **`water:done`/`water:snooze` are bridged as `window.monsUi.water.done()`/`window.monsUi.water.snooze()`** (a nested object on the shared `uiApi`, alongside the flat `setWaterEnabled`/`setWaterInterval` methods), used only by `src/renderer/reminder/main.tsx`.
 - **hooks.status:** `'installed-binary' | 'installed-script' | 'partial' | 'not-installed' | 'unreadable' | 'no-binary'`. **hooks.mode:** the configured preference (`'auto' | 'binary' | 'script'`). **hooks.effectiveMode:** what `'auto'` resolved to (`'binary' | 'script'`). **hooks.probe:** last `probeBinary()` result (`'ok' | 'blocked' | 'missing' | null`).

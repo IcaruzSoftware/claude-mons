@@ -22,6 +22,7 @@ const mon: MonState = {
   xpToNext: 280,
   stats: { hp: 72, atk: 62, def: 41, spd: 41 },
   streakDays: 2,
+  winStreak: 0,
   battle: { cooldownUntil: null, remainingToday: 10 },
 };
 
@@ -67,6 +68,8 @@ describe('api types', () => {
   it('type-level sanity checks', () => {
     expectTypeOf<MonState['stage']>().toEqualTypeOf<'egg' | 'baby' | 'teen' | 'adult'>();
     expectTypeOf<BattleRequestResponse['battle']['b']['playerId']>().toEqualTypeOf<string | null>();
+    expectTypeOf<BattleRequestResponse['battle']['isElite']>().toEqualTypeOf<boolean>();
+    expectTypeOf<MonState['winStreak']>().toEqualTypeOf<number>();
     expectTypeOf<LeaderboardNationRow['avg_level']>().toEqualTypeOf<number | null>();
     expectTypeOf<IngestEvent>().toMatchTypeOf<{ type: string }>();
   });

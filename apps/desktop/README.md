@@ -3,7 +3,7 @@ doc_type: reference
 purpose: "Understand the desktop app's process model, module map, IPC channels, and CLI flags."
 audience: agent
 last_verified: 2026-09-13
-last_verified_commit: 5363066
+last_verified_commit: 1abb898
 related_files:
   - apps/desktop/src/**
   - apps/desktop/IPC.md
@@ -122,10 +122,11 @@ All channel names and payload types live in `src/common/ipc.ts`. See `apps/deskt
 | `hooks` | `{ installedAt, port, token, mode }` — `port`/`token` are the persisted `/hook` endpoint (script mode); `mode` is `'auto' \| 'binary' \| 'script'` |
 | `ui` | `{ panel }` (window position or null) |
 | `auth` | `{ session }` (serialized supabase-js session) |
-| `battles` | `{ history (≤50), lastBattleAt, today }` |
+| `battles` | `{ history (≤50), lastBattleAt, today, streak }` — `streak` mirrors the server's `mons.win_streak` when online, or is derived locally for offline wild battles |
+| `loadout` | `{ stance }` (`docs/design/progression.md` Stances; `stance` defaults to `DEFAULT_STANCE` = `'bulwark'`) |
 | `water` | `{ lastDoneAt, snoozedUntil, todayCount, todayKey }` — `snoozedUntil` is reused both for an explicit "Snooze 10 min" and to re-arm after an ignored card auto-hides; see `src/main/reminders/WaterReminder.ts` |
 
-**Migrations:** `MIGRATIONS[i]` upgrades version i+1 → i+2; run in order. `MIGRATIONS[0]` (v1 → v2) adds `hooks.port`/`hooks.token`/`hooks.mode`. `MIGRATIONS[1]` (v2 → v3) adds `settings.waterReminder` (on by default, 60 min) and the top-level `water` state. `MIGRATIONS[2]` (v3 → v4) adds `profile.email` (null). JsonStore uses 500 ms debounce; loads fall back to backup or defaults when unparsable.
+**Migrations:** `MIGRATIONS[i]` upgrades version i+1 → i+2; run in order. `MIGRATIONS[0]` (v1 → v2) adds `hooks.port`/`hooks.token`/`hooks.mode`. `MIGRATIONS[1]` (v2 → v3) adds `settings.waterReminder` (on by default, 60 min) and the top-level `water` state. `MIGRATIONS[2]` (v3 → v4) adds `profile.email` (null). `MIGRATIONS[3]` (v4 → v5) adds `battles.streak` (0) and the top-level `loadout` (`{ stance: 'bulwark' }`). JsonStore uses 500 ms debounce; loads fall back to backup or defaults when unparsable.
 
 ## Dev CLI flags (parsed in `src/main/App.ts`)
 

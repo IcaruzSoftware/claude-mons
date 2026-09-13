@@ -79,6 +79,7 @@ export class BattleService {
       speciesId: s.pet.speciesId,
       stage,
       level,
+      loadout: { stance: s.loadout.stance },
     });
   }
 
@@ -138,6 +139,8 @@ export class BattleService {
       won,
       xp: play.reward,
       isBot: play.isBot,
+      isElite: play.isElite,
+      winStreak: play.winStreak,
       turns: play.result.turns.length,
       reason: play.result.reason,
       me: { speciesId: play.me.speciesId, stage: play.me.stage, level: play.me.level },
@@ -152,6 +155,7 @@ export class BattleService {
     this.deps.state.update((st) => {
       st.battles.history.unshift(summary);
       if (st.battles.history.length > 50) st.battles.history.length = 50;
+      st.battles.streak = play.winStreak;
     });
     return summary;
   }
@@ -174,6 +178,7 @@ export class BattleService {
     const id = randomUUID();
     const result = simulateBattle(me, opponent, id);
     const won = result.winner === 'a';
+    const prevStreak = this.deps.state.get().battles.streak;
     return {
       id,
       result,
@@ -181,6 +186,9 @@ export class BattleService {
       opponent,
       reward: challengerReward({ won, isBot: true, myLevel: me.level, oppLevel: opponent.level }),
       isBot: true,
+      // Offline builds have no matchmaking service to roll an elite wild mon.
+      isElite: false,
+      winStreak: won ? prevStreak + 1 : 0,
     };
   }
 }
