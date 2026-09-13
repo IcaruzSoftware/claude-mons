@@ -432,6 +432,12 @@ input.nick {
   border-radius: var(--radius);
   padding: 14px;
   box-sizing: border-box;
+  /* The talent tree can push this overlay past the panel's 440x660 size; keep scrolling available
+     but never show the bar, same treatment as .onboard-content. */
+  scrollbar-width: none;
+}
+.loadout-card::-webkit-scrollbar {
+  display: none;
 }
 .loadout-slot {
   margin-bottom: 10px;
@@ -451,4 +457,94 @@ input.nick {
   text-transform: uppercase;
   letter-spacing: 0.06em;
   color: var(--fg-dim);
+}
+
+/* talent tree (Battles tab loadout editor, docs/design/talent-tree.md) */
+.talent-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+}
+.talent-column {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.talent-branch-name {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--fg-dim);
+  text-align: center;
+  margin-bottom: 2px;
+}
+.talent-node {
+  position: relative;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--bg-3);
+}
+.talent-node.active {
+  border-color: var(--accent);
+}
+.talent-node .hint {
+  display: none;
+  padding: 4px 6px 6px;
+}
+.talent-node:hover .hint,
+.talent-node:focus-within .hint {
+  display: block;
+}
+.talent-node-main {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 5px 6px;
+  font: inherit;
+  color: var(--fg);
+  background: transparent;
+  border: 0;
+}
+.talent-node-main b {
+  font-size: 11px;
+  line-height: 1.2;
+}
+.talent-rank {
+  font-size: 10px;
+  color: var(--fg-dim);
+}
+.talent-node.locked .talent-node-main {
+  opacity: 0.4;
+}
+.talent-node-minus {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 16px;
+  height: 16px;
+  line-height: 1;
+  padding: 0;
+  font-size: 11px;
+  border-radius: 50%;
+}
+.talent-passives {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.talent-passive {
+  text-align: left;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--bg-3);
+  padding: 6px 8px;
+}
+.talent-passive.active {
+  border-color: var(--accent);
+}
+.talent-passive b {
+  font-size: 12px;
 }

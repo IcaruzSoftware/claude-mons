@@ -3,7 +3,7 @@ doc_type: reference
 purpose: "Read this when deploying the backend, debugging database issues, or contributing to Edge Functions."
 audience: agent
 last_verified: 2026-09-13
-last_verified_commit: b1bd8f1
+last_verified_commit: 1196eff
 related_files:
   - supabase/migrations/20260904000000_init.sql
   - supabase/migrations/20260913020000_progression_phase_a.sql
@@ -16,8 +16,10 @@ related_files:
   - packages/shared/src/game/levels.ts
   - packages/shared/src/game/species.ts
   - packages/shared/src/game/progression.ts
+  - packages/shared/src/game/tree.ts
   - scripts/supabase-auth-config.mjs
   - docs/runbooks/auth-email-config.md
+  - docs/design/talent-tree.md
 ---
 
 # claude-mons backend (Supabase)
@@ -73,7 +75,7 @@ supabase/
 |---|---|---|
 | `players` | `id` (PK, auth.users FK) | One per user; nickname citext; suspicion tracks XP drops (≥10 excludes from leaderboards) |
 | `species_base_stats` | `species_id` (PK) | 8 species (1 per rarity per nation); hp/atk/def/spd base stats; seeded order for rarity rolls |
-| `mons` | `id` (PK), `player_id` (UQ FK) | One per player; egg until `HATCH_XP`, then rolls species; stage/level derived from total_xp; `loadout` jsonb (`{ stance?, moves?, tree? }`; `stance`/`moves` settable as of Phase B, `tree` reserved for Phase C; see `docs/design/progression.md`), `win_streak` int (consecutive real-player wins), `last_respec_at` (reserved for the Phase C talent respec cooldown, unused before then) |
+| `mons` | `id` (PK), `player_id` (UQ FK) | One per player; egg until `HATCH_XP`, then rolls species; stage/level derived from total_xp; `loadout` jsonb (`{ stance?, moves?, tree? }`; all three settable via `set-loadout` — see `docs/design/progression.md`, `docs/design/talent-tree.md` for `tree`), `win_streak` int (consecutive real-player wins), `last_respec_at` (stamped on a genuine respec at or above level 10 — `docs/design/talent-tree.md` Respec) |
 | `xp_daily` | `player_id`, `day` (PK) | Per-UTC-day counters: work/bonus/battle XP, prompts, stops, battles_started/_defended |
 | `xp_minutes` | `player_id`, `minute` (PK) | Per-minute credited XP for rolling caps; pruned after 48 h |
 | `ingest_batches` | `batch_id` (PK) | Idempotency keys for ingest-xp; pruned after 48 h |
@@ -97,7 +99,7 @@ All tables have RLS enabled. Readable tables grant `select to authenticated`: `p
 | `create-profile` | yes | `POST { nickname?, nation? }` → `CreateProfileResponse` (201 on create, 200 on rename) | 400 INVALID_NATION / NICKNAME_INVALID, 409 NICKNAME_TAKEN / NATION_LOCKED, 429 RENAME_COOLDOWN |
 | `ingest-xp` | yes | `POST IngestXpRequest` (≤ 64 KB, ≤ 180 buckets) → `IngestXpResponse` | 400 BAD_REQUEST, 409 NO_PROFILE, 413 PAYLOAD_TOO_LARGE |
 | `battle-request` | yes | `POST {}` → `BattleRequestResponse` (now carries `battle.isElite` and `mon.winStreak`) | 400 EGG_CANNOT_BATTLE, 409 NO_PROFILE, 429 COOLDOWN / DAILY_CAP |
-| `set-loadout` | yes | `POST SetLoadoutRequest` (`{ stance?, moves? }` — `moves` is 3 distinct, unlocked move ids as of Phase B) → `SetLoadoutResponse` | 400 BAD_REQUEST (`error.details.code`: `INVALID_STANCE`, `MOVES_COUNT`, `MOVES_NOT_DISTINCT`, `MOVE_UNKNOWN`, `MOVE_LOCKED`, `NO_SPECIES`, or `TREE_NOT_SETTABLE` — `tree` isn't settable yet), 409 NO_PROFILE |
+| `set-loadout` | yes | `POST SetLoadoutRequest` (`{ stance?, moves?, tree?, respec? }` — `moves` is 3 distinct unlocked move ids, `tree` is `{ [nodeId]: rank }`, see `docs/design/talent-tree.md`) → `SetLoadoutResponse` | 400 BAD_REQUEST (`error.details.code`: `INVALID_STANCE`, `MOVES_COUNT`, `MOVES_NOT_DISTINCT`, `MOVE_UNKNOWN`, `MOVE_LOCKED`, `NO_SPECIES`, `TREE_UNKNOWN_NODE`, `TREE_RANK`, `TREE_PREREQ`, `TREE_OVER_BUDGET`, or `RESPEC_COOLDOWN`), 409 NO_PROFILE |
 | `heartbeat` | **no** | `GET` → `{ ok, pruned, players, ts }` | — |
 
 All error bodies are `{ error: { code, message, details? } }` (`ApiError` in `packages/shared/src/api.ts`).

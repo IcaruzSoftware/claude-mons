@@ -3,7 +3,7 @@ doc_type: architecture
 purpose: "Read this when tracing how a shake gesture becomes a battle, from cursor drag to a history entry."
 audience: agent
 last_verified: 2026-09-13
-last_verified_commit: b1bd8f1
+last_verified_commit: 1196eff
 related_files:
   - apps/desktop/src/main/PetHost.ts
   - packages/shared/src/input/shake.ts
@@ -19,6 +19,7 @@ related_files:
   - apps/desktop/src/main/display.ts
   - apps/desktop/src/renderer/panel/views/Battles.tsx
   - packages/shared/src/game/progression.ts
+  - packages/shared/src/game/tree.ts
 ---
 
 # Shake to battle
@@ -67,14 +68,15 @@ fixed order, short-circuiting on the first one that fails:
 | 4 | `cooldownUntil()` is in the future | `cooldown` |
 | 5 | `remainingToday()` is `0` | `daily_cap` |
 
-`mySnapshot()` also stamps `loadout: { stance: s.loadout.stance, moves: s.loadout.moves }` onto the
-`MonSnapshot` it builds, from `LocalState.loadout` (set by `IPC.battleSetStance` /
-`IPC.battleSetLoadout` — `docs/design/progression.md` Stances / Move pool and effects). `moves` is
-usually `undefined` locally (the client mostly relies on the server-computed default; the loadout
-editor sets it explicitly once the player saves one); either way `snapshotFor`
-(`packages/shared/src/battle/battle.ts`) fills in a level-appropriate default before the snapshot
-ever reaches `simulateBattle`, so both the offline `wildBattle` path and the snapshot sent to
-`battle-request` always battle with a complete 3-move loadout.
+`mySnapshot()` also stamps `loadout: { stance, moves?, tree? }` onto the `MonSnapshot` it builds,
+from `LocalState.loadout` (set by `IPC.battleSetStance` / `IPC.battleSetLoadout` — `docs/design/
+progression.md` Stances / Move pool and effects, `docs/design/talent-tree.md` for `tree`). `moves`/
+`tree` are usually `undefined` locally (the client mostly relies on the server-computed move
+default and an empty tree; the loadout editor sets them explicitly once the player saves); either
+way `snapshotFor` (`packages/shared/src/battle/battle.ts`) fills in a level-appropriate move
+default before the snapshot ever reaches `simulateBattle` (an absent `tree` just resolves to no
+bonuses for a real player's mon, or `defaultBotTree` for a Wild Mon), so both the offline
+`wildBattle` path and the snapshot sent to `battle-request` always battle with a complete loadout.
 
 Any refusal (`BattleOutcome` with `ok: false`) is shown the same way: `App.onBattleRequest` plays a
 short "hurt" pose (`this.host.stimulate({ type: 'hook:notification' })`) so the player learns the
@@ -166,9 +168,11 @@ nickname and nation badge, an `Elite` badge when `isElite` (a Wild Mon that roll
 encounter, `docs/design/progression.md` Matchmaking and streaks), species/level/turns/reason, a
 `wild` tag when `isBot`, a `streak x<n>` note on a win that extends a streak past 1, and the XP
 reward. The Battles tab also shows the mon's loadout (3 move chips + stance) with an "Edit loadout"
-overlay (`IPC.battleSetLoadout`, moves + stance together) and a "win streak" line, fed by
-`UiSnapshot.battles.winStreak`/`.loadout`/`.unlockedMoveIds` — unrelated to the shake gesture itself,
-but sourced from the same `LocalState.battles`/`loadout` this flow reads and writes. During
+overlay (`IPC.battleSetLoadout`, moves/stance/tree together, including a Talents section —
+`docs/design/talent-tree.md`) and a "win streak" line, fed by `UiSnapshot.battles.winStreak`/
+`.loadout`/`.unlockedMoveIds`/`.treePoints`/`.sharedPassivePoints`/`.lastRespecAt` — unrelated to the
+shake gesture itself, but sourced from the same `LocalState.battles`/`loadout` this flow reads and
+writes. During
 playback, `BattlePlayer` (above) reads each `BattleAction.effect`/`.charge` to show which effect
 fired in the banner (e.g. "Sparkit's Brushfire burns Pebblet") — see `docs/design/progression.md`
 Move pool and effects.

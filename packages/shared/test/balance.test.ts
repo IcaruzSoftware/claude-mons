@@ -4,6 +4,8 @@ import type { EffectId } from '../src/battle/effects.ts';
 import { STANCES, type Stance } from '../src/game/progression.ts';
 import { SPECIES, unlockedMoves, type Move, type Species } from '../src/game/species.ts';
 import { stageForLevel } from '../src/game/levels.ts';
+import { nationNodes, pointsAvailable, type TreeNode } from '../src/game/tree.ts';
+import { NATIONS, type Nation } from '../src/types.ts';
 
 /**
  * Balance harness: cross-nation round-robin (only pairings matchmaking can produce). Every species
@@ -348,4 +350,177 @@ describe('balance (Phase B loadout archetype matrix)', () => {
       }
     });
   }
+});
+
+// --- Phase C: talent tree (docs/design/talent-tree.md Balance targets) --------------------------
+//
+// Two harnesses, both same-species mirror matches (isolates the tree's own effect from species/
+// nation asymmetry, which the other matrices above already cover):
+//  - a near-budget-maxed tree (spent tier-by-tier across all 3 branches until the 47-point budget
+//    at level 50 runs out -- full completion of all 3 branches costs 54, so this always leaves a
+//    few points unspent, same as any real level-50 spend) vs. an empty tree, checking the
+//    "+15-20% effective power" target as a 60-70% win rate for the maxed side;
+//  - one branch maxed (all 6 tiers, well under the 18-point cost vs. the 27-point budget at level
+//    30) vs. another branch maxed, for every pair of a nation's 3 branches, checking no branch
+//    dominates (40-60%).
+
+function nodesByBranch(nation: Nation): Map<string, TreeNode[]> {
+  const byBranch = new Map<string, TreeNode[]>();
+  for (const n of nationNodes(nation)) {
+    const arr = byBranch.get(n.branch) ?? [];
+    arr.push(n);
+    byBranch.set(n.branch, arr);
+  }
+  for (const arr of byBranch.values()) arr.sort((a, b) => a.tier - b.tier);
+  return byBranch;
+}
+
+/** Spends ranks tier-by-tier across every branch (so prereqs are always satisfied by
+ * construction) until `level`'s budget runs out. At level 50 (47 points vs. 54 to max all 3
+ * branches) this lands a few points short of every branch's capstone, same as any real spend. */
+function greedyMaxTree(nation: Nation, level: number): Record<string, number> {
+  const branches = [...nodesByBranch(nation).values()];
+  const ranks: Record<string, number> = {};
+  let remaining = pointsAvailable(level);
+  for (let tier = 1; tier <= 6; tier++) {
+    for (const branchNodes of branches) {
+      const node = branchNodes.find((n) => n.tier === tier);
+      if (!node) continue;
+      if (node.prereqId && (ranks[node.prereqId] ?? 0) < 1) continue;
+      const affordable = Math.min(node.maxRank, Math.floor(remaining / node.cost));
+      if (affordable > 0) {
+        ranks[node.id] = affordable;
+        remaining -= affordable * node.cost;
+      }
+    }
+  }
+  return ranks;
+}
+
+/** Maxes every node in exactly one branch (all 6 tiers); well within budget on its own. */
+function branchOnlyTree(nation: Nation, branch: string): Record<string, number> {
+  const nodes = (nodesByBranch(nation).get(branch) ?? []).sort((a, b) => a.tier - b.tier);
+  const ranks: Record<string, number> = {};
+  for (const node of nodes) ranks[node.id] = node.maxRank;
+  return ranks;
+}
+
+describe('balance (Phase C talent tree)', () => {
+  it('a near-budget-maxed tree beats an empty tree 60-70% at level 50', () => {
+    let wins = 0;
+    let total = 0;
+    const N = 200;
+    for (const speciesId of Object.keys(SPECIES)) {
+      const nation = SPECIES[speciesId]!.nation;
+      const maxedTree = greedyMaxTree(nation, 50);
+      for (let i = 0; i < N; i++) {
+        const a = snapshotFor({
+          monId: 'a',
+          playerId: 'a',
+          nickname: 'a',
+          speciesId,
+          stage: 'adult',
+          level: 50,
+          loadout: { tree: maxedTree },
+        });
+        const b = snapshotFor({
+          monId: 'b',
+          playerId: 'b',
+          nickname: 'b',
+          speciesId,
+          stage: 'adult',
+          level: 50,
+        });
+        if (simulateBattle(a, b, `tree-maxed-${speciesId}-${i}`).winner === 'a') wins++;
+        total++;
+      }
+    }
+    const rate = wins / total;
+    expect(
+      rate,
+      `maxed-tree win rate ${(rate * 100).toFixed(1)}% (n=${total})`,
+    ).toBeGreaterThanOrEqual(0.6);
+    expect(
+      rate,
+      `maxed-tree win rate ${(rate * 100).toFixed(1)}% (n=${total})`,
+    ).toBeLessThanOrEqual(0.7);
+  });
+
+  // A same-species mirror match's win rate for side 'a' is not exactly 50% for every species even
+  // with *no* tree at all (verified directly: e.g. cinderpup mirrors at ~41-44% for 'a' with an
+  // empty tree on both sides, vs. ~50% for sparkit/dripple/puffle) -- a pre-existing, Phase-B-era
+  // characteristic of some species' specific move pool/finisher-threshold interactions, not
+  // something this phase introduces or should fix. Measuring a single ordered direction (X-tree as
+  // 'a' vs Y-tree as 'b') would conflate that per-species position bias with the tree's own power
+  // difference. Running *both* orderings and averaging `rateXasA` with `1 - rateYasA` cancels the
+  // position bias (it contributes the same `+d/2` to both raw rates) and isolates the branches'
+  // own power delta -- see the branch-vs-branch matrix's own comment below for the derivation.
+  function branchPowerRate(
+    nation: Nation,
+    branchX: string,
+    branchY: string,
+    speciesIds: string[],
+    N: number,
+  ): number {
+    const treeX = branchOnlyTree(nation, branchX);
+    const treeY = branchOnlyTree(nation, branchY);
+    const rateFor = (treeA: Record<string, number>, treeB: Record<string, number>, tag: string) => {
+      let wins = 0;
+      let total = 0;
+      for (const speciesId of speciesIds) {
+        for (let k = 0; k < N; k++) {
+          const a = snapshotFor({
+            monId: 'a',
+            playerId: 'a',
+            nickname: 'a',
+            speciesId,
+            stage: 'adult',
+            level: 30,
+            loadout: { tree: treeA },
+          });
+          const b = snapshotFor({
+            monId: 'b',
+            playerId: 'b',
+            nickname: 'b',
+            speciesId,
+            stage: 'adult',
+            level: 30,
+            loadout: { tree: treeB },
+          });
+          if (simulateBattle(a, b, `tree-branch-${tag}-${speciesId}-${k}`).winner === 'a') wins++;
+          total++;
+        }
+      }
+      return wins / total;
+    };
+    const xAsA = rateFor(treeX, treeY, `${nation}-${branchX}-${branchY}`);
+    const yAsA = rateFor(treeY, treeX, `${nation}-${branchY}-${branchX}`);
+    return (xAsA + (1 - yAsA)) / 2;
+  }
+
+  it("no single branch dominates its nation's other branches at level 30", () => {
+    const N = 200;
+    for (const nation of NATIONS) {
+      const branches = [...nodesByBranch(nation).keys()];
+      const speciesIds = Object.keys(SPECIES).filter((id) => SPECIES[id]!.nation === nation);
+      const rates: Array<{ pair: string; rate: number }> = [];
+      for (let i = 0; i < branches.length; i++) {
+        for (let j = i + 1; j < branches.length; j++) {
+          const rate = branchPowerRate(nation, branches[i]!, branches[j]!, speciesIds, N);
+          rates.push({ pair: `${branches[i]} vs ${branches[j]}`, rate });
+        }
+      }
+      const report = rates.map((r) => `${r.pair}: ${(r.rate * 100).toFixed(1)}%`).join('\n');
+      for (const { pair, rate } of rates) {
+        expect(
+          rate,
+          `${nation} ${pair} win rate ${(rate * 100).toFixed(1)}%\n${report}`,
+        ).toBeGreaterThanOrEqual(0.4);
+        expect(
+          rate,
+          `${nation} ${pair} win rate ${(rate * 100).toFixed(1)}%\n${report}`,
+        ).toBeLessThanOrEqual(0.6);
+      }
+    }
+  });
 });

@@ -3,15 +3,20 @@ import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { app, dialog, ipcMain, shell } from 'electron';
 import {
+  RESPEC_FREE_BELOW_LEVEL,
   isNation,
   isStance,
+  pointsAvailable,
+  sharedPassivePoints,
   speciesOf,
+  treeSpent,
   unlockedMoves,
   validateLoadout,
   type BattleNotification,
   type CreateProfileResponse,
   type HookEnvelope,
   type Nation,
+  type SetLoadoutResponse,
   type Stage,
 } from '@claude-mons/shared';
 import {
@@ -324,10 +329,20 @@ export class App {
         loadout: {
           stance: s.loadout.stance,
           ...(s.loadout.moves ? { moves: s.loadout.moves } : {}),
+          ...(s.loadout.tree ? { tree: s.loadout.tree } : {}),
         },
         unlockedMoveIds: s.pet.speciesId
           ? unlockedMoves(speciesOf(s.pet.speciesId), p.level).map((m) => m.id)
           : [],
+        treePoints: {
+          spent: treeSpent(s.profile.nation ?? 'water', s.loadout.tree).nation,
+          available: pointsAvailable(p.level),
+        },
+        sharedPassivePoints: {
+          spent: treeSpent(s.profile.nation ?? 'water', s.loadout.tree).shared,
+          available: sharedPassivePoints(p.level),
+        },
+        lastRespecAt: s.loadout.lastRespecAt,
       },
     };
   }
@@ -420,20 +435,38 @@ export class App {
     });
     ipcMain.handle(IPC.battleSetLoadout, async (_e, payload: unknown) => {
       const s = this.store.get();
+      const level = this.game.snapshot().level;
       const result = validateLoadout(payload as SetLoadoutPayload, {
-        level: this.game.snapshot().level,
+        level,
         nation: s.profile.nation ?? 'water',
         speciesId: s.pet.speciesId,
+        ...(s.loadout.tree ? { existingTree: s.loadout.tree } : {}),
+        lastRespecAt: s.loadout.lastRespecAt,
       });
       if (!result.ok) return { ok: false, error: result.reason };
       this.store.update((st) => {
         if (result.loadout.stance !== undefined) st.loadout.stance = result.loadout.stance;
         if (result.loadout.moves !== undefined) st.loadout.moves = result.loadout.moves;
+        if (result.loadout.tree !== undefined) {
+          st.loadout.tree = result.loadout.tree;
+          // Offline mirror of set-loadout's own stamping rule; overwritten below with the
+          // server's own timestamp as soon as the online call (if any) comes back.
+          if (result.isRespec && level >= RESPEC_FREE_BELOW_LEVEL) {
+            st.loadout.lastRespecAt = new Date().toISOString();
+          }
+        }
       });
       this.pushSnapshot();
       if (this.api) {
         try {
-          await this.api.invoke('set-loadout', payload as SetLoadoutPayload);
+          const res = await this.api.invoke<SetLoadoutResponse>(
+            'set-loadout',
+            payload as SetLoadoutPayload,
+          );
+          this.store.update((st) => {
+            st.loadout.lastRespecAt = res.mon.lastRespecAt;
+          });
+          this.pushSnapshot();
         } catch (err) {
           const msg = err instanceof ApiCallError ? `${err.code}: ${err.message}` : String(err);
           return { ok: false, error: msg };

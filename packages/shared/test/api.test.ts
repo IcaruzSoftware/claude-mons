@@ -25,6 +25,9 @@ const mon: MonState = {
   winStreak: 0,
   loadout: { stance: 'bulwark', moves: ['spark-nip', 'hot-reload', 'force-push'] },
   unlockedMoveIds: ['spark-nip', 'hot-reload'],
+  treePoints: { spent: 0, available: 0 },
+  sharedPassivePoints: { spent: 0, available: 0 },
+  lastRespecAt: null,
   battle: { cooldownUntil: null, remainingToday: 10 },
 };
 

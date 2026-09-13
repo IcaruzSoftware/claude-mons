@@ -3,13 +3,14 @@ doc_type: design
 purpose: "Read this when changing battle math, matchmaking, rewards, or the battle log shape."
 audience: agent
 last_verified: 2026-09-13
-last_verified_commit: b1bd8f1
+last_verified_commit: 1196eff
 related_files:
   - packages/shared/src/battle/battle.ts
   - packages/shared/src/battle/effects.ts
   - packages/shared/src/battle/rng.ts
   - packages/shared/src/game/levels.ts
   - packages/shared/src/game/progression.ts
+  - packages/shared/src/game/tree.ts
   - packages/shared/src/game/species.ts
   - packages/shared/test/battle.test.ts
   - packages/shared/test/balance.test.ts
@@ -20,6 +21,7 @@ related_files:
   - supabase/migrations/20260913040000_progression_phase_b.sql
   - supabase/functions/battle-request/index.ts
   - docs/design/progression.md
+  - docs/design/talent-tree.md
 ---
 
 # Battle system
@@ -39,6 +41,10 @@ growth curve, and the evolution-stage multiplier layered on top of it live in
 battle code uses them. A mon's battle stats are `statsAtLevel()`
 (`packages/shared/src/battle/battle.ts:statsAtLevel`), which applies
 `packages/shared/src/game/levels.ts:statAtLevel` to each of `hp`, `atk`, `def`, `spd` independently.
+`snapshotFor` then folds in the mon's talent-tree stat/flat-stat-capstone bonuses (Phase C,
+`docs/design/talent-tree.md`) before stance; the tree's move-upgrade/capstone nodes and shared
+passives change the formula below directly (crit chance/multiplier, `def_down`/`burn`/`shield_first`
+magnitudes, turn order) — numbers live in `docs/design/talent-tree.md`.
 
 ## Stances
 

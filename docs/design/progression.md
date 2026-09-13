@@ -3,7 +3,7 @@ doc_type: design
 purpose: "Read this when changing moves, stances, talents, matchmaking windows, streaks or evolution stat multipliers, or building the loadout editor."
 audience: agent
 last_verified: 2026-09-13
-last_verified_commit: b1bd8f1
+last_verified_commit: 1196eff
 related_files:
   - packages/shared/src/battle/battle.ts
   - packages/shared/src/battle/effects.ts
@@ -12,10 +12,12 @@ related_files:
   - packages/shared/src/game/nations.ts
   - docs/design/battle.md
   - docs/design/species-and-nations.md
+  - docs/design/talent-tree.md
   - supabase/migrations/20260904000000_init.sql
   - supabase/migrations/20260913030000_progression_tuning.sql
   - supabase/migrations/20260913040000_progression_phase_b.sql
   - packages/shared/src/game/progression.ts
+  - packages/shared/src/game/tree.ts
   - packages/shared/test/balance.test.ts
   - apps/desktop/src/renderer/panel/views/Battles.tsx
 ---
@@ -158,101 +160,10 @@ found these numbers). Constants: `STANCE_INFO`, `STANCE_COUNTER_DEALT_MULT`/
 
 ## Talent tree
 
-1 point per level from level 3 to 50 (47 points total). Points are spent in the mon's own nation only (fixed at hatch), across 3 branches of 6 tiered nodes each. A node requires at least 1 point already spent in the previous tier of the same branch. Costs: tiers 1–2 are 1 point/rank (3 ranks, +1.5% per rank; tier 2's 3rd rank may instead be taken as +2pp crit chance or +2pp dodge chance, branch's choice, see table); tiers 3–4 cost 2 points each (passives); tier 5 costs 3 (move upgrade); tier 6 (capstone) costs 5. Maxing every branch in a nation costs 54 points against a 47-point budget, so full completion is impossible by design — the budget forces a specialization choice. Respec is free below level 10, then limited to once per 7 days (`mons.last_respec_at`); target power at a maxed, budget-respecting spend is **+15–20%** effective power at level 50.
-
-Move-upgrade nodes (tier 5) grant the equipped move in a fixed loadout slot +25% effect magnitude, or +10% power if that move has no scaling effect (a `priority`/`true_hit` move, for instance).
-
-| Nation | Branch | Upgrades | Tier | Node | Effect |
-|---|---|---|---|---|---|
-| water | Current | slot 2 | 1 | Riverrun | +1.5%/rank ATK, 3 ranks |
-| water | Current | slot 2 | 2 | Millrace | +1.5%/rank ATK, 3 ranks; rank 3 may be +2pp crit instead |
-| water | Current | slot 2 | 3 | Pressure Head | Nation-type moves deal +5% vs. targets above 50% HP |
-| water | Current | slot 2 | 4 | Spillway | This mon's `def_down` also cuts target SPD 10% for its duration |
-| water | Current | slot 2 | 5 | Jetstream Coupling | Slot 2 move: +25% effect magnitude or +10% power |
-| water | Current | slot 2 | 6 | Maelstrom | This mon's nation-type crits deal 2.5× instead of 2× |
-| water | Undertow | slot 3 | 1 | Backwash | +1.5%/rank DEF, 3 ranks |
-| water | Undertow | slot 3 | 2 | Riptide Step | +1.5%/rank DEF, 3 ranks; rank 3 may be +2pp dodge instead |
-| water | Undertow | slot 3 | 3 | Silt Cloud | This mon's `def_down` lasts 1 extra turn |
-| water | Undertow | slot 3 | 4 | Undercurrent | +5pp dodge chance while target is under this mon's `def_down` |
-| water | Undertow | slot 3 | 5 | Drift Anchor | Slot 3 move: +25% effect magnitude or +10% power |
-| water | Undertow | slot 3 | 6 | Abyssal Pull | This mon's `def_down` also cuts target SPD by the same % |
-| water | Reservoir | slot 1 | 1 | Cistern | +1.5%/rank max HP, 3 ranks |
-| water | Reservoir | slot 1 | 2 | Aquifer | +1.5%/rank max HP, 3 ranks; rank 3 may be +2pp dodge instead |
-| water | Reservoir | slot 1 | 3 | Slow Leak | This mon's `drain` moves heal +10% more of damage dealt |
-| water | Reservoir | slot 1 | 4 | Watershed | Once/battle, damage that would drop this mon below 20% HP heals 10% max HP first |
-| water | Reservoir | slot 1 | 5 | Sluice Control | Slot 1 move: +25% effect magnitude or +10% power |
-| water | Reservoir | slot 1 | 6 | Deep Reserve | Max HP +8% flat, stacks with tier 1/2 |
-| fire | Blaze | slot 2 | 1 | Flarelight | +1.5%/rank ATK, 3 ranks |
-| fire | Blaze | slot 2 | 2 | Firebrand | +1.5%/rank ATK, 3 ranks; rank 3 may be +2pp crit instead |
-| fire | Blaze | slot 2 | 3 | Scorchmark | Crits vs. a burning target deal +10% damage |
-| fire | Blaze | slot 2 | 4 | Detonation | This mon's `crit_up` moves gain +5pp crit chance |
-| fire | Blaze | slot 2 | 5 | Forge Temper | Slot 2 move: +25% effect magnitude or +10% power |
-| fire | Blaze | slot 2 | 6 | Supernova | This mon's crits ignore `shield_first`/`def_down` on the target |
-| fire | Kindling | slot 3 | 1 | Spark Catch | +1.5%/rank ATK, 3 ranks |
-| fire | Kindling | slot 3 | 2 | Smolder | +1.5%/rank ATK, 3 ranks; rank 3 may be +2pp crit instead |
-| fire | Kindling | slot 3 | 3 | Ashfall | This mon's `burn` deals +2% max HP per tick (10% total) |
-| fire | Kindling | slot 3 | 4 | Slow Burn | This mon's `burn` duration +1 turn |
-| fire | Kindling | slot 3 | 5 | Tinder Box | Slot 3 move: +25% effect magnitude or +10% power |
-| fire | Kindling | slot 3 | 6 | Ashen Cascade | This mon's `burn` may stack a second instance instead of only refreshing |
-| fire | Backdraft | slot 1 | 1 | Firebreak | +1.5%/rank DEF, 3 ranks |
-| fire | Backdraft | slot 1 | 2 | Ember Ward | +1.5%/rank DEF, 3 ranks; rank 3 may be +2pp dodge instead |
-| fire | Backdraft | slot 1 | 3 | Flashover | This mon's `shield_first` reduces the first hit 60% instead of 50% |
-| fire | Backdraft | slot 1 | 4 | Rekindle Surge | The turn after taking a crit, this mon's next hit deals +15% |
-| fire | Backdraft | slot 1 | 5 | Heat Shield | Slot 1 move: +25% effect magnitude or +10% power |
-| fire | Backdraft | slot 1 | 6 | Phoenix Reborn | Once/battle, a KO instead leaves this mon at 15% HP with its next hit a guaranteed crit |
-| earth | Tremor | slot 2 | 1 | Fault Crack | +1.5%/rank ATK, 3 ranks |
-| earth | Tremor | slot 2 | 2 | Shockwave Step | +1.5%/rank ATK, 3 ranks; rank 3 may be +2pp dodge instead |
-| earth | Tremor | slot 2 | 3 | Ground Shatter | This mon's `def_down` cuts an extra 5pp DEF |
-| earth | Tremor | slot 2 | 4 | Resonant Crack | Landing a crit refreshes this mon's active `def_down` on the target |
-| earth | Tremor | slot 2 | 5 | Seismic Brace | Slot 2 move: +25% effect magnitude or +10% power |
-| earth | Tremor | slot 2 | 6 | Fissure Reckoning | This mon's `def_down` also cuts target ATK by half that % |
-| earth | Canopy | slot 3 | 1 | Undergrowth | +1.5%/rank max HP, 3 ranks |
-| earth | Canopy | slot 3 | 2 | Root Lattice | +1.5%/rank max HP, 3 ranks; rank 3 may be +2pp crit instead |
-| earth | Canopy | slot 3 | 3 | Canopy Cover | This mon's `drain` moves heal +10% more of damage dealt |
-| earth | Canopy | slot 3 | 4 | Mulch Layer | While above 50% HP, incoming `def_down` lasts 1 fewer turn |
-| earth | Canopy | slot 3 | 5 | Grafted Bough | Slot 3 move: +25% effect magnitude or +10% power |
-| earth | Canopy | slot 3 | 6 | Old Growth | Max HP +8% flat, stacks with tier 1/2 |
-| earth | Foundation | slot 1 | 1 | Stoneframe | +1.5%/rank DEF, 3 ranks |
-| earth | Foundation | slot 1 | 2 | Ironvein | +1.5%/rank DEF, 3 ranks; rank 3 may be +2pp crit instead |
-| earth | Foundation | slot 1 | 3 | Load Bearing | This mon's `shield_first` reduces the first hit 60% instead of 50% |
-| earth | Foundation | slot 1 | 4 | Reinforced Crust | After taking a hit, the next hit's damage is reduced 5% (once/battle) |
-| earth | Foundation | slot 1 | 5 | Retaining Wall | Slot 1 move: +25% effect magnitude or +10% power |
-| earth | Foundation | slot 1 | 6 | Unmovable | A single hit cannot take this mon below 10% max HP (once/battle) |
-| air | Cyclone | slot 2 | 1 | Squall Line | +1.5%/rank ATK, 3 ranks |
-| air | Cyclone | slot 2 | 2 | Downburst | +1.5%/rank ATK, 3 ranks; rank 3 may be +2pp crit instead |
-| air | Cyclone | slot 2 | 3 | Wind Shear | This mon's `true_hit` moves deal +10% damage |
-| air | Cyclone | slot 2 | 4 | Funnel Force | This mon's `charge` release deals +15% additional damage |
-| air | Cyclone | slot 2 | 5 | Vortex Edge | Slot 2 move: +25% effect magnitude or +10% power |
-| air | Cyclone | slot 2 | 6 | Tempest | This mon's `charge` moves release the same turn, skipping the telegraph |
-| air | Cirrus | slot 3 | 1 | Windrise | +1.5%/rank SPD, 3 ranks |
-| air | Cirrus | slot 3 | 2 | Jetstream Wing | +1.5%/rank SPD, 3 ranks; rank 3 may be +2pp dodge instead |
-| air | Cirrus | slot 3 | 3 | Slipstream | This mon's `priority` moves also grant +5% SPD that turn |
-| air | Cirrus | slot 3 | 4 | Thermal Lift | When this mon acts first in a turn, its damage +5% |
-| air | Cirrus | slot 3 | 5 | Wingtip Trim | Slot 3 move: +25% effect magnitude or +10% power |
-| air | Cirrus | slot 3 | 6 | Eye of the Storm | This mon always acts first the turn after it took damage |
-| air | Stratus | slot 1 | 1 | Cloudbank | +1.5%/rank DEF, 3 ranks |
-| air | Stratus | slot 1 | 2 | High Pressure | +1.5%/rank DEF, 3 ranks; rank 3 may be +2pp dodge instead |
-| air | Stratus | slot 1 | 3 | Fog Bank | This mon's `shield_first` reduces the first hit 60% instead of 50% |
-| air | Stratus | slot 1 | 4 | Static Charge | Being crit grants this mon +10% dodge chance for 1 turn |
-| air | Stratus | slot 1 | 5 | Overcast Veil | Slot 1 move: +25% effect magnitude or +10% power |
-| air | Stratus | slot 1 | 6 | Ceiling Break | Once/battle, a hit exceeding 40% of this mon's max HP in damage is capped at 40% |
-
-### Shared passives
-
-Ten passives, available regardless of nation, occupying their own small pool of points (not part of the 47/nation budget above; exact slotting is a Phase C implementation detail).
-
-| Passive | Effect |
-|---|---|
-| Stone Skin | First hit taken each battle is reduced 25% |
-| Deep Roots | +20% DEF once this mon drops below 25% HP |
-| Bedrock | Immune to critical hits |
-| Wildfire | This mon's `burn` deals +30% damage and lasts +1 turn |
-| Aftershock | This mon's crits also apply `def_down` |
-| Tailwind | Loadout slot 1 always crits |
-| Tidal Recovery | Heal 10% max HP on landing a crit |
-| Updraft | Guaranteed to act first on turn 1 |
-| Second Breath | Survive one KO per battle at 1 HP |
-| Ember Heart | The first time this mon's HP drops below 50%, its next move gets +20pp crit chance |
+3 branches of 6 tiered nodes per nation, plus a small shared-passive pool, spent from level 3
+(47 points by level 50). Full node tables, the shared-passive list, the respec rule and the
+"tuned by simulation" magnitudes all live in `docs/design/talent-tree.md` -- this section is
+just the pointer so this doc stays under its length budget.
 
 ## Evolution multipliers
 
@@ -294,18 +205,20 @@ snapshot, so every mon always battles with a valid, level-appropriate loadout wh
 ever called `set-loadout`; see `supabase/migrations/20260913040000_progression_phase_b.sql`'s
 comment for the reasoning against a backfill migration.
 
-The `set-loadout` Edge Function validates a submitted `{ stance?, moves? }` against the mon's level
-(which moves are unlocked) via the pure shared `validateLoadout`
-(`packages/shared/src/game/progression.ts`); `tree` is still rejected (`TREE_NOT_SETTABLE`, Phase
-C). Rejection reasons are typed (`LoadoutErrorCode`, e.g. `MOVE_LOCKED`, `MOVES_NOT_DISTINCT`),
-returned as `error.details.code` alongside the human-readable `error.message`. `MonSnapshot`
+The `set-loadout` Edge Function validates a submitted `{ stance?, moves?, tree?, respec? }` against
+the mon's level (which moves are unlocked, the talent tree's node/prereq/budget/respec-cooldown
+rules — see `docs/design/talent-tree.md`) via the pure shared `validateLoadout`
+(`packages/shared/src/game/progression.ts`). Rejection reasons are typed (`LoadoutErrorCode`, e.g.
+`MOVE_LOCKED`, `MOVES_NOT_DISTINCT`, `TREE_OVER_BUDGET`, `RESPEC_COOLDOWN`), returned as
+`error.details.code` alongside the human-readable `error.message`. `MonSnapshot`
 (`packages/shared/src/battle/battle.ts`) has a `loadout` field (always populated by `snapshotFor`),
 stored in `public.battles.challenger_snapshot`/`opponent_snapshot` so old battle logs keep replaying
 against the loadout that was actually equipped. `MonState` (`packages/shared/src/api.ts`) carries
-the mon's own `loadout` and `unlockedMoveIds` so the client can render the loadout editor without a
-separate call. `apps/desktop/src/renderer/panel/views/Battles.tsx` has a loadout editor overlay
-(move dropdowns per slot with reorder, locked moves greyed with "unlocks at level N", and the stance
-picker); the talent tree and recent-opponent cards are still Phase C/D.
+the mon's own `loadout`, `unlockedMoveIds`, `treePoints`/`sharedPassivePoints` and `lastRespecAt` so
+the client can render the loadout editor without a separate call.
+`apps/desktop/src/renderer/panel/views/Battles.tsx` has a loadout editor overlay (move dropdowns
+per slot with reorder, locked moves greyed with "unlocks at level N", the stance picker, and a
+Talents section — see `docs/design/talent-tree.md`); recent-opponent cards are still Phase D.
 
 ## Balance targets
 
@@ -322,9 +235,12 @@ cycled across the matrix rather than fully crossed, to keep the battle count tra
 - the stance triangle holds at **55–62%** for the counter side, on every pairing, within 5 points of
   each other (see Stances above for the 2026-09-13 tuning that made this achievable);
 - boundary matchups (level 9 vs. 11, level 24 vs. 26 — either side of a stage transition) land the
-  low-level side at **38–48%** (see Evolution multipliers above).
+  low-level side at **38–48%** (see Evolution multipliers above);
+- Phase C's talent-tree matrix (a maxed tree vs. an empty one, and every pair of a nation's
+  branches against each other) — see `docs/design/talent-tree.md` Balance targets for the numbers
+  and the tuning that got there.
 
-Any change to `simulateBattle`'s RNG call order (adding a talent roll, a stance check, etc.) resets the golden log snapshot (`docs/design/battle.md` Determinism contract) and bumps the battle protocol version. `BATTLE_PROTOCOL_VERSION` is **3** as of Phase B (6-move pools, loadout policy, move effects replace the fixed `normal`/`typed`/`special` power table and the `special`-at-half-HP rule).
+Any change to `simulateBattle`'s RNG call order (a talent-tree roll, a stance check, etc.) resets the golden log snapshot (`docs/design/battle.md` Determinism contract) and bumps the battle protocol version. `BATTLE_PROTOCOL_VERSION` is **4** as of Phase C (talent-tree stat nodes folded into snapshot stats, move-upgrade/capstone nodes and the 10 shared passives; the golden log itself was unaffected since an untreed mon's battle is bit-identical to Phase B).
 
 ## Phases
 
@@ -332,5 +248,5 @@ Any change to `simulateBattle`'s RNG call order (adding a talent roll, a stance 
 |---|---|---|
 | A | Stances, evolution multipliers, matchmaking windows, win streaks | shipped |
 | B | Move pool (6/species), loadout policy, `MonSnapshot.loadout`, `set-loadout` | shipped |
-| C | Talent tree (nation branches + shared passives), respec | not started |
+| C | Talent tree (nation branches + shared passives), respec | shipped |
 | D | Recent-opponent intel: `explainMatchup` summaries on the Battles tab | not started |

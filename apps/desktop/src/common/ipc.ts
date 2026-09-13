@@ -236,13 +236,25 @@ export interface UiSnapshot {
     loadout: MonLoadout;
     /** this mon's currently-unlocked move ids, in pool order (empty while egg) */
     unlockedMoveIds: string[];
+    /** nation talent points spent vs. available at this mon's level (docs/design/talent-tree.md) */
+    treePoints: { spent: number; available: number };
+    /** shared-passive points spent vs. available (docs/design/talent-tree.md Shared passives) */
+    sharedPassivePoints: { spent: number; available: number };
+    /** local mirror of `mons.last_respec_at`, or null if never respecced; server-authoritative
+     * value is re-synced from every successful `set-loadout` response. */
+    lastRespecAt: string | null;
   };
 }
 
-/** `battle:set-loadout` request payload; both fields optional, same as `SetLoadoutRequest`. */
+/** `battle:set-loadout` request payload; all fields optional, same as `SetLoadoutRequest`. */
 export interface SetLoadoutPayload {
   stance?: Stance;
   moves?: string[];
+  /** `{ [nodeId]: rank }` (docs/design/talent-tree.md). */
+  tree?: Record<string, number>;
+  /** UI acknowledgement that this submission lowers a rank; the server always re-derives whether
+   * it actually is a respec from the ranks themselves. */
+  respec?: boolean;
 }
 
 export type UpdateStatusValue =

@@ -85,8 +85,15 @@ export interface LocalState {
     /** consecutive-win streak; mirrors the server's `mons.win_streak` when online */
     streak: number;
   };
-  /** Prepared loadout (docs/design/progression.md); `tree` is reserved for Phase C. */
-  loadout: { stance: Stance; moves?: string[] };
+  /** Prepared loadout (docs/design/progression.md, docs/design/talent-tree.md). */
+  loadout: {
+    stance: Stance;
+    moves?: string[];
+    tree?: Record<string, number>;
+    /** local mirror of the server's `mons.last_respec_at`, re-synced on every successful
+     * `set-loadout` response; used only to show the 7-day respec cooldown before a round-trip. */
+    lastRespecAt: string | null;
+  };
   water: {
     /** Last time the player clicked "Done" on the water reminder card, or null. */
     lastDoneAt: number | null;
@@ -130,7 +137,7 @@ export function defaultState(): LocalState {
     auth: { session: null },
     battles: { history: [], lastBattleAt: null, today: { day: '', count: 0 }, streak: 0 },
     water: { lastDoneAt: null, snoozedUntil: null, todayCount: 0, todayKey: '' },
-    loadout: { stance: DEFAULT_STANCE },
+    loadout: { stance: DEFAULT_STANCE, lastRespecAt: null },
   };
 }
 
@@ -174,10 +181,18 @@ function addProgressionPhaseA(state: Record<string, unknown>): Record<string, un
   };
 }
 
+/** v5 -> v6: adds the talent tree's local respec-cooldown mirror (docs/design/talent-tree.md);
+ * `loadout.tree` itself needs no default (stays absent until the player spends a point). */
+function addTalentTree(state: Record<string, unknown>): Record<string, unknown> {
+  const loadout = (state.loadout as Record<string, unknown> | undefined) ?? {};
+  return { ...state, loadout: { ...loadout, lastRespecAt: null } };
+}
+
 /** migrations[i] upgrades version i+1 -> i+2. Add new ones at the end; never edit old ones. */
 export const MIGRATIONS: readonly Migration[] = [
   addHookEndpoint,
   addWaterReminder,
   addProfileEmail,
   addProgressionPhaseA,
+  addTalentTree,
 ];

@@ -58,6 +58,13 @@ export interface MonState {
   loadout: MonLoadout;
   /** This mon's currently-unlocked move ids, in pool order (empty while egg). */
   unlockedMoveIds: string[];
+  /** Nation talent points spent vs. available at this mon's level (docs/design/talent-tree.md). */
+  treePoints: { spent: number; available: number };
+  /** Shared-passive points spent vs. available (docs/design/talent-tree.md Shared passives). */
+  sharedPassivePoints: { spent: number; available: number };
+  /** `mons.last_respec_at`, or null if this mon has never respecced; used to show the 7-day
+   * cooldown client-side (docs/design/talent-tree.md Respec). */
+  lastRespecAt: string | null;
   battle: {
     /** ISO timestamp when the next challenge is allowed, or null if allowed now */
     cooldownUntil: string | null;
@@ -148,11 +155,17 @@ export interface BattleRequestResponse {
 
 /**
  * `moves` is 3 distinct move ids, each unlocked at the mon's current level (docs/design/
- * progression.md Move pool and effects); `tree` is reserved for Phase C.
+ * progression.md Move pool and effects). `tree` is `{ [nodeId]: rank }` (docs/design/
+ * talent-tree.md), validated server-side against the mon's own nation/level/existing tree;
+ * `respec` is the client's own UI acknowledgement that this submission lowers a rank (a true
+ * respec) -- the server always re-derives whether it actually is one from the ranks themselves
+ * (`packages/shared/src/game/tree.ts:isRespec`) and enforces the cooldown regardless of this flag.
  */
 export interface SetLoadoutRequest {
   stance?: string;
   moves?: string[];
+  tree?: Record<string, number>;
+  respec?: boolean;
 }
 
 export interface SetLoadoutResponse {

@@ -3,12 +3,13 @@ doc_type: reference
 purpose: "Look up IPC channel names and payload types for renderer-to-main and main-to-renderer communication."
 audience: agent
 last_verified: 2026-09-13
-last_verified_commit: b1bd8f1
+last_verified_commit: 1196eff
 related_files:
   - apps/desktop/src/common/ipc.ts
   - apps/desktop/README.md
   - docs/decisions/0014-curl-script-mode-hook-fallback.md
   - docs/decisions/0018-compact-window-and-fail-closed-click-through.md
+  - docs/design/talent-tree.md
 ---
 
 # IPC Channels
@@ -62,7 +63,7 @@ Handled by `App.registerUiIpc`.
 | `ui:set-water-enabled` | `boolean` | `UiSnapshot` | Turn the water reminder on/off (mirrored by the tray checkbox) |
 | `ui:set-water-interval` | `number` (one of 30\|45\|60\|90\|120, validated by `isWaterIntervalMin`) | `UiSnapshot` | Change the reminder interval |
 | `battle:set-stance` | `Stance` (validated by `isStance`; `'fury' \| 'bulwark' \| 'gale'`) | `{ok, error}` | Set the mon's battle stance (`docs/design/progression.md`); stored locally and, when online, via the `set-loadout` Edge Function |
-| `battle:set-loadout` | `SetLoadoutPayload` (`{ stance?, moves? }`) | `{ok, error}` | Set stance and/or the 3 equipped move ids (`docs/design/progression.md` Move pool and effects), validated locally with the shared `validateLoadout` (mon level/species) before being stored and, when online, forwarded to `set-loadout` |
+| `battle:set-loadout` | `SetLoadoutPayload` (`{ stance?, moves?, tree?, respec? }`) | `{ok, error}` | Set stance, the 3 equipped move ids, and/or the talent tree (`docs/design/progression.md` Move pool and effects, `docs/design/talent-tree.md` for `tree`/`respec`), validated locally with the shared `validateLoadout` (mon level/species/existing tree/respec cooldown) before being stored and, when online, forwarded to `set-loadout` (whose response re-syncs `loadout.lastRespecAt`) |
 | `water:done` | — | `UiSnapshot` | Reminder card "Done": hides the card, records the sip, sends a `game:cheer` celebration stimulus to the pet (no XP) |
 | `water:snooze` | — | `UiSnapshot` | Reminder card "Snooze 10 min": hides the card, re-arms in 10 minutes |
 | `account:link-start` | `string` (email) | `AccountOpResult` | Sends a 6-digit code to link an email to the current (anonymous) account |
@@ -90,8 +91,8 @@ Handled by `App.registerUiIpc`.
 - **StimulusMessage:** = shared Stimulus (union type from @claude-mons/shared).
 - **BattlePlayMessage:** id, result (BattleResult, whose `turns[].actions[]` now carry `moveId`/`effect`/`charge` per docs/design/progression.md Move pool and effects), me/opponent (MonSnapshot, now carrying `loadout.stance`/`loadout.moves`), reward XP, isBot, isElite (10% elite Wild Mon encounter), winStreak (challenger's streak after this battle).
 - **BattleSummary:** id, at (timestamp), won, xp, isBot, isElite, winStreak, turns, reason, me stats, opponent (nickname, nation, stats).
-- **UiSnapshot:** version, isDev, profile (nickname, nation, userId), account (email, anonymous), pet (speciesId, stage, state), progress (localXp, serverXp, streakDays), hooks (status, mode, effectiveMode, probe), settings (scale, autostart), online (connected, lastSyncAt, lastError, configured), update status, notifications, battles (history, cooldownUntil, remainingToday, winStreak, loadout, unlockedMoveIds), water (enabled, intervalMin, todayCount, nextDueAt).
-- **SetLoadoutPayload:** `{ stance?: Stance, moves?: string[] }` — same shape the `set-loadout` Edge Function accepts (`packages/shared/src/api.ts:SetLoadoutRequest`).
+- **UiSnapshot:** version, isDev, profile (nickname, nation, userId), account (email, anonymous), pet (speciesId, stage, state), progress (localXp, serverXp, streakDays), hooks (status, mode, effectiveMode, probe), settings (scale, autostart), online (connected, lastSyncAt, lastError, configured), update status, notifications, battles (history, cooldownUntil, remainingToday, winStreak, loadout, unlockedMoveIds, treePoints, sharedPassivePoints, lastRespecAt), water (enabled, intervalMin, todayCount, nextDueAt).
+- **SetLoadoutPayload:** `{ stance?: Stance, moves?: string[], tree?: Record<string, number>, respec?: boolean }` — same shape the `set-loadout` Edge Function accepts (`packages/shared/src/api.ts:SetLoadoutRequest`); `tree`/`respec` are docs/design/talent-tree.md.
 - **AccountOpResult:** `{ok: boolean, error: string | null}`; `error` is a short user-facing string (see `apps/desktop/src/main/net/SupabaseClient.ts`'s `describeAuthError`). See `docs/architecture/flows/account-linking.md`.
 - **`water:done`/`water:snooze` are bridged as `window.monsUi.water.done()`/`window.monsUi.water.snooze()`** (a nested object on the shared `uiApi`, alongside the flat `setWaterEnabled`/`setWaterInterval` methods), used only by `src/renderer/reminder/main.tsx`.
 - **hooks.status:** `'installed-binary' | 'installed-script' | 'partial' | 'not-installed' | 'unreadable' | 'no-binary'`. **hooks.mode:** the configured preference (`'auto' | 'binary' | 'script'`). **hooks.effectiveMode:** what `'auto'` resolved to (`'binary' | 'script'`). **hooks.probe:** last `probeBinary()` result (`'ok' | 'blocked' | 'missing' | null`).

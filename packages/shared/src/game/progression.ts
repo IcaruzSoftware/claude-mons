@@ -3,6 +3,7 @@
  * shape that future phases (move pool, talent tree) extend without breaking stored snapshots.
  */
 import { findMove, speciesOf, unlockedMoves } from './species.ts';
+import { isRespec, validateTree } from './tree.ts';
 import type { Nation, Stats } from '../types.ts';
 
 /** Battle stance: a rock-paper-scissors triangle of +-18% stat trade-offs. */
@@ -92,7 +93,9 @@ export interface MonLoadout {
 
 /**
  * Stable, machine-readable reasons a submitted loadout was rejected (`set-loadout`'s response
- * carries this as `error.details.code`).
+ * carries this as `error.details.code`). The `TREE_*` codes come from
+ * `packages/shared/src/game/tree.ts:validateTree`; `RESPEC_COOLDOWN` is Phase C's respec rule
+ * (docs/design/talent-tree.md).
  */
 export type LoadoutErrorCode =
   | 'INVALID_SHAPE'
@@ -102,21 +105,48 @@ export type LoadoutErrorCode =
   | 'MOVES_NOT_DISTINCT'
   | 'MOVE_UNKNOWN'
   | 'MOVE_LOCKED'
-  | 'TREE_NOT_SETTABLE';
+  | 'TREE_UNKNOWN_NODE'
+  | 'TREE_RANK'
+  | 'TREE_PREREQ'
+  | 'TREE_OVER_BUDGET'
+  | 'RESPEC_COOLDOWN';
 
 export type ValidateLoadoutResult =
-  { ok: true; loadout: MonLoadout } | { ok: false; code: LoadoutErrorCode; reason: string };
+  | { ok: true; loadout: MonLoadout; isRespec: boolean }
+  | { ok: false; code: LoadoutErrorCode; reason: string; details?: Record<string, unknown> };
+
+/** A respec is free below this level, then limited to once per `RESPEC_COOLDOWN_MS`
+ * (docs/design/talent-tree.md Respec). */
+export const RESPEC_FREE_BELOW_LEVEL = 10;
+export const RESPEC_COOLDOWN_MS = 7 * 24 * 60 * 60 * 1000;
 
 /**
- * Pure validation for the `set-loadout` Edge Function. Phase B accepts `stance` and `moves` (3
- * distinct move ids, each unlocked at the mon's level per `docs/design/progression.md` Move pool
- * and effects); `tree` is still rejected (Phase C). `context.speciesId` is null for an unhatched
- * egg, which cannot have moves (it has no species, hence no move pool) -- `stance` alone is still
- * accepted for an egg, same as Phase A.
+ * Pure validation for the `set-loadout` Edge Function. Accepts `stance`, `moves` (3 distinct move
+ * ids, each unlocked at the mon's level per `docs/design/progression.md` Move pool and effects),
+ * and (Phase C) `tree` (`{ [nodeId]: rank }`, validated by
+ * `packages/shared/src/game/tree.ts:validateTree`) plus an optional `respec` acknowledgement flag.
+ * `context.speciesId` is null for an unhatched egg, which cannot have moves (it has no species,
+ * hence no move pool) -- `stance` alone is still accepted for an egg, same as Phase A.
+ *
+ * A respec (docs/design/talent-tree.md: "any change that lowers a node's rank", detected by
+ * `isRespec` against `context.existingTree`) is free below `RESPEC_FREE_BELOW_LEVEL`; at or above
+ * it, `context.lastRespecAt`/`context.now` gate it to once per `RESPEC_COOLDOWN_MS` -- this is
+ * always re-derived from the submitted ranks themselves, so the caller's own `respec` flag (kept
+ * in the request shape for the client's own UI confirmation) cannot be used to bypass the cooldown.
+ * Both `existingTree`/`lastRespecAt` are optional because a client-side preview call (before the
+ * server round-trip) may not have them at hand; the cooldown is only truly enforced once
+ * `set-loadout` calls this with the mon's real stored `tree`/`last_respec_at`.
  */
 export function validateLoadout(
   input: unknown,
-  context: { level: number; nation: Nation; speciesId: string | null },
+  context: {
+    level: number;
+    nation: Nation;
+    speciesId: string | null;
+    existingTree?: Record<string, number>;
+    lastRespecAt?: string | null;
+    now?: Date;
+  },
 ): ValidateLoadoutResult {
   if (typeof input !== 'object' || input === null || Array.isArray(input)) {
     return { ok: false, code: 'INVALID_SHAPE', reason: 'loadout must be an object' };
@@ -158,8 +188,44 @@ export function validateLoadout(
     }
     loadout.moves = moves;
   }
+  let isRespecResult = false;
   if (body.tree !== undefined) {
-    return { ok: false, code: 'TREE_NOT_SETTABLE', reason: 'talent tree is not settable yet' };
+    if (typeof body.tree !== 'object' || body.tree === null || Array.isArray(body.tree)) {
+      return {
+        ok: false,
+        code: 'INVALID_SHAPE',
+        reason: 'tree must be an object of nodeId -> rank',
+      };
+    }
+    const ranks: Record<string, number> = {};
+    for (const [id, rank] of Object.entries(body.tree as Record<string, unknown>)) {
+      if (typeof rank !== 'number' || !Number.isInteger(rank) || rank < 0) {
+        return {
+          ok: false,
+          code: 'TREE_RANK',
+          reason: `${id}: rank must be a non-negative integer`,
+        };
+      }
+      ranks[id] = rank;
+    }
+    const treeResult = validateTree(context.nation, context.level, ranks);
+    if (!treeResult.ok) return { ok: false, code: treeResult.code, reason: treeResult.reason };
+    const respec = isRespec(context.existingTree ?? {}, ranks);
+    if (respec && context.level >= RESPEC_FREE_BELOW_LEVEL) {
+      const lastMs = context.lastRespecAt ? Date.parse(context.lastRespecAt) : NaN;
+      const nowMs = (context.now ?? new Date()).getTime();
+      if (Number.isFinite(lastMs) && nowMs - lastMs < RESPEC_COOLDOWN_MS) {
+        const cooldownUntil = new Date(lastMs + RESPEC_COOLDOWN_MS).toISOString();
+        return {
+          ok: false,
+          code: 'RESPEC_COOLDOWN',
+          reason: `respec available again at ${cooldownUntil}`,
+          details: { cooldownUntil },
+        };
+      }
+    }
+    isRespecResult = respec;
+    loadout.tree = ranks;
   }
-  return { ok: true, loadout };
+  return { ok: true, loadout, isRespec: isRespecResult };
 }

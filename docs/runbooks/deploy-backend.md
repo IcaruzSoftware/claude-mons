@@ -3,7 +3,7 @@ doc_type: runbook
 purpose: "Read this when deploying backend changes to Supabase."
 audience: both
 last_verified: 2026-09-13
-last_verified_commit: 1abb898
+last_verified_commit: 1196eff
 related_files:
   - supabase/README.md
   - supabase/config.toml

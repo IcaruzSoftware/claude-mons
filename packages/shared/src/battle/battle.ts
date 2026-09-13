@@ -1,12 +1,24 @@
 import {
+  BURN_FRACTION,
   BURN_TURNS,
   CHARGE_MULTIPLIER,
   CRIT_UP_BONUS,
   CRIT_UP_MAX,
+  DEEP_ROOTS_DEF_BONUS,
+  DEEP_ROOTS_HP_THRESHOLD,
   DEF_DOWN_MULT,
   DEF_DOWN_TURNS,
   DRAIN_FRACTION,
+  EMBER_HEART_CRIT_BONUS,
+  EMBER_HEART_HP_THRESHOLD,
+  EYE_OF_STORM_CHANCE,
+  PHOENIX_TRIGGER_CHANCE,
+  SECOND_BREATH_HP,
   SHIELD_FIRST_REDUCTION,
+  STONE_SKIN_REDUCTION,
+  TIDAL_RECOVERY_HEAL_FRACTION,
+  WILDFIRE_BURN_BONUS_FRACTION,
+  WILDFIRE_BURN_EXTRA_TURNS,
   burnTickDamage,
   initSideEffectState,
   type EffectId,
@@ -23,6 +35,15 @@ import {
   type MonLoadout,
 } from '../game/progression.ts';
 import { defaultLoadoutMoveIds, findMove, speciesOf, type Move } from '../game/species.ts';
+import {
+  defaultBotTree,
+  resolveTree,
+  type CapstoneEffect,
+  type LoadoutSlot,
+  type MoveUpgrade,
+  type ResolvedTree,
+  type SharedPassiveSlug,
+} from '../game/tree.ts';
 import type { Nation, Stage, Stats } from '../types.ts';
 import { makeRng } from './rng.ts';
 
@@ -37,13 +58,16 @@ export interface MonSnapshot {
   speciesId: string;
   stage: Exclude<Stage, 'egg'>;
   level: number;
-  /** already scaled to `level`; stored so old logs replay after rebalances */
+  /** already scaled to `level` -- stage multiplier and (Phase C) the mon's tree stat nodes, in
+   * that order, both before stance -- and stored so old logs replay after rebalances. */
   stats: Stats;
   /**
    * `stance` defaults to `DEFAULT_STANCE` and `moves` to `defaultLoadoutMoveIds` (see
    * `snapshotFor`) so every snapshot this module builds always has both -- but the field stays
    * optional on the type because pre-Phase-A/B stored snapshots (`battles.*_snapshot`) predate one
-   * or both and must keep replaying from their own stored log, never recomputed.
+   * or both and must keep replaying from their own stored log, never recomputed. `tree` similarly
+   * defaults to a Wild Mon's `defaultBotTree` (Phase C); a real player's stored `tree` (or its
+   * absence, for an empty/unspent tree) is always passed through as-is.
    */
   loadout?: MonLoadout;
 }
@@ -86,10 +110,14 @@ export const MAX_TURNS = 10;
  * of an old log diverge (docs/design/progression.md "Any change to simulateBattle's RNG call
  * order..."). Stored per battle in `battles.protocol_version`; old logs are replayed from their
  * stored `log`, never recomputed at a newer version. v2 = Phase A (stances, evolution multipliers).
- * v3 = Phase B (6-move pools, loadout policy, move effects: the `special`-at-half-HP rule and the
- * fixed `normal`/`typed` power table are gone, replaced by each mon's own `movePool`/`loadout`).
+ * v3 = Phase B (6-move pools, loadout policy, move effects). v4 = Phase C (talent tree: stat nodes
+ * folded into snapshot stats, move-upgrade/capstone nodes and the 10 shared passives change the
+ * damage formula and add several new deterministic branch points -- Bedrock's forced non-crit,
+ * Updraft/Eye of the Storm's turn-order overrides, Tempest's instant charge release, and the
+ * Phoenix Reborn/Second Breath KO interceptions -- none of which add or remove an `rng()` call by
+ * themselves, but the golden log's *values* change because the formula does).
  */
-export const BATTLE_PROTOCOL_VERSION = 3;
+export const BATTLE_PROTOCOL_VERSION = 4;
 
 const levelScale = (l: number): number => (l + 49) / 50;
 
@@ -102,11 +130,32 @@ export function statsAtLevel(base: Stats, level: number): Stats {
   };
 }
 
+/** Folds a resolved tree's summed stat-node bonuses -- plus any `flatStat` capstone (Water's Deep
+ * Reserve, Earth's Old Growth: "Max HP +N% flat, stacks with tier 1/2") -- into already
+ * level-scaled stats (docs/design/talent-tree.md: "after stage multiplier, before stance"). Rounds
+ * the same way `applyStanceModifiers` does. */
+function applyTreeStatBonus(stats: Stats, resolved: ResolvedTree): Stats {
+  const pct: Partial<Record<keyof Stats, number>> = { ...resolved.statBonusPct };
+  for (const capstone of resolved.capstones) {
+    if (capstone.kind === 'flatStat') pct[capstone.stat] = (pct[capstone.stat] ?? 0) + capstone.pct;
+  }
+  const mult = (key: keyof Stats) => 1 + (pct[key] ?? 0);
+  return {
+    hp: Math.round(stats.hp * mult('hp')),
+    atk: Math.round(stats.atk * mult('atk')),
+    def: Math.round(stats.def * mult('def')),
+    spd: Math.round(stats.spd * mult('spd')),
+  };
+}
+
 /**
  * Convenience for building a snapshot from species + level. Always fills in a full `loadout`
  * (`stance` defaulting to `DEFAULT_STANCE`, `moves` defaulting to `defaultLoadoutMoveIds`) so the
  * snapshot stored in `battles.*_snapshot` always carries the loadout that was actually equipped,
- * even for a mon (or Wild Mon) that never called `set-loadout`.
+ * even for a mon (or Wild Mon) that never called `set-loadout`. A Wild Mon (`playerId: null`) with
+ * no stored `tree` gets `defaultBotTree` (docs/design/talent-tree.md) so bots scale like players
+ * instead of always fighting bare-tree; a real player's tree (including an intentionally empty
+ * one) is passed through untouched.
  */
 export function snapshotFor(input: {
   monId: string;
@@ -123,11 +172,21 @@ export function snapshotFor(input: {
     loadout?.moves && loadout.moves.length === 3
       ? loadout.moves
       : defaultLoadoutMoveIds(species, input.level);
+  const tree =
+    loadout?.tree ??
+    (input.playerId === null ? defaultBotTree(species.nation, input.level) : undefined);
+  const resolved = resolveTree(species.nation, tree);
+  const stats = applyTreeStatBonus(statsAtLevel(species.baseStats, input.level), resolved);
   return {
     ...rest,
     nation: species.nation,
-    stats: statsAtLevel(species.baseStats, input.level),
-    loadout: { ...loadout, stance: loadout?.stance ?? DEFAULT_STANCE, moves },
+    stats,
+    loadout: {
+      ...loadout,
+      stance: loadout?.stance ?? DEFAULT_STANCE,
+      moves,
+      ...(tree ? { tree } : {}),
+    },
   };
 }
 
@@ -147,6 +206,13 @@ function resolveLoadoutMoves(mon: MonSnapshot): [Move, Move, Move] {
   // to the level-appropriate default rather than throwing mid-battle.
   const fallback = defaultLoadoutMoveIds(species, mon.level).map((id) => findMove(species, id)!);
   return fallback as [Move, Move, Move];
+}
+
+function hasCapstoneOf<K extends CapstoneEffect['kind']>(
+  capstones: CapstoneEffect[],
+  kind: K,
+): Extract<CapstoneEffect, { kind: K }> | undefined {
+  return capstones.find((c): c is Extract<CapstoneEffect, { kind: K }> => c.kind === kind);
 }
 
 /**
@@ -179,16 +245,99 @@ export function simulateBattle(a: MonSnapshot, b: MonSnapshot, seed: string): Ba
     a: resolveLoadoutMoves(a),
     b: resolveLoadoutMoves(b),
   };
-  const fx: Record<Side, SideEffectState<Move>> = {
-    a: initSideEffectState(loadoutMoves.a.some((m) => m.effect === 'shield_first')),
-    b: initSideEffectState(loadoutMoves.b.some((m) => m.effect === 'shield_first')),
+
+  // Talent tree (docs/design/talent-tree.md, Phase C): resolved once per side, same as stances
+  // above -- pure, no RNG. `slotOf` maps a mon's own equipped move ids to their loadout slot
+  // (1 = opener, 2 = default, 3 = finisher) so move-upgrade lookups can key off the move actually
+  // being used rather than re-deriving loadout order every action.
+  const treeOf: Record<Side, ResolvedTree> = {
+    a: resolveTree(a.nation, a.loadout?.tree),
+    b: resolveTree(b.nation, b.loadout?.tree),
   };
+  const slotOf: Record<Side, Record<string, LoadoutSlot>> = { a: {}, b: {} };
+  for (const side of ['a', 'b'] as const) {
+    const [opener, standard, finisher] = loadoutMoves[side];
+    slotOf[side][opener.id] = 1;
+    slotOf[side][standard.id] = 2;
+    slotOf[side][finisher.id] = 3;
+  }
+  const hasPassive = (side: Side, slug: SharedPassiveSlug) => treeOf[side].sharedPassives.has(slug);
+  const hasCapstone = <K extends CapstoneEffect['kind']>(side: Side, kind: K) =>
+    hasCapstoneOf(treeOf[side].capstones, kind);
+  const moveUpgradeFor = (side: Side, move: Move): MoveUpgrade | undefined => {
+    const slot = slotOf[side][move.id];
+    return slot ? treeOf[side].moveUpgradeBySlot[slot] : undefined;
+  };
+  const shieldFirstSlotOf = (side: Side): LoadoutSlot | null => {
+    const idx = loadoutMoves[side].findIndex((m) => m.effect === 'shield_first');
+    return idx === -1 ? null : ((idx + 1) as LoadoutSlot);
+  };
+
+  const fx: Record<Side, SideEffectState<Move>> = {
+    a: initSideEffectState({
+      hasShieldFirst: loadoutMoves.a.some((m) => m.effect === 'shield_first'),
+      shieldFirstSlot: shieldFirstSlotOf('a'),
+      hasStoneSkin: hasPassive('a', 'stone-skin'),
+    }),
+    b: initSideEffectState({
+      hasShieldFirst: loadoutMoves.b.some((m) => m.effect === 'shield_first'),
+      shieldFirstSlot: shieldFirstSlotOf('b'),
+      hasStoneSkin: hasPassive('b', 'stone-skin'),
+    }),
+  };
+
+  /** Effective ATK/SPD for `side` right now: base (stance-modified) stats, minus any active
+   * `def_down`-riding ATK/SPD cut from Earth's Fissure Reckoning / Water's Abyssal Pull capstones
+   * (docs/design/talent-tree.md). DEF is handled separately at the point of use, since a
+   * Supernova crit (Fire's capstone) needs to see the *un-debuffed* DEF for that one action. */
+  const liveStats = (side: Side): { atk: number; spd: number } => {
+    const base = effStats[side];
+    const st = fx[side];
+    const atkMult = st.defDownTurns > 0 ? 1 - st.defDownExtraAtkFrac : 1;
+    const spdMult = st.defDownTurns > 0 ? 1 - st.defDownExtraSpdFrac : 1;
+    return { atk: base.atk * atkMult, spd: base.spd * spdMult };
+  };
+
+  /** Deep Roots (shared passive) latches on once `side` first drops below the threshold; Ember
+   * Heart (shared passive) arms its one-shot crit bonus the same way. Called after every HP
+   * change so both trigger the instant they're eligible, not just at end of turn. */
+  const checkThresholdPassives = (side: Side) => {
+    const frac = hp[side] / mons[side].stats.hp;
+    const st = fx[side];
+    if (!st.deepRootsActive && hasPassive(side, 'deep-roots') && frac < DEEP_ROOTS_HP_THRESHOLD) {
+      st.deepRootsActive = true;
+    }
+    if (st.emberHeartArmed && hasPassive(side, 'ember-heart') && frac < EMBER_HEART_HP_THRESHOLD) {
+      st.emberHeartArmed = false;
+      st.emberHeartPending = true;
+    }
+  };
+
+  /** Applies (or refreshes) `def_down` on `foe`, capturing the attacker's move-upgrade magnitude
+   * and Earth's Fissure Reckoning / Water's Abyssal Pull capstones at the moment it lands. Shared
+   * by the `def_down` move effect itself and Fire's Aftershock passive (crits also apply it). */
+  const applyDefDown = (me: Side, foe: Side, upgrade: MoveUpgrade | undefined) => {
+    const foeState = fx[foe];
+    const cutFraction = (1 - DEF_DOWN_MULT) * (upgrade ? upgrade.effectMult : 1);
+    foeState.defDownTurns = DEF_DOWN_TURNS;
+    foeState.defDownMult = 1 - cutFraction;
+    const spdCap = hasCapstone(me, 'defDownAlsoSpd');
+    const atkCap = hasCapstone(me, 'defDownAlsoAtk');
+    foeState.defDownExtraSpdFrac = spdCap ? spdCap.fraction : 0;
+    foeState.defDownExtraAtkFrac = atkCap ? atkCap.fraction : 0;
+  };
+
+  // Reset every turn, set true in `act()` whenever a direct hit connects; copied into
+  // `tookDamageLastTurn` at the end of the turn for Air's Eye of the Storm capstone to read next.
+  const tookDamageThisTurn: Record<Side, boolean> = { a: false, b: false };
 
   /**
    * Loadout policy (docs/design/progression.md Loadout policy): turn 1 always the opener (slot 1);
    * the finisher (slot 3) fires once per battle the first turn target HP < 35% or own HP < 40%;
    * otherwise slot 2 w.p. 0.8, slot 1 w.p. 0.2 (one rng draw); a pending `charge` release always
-   * overrides all of the above.
+   * overrides all of the above. Air's Tempest capstone (docs/design/talent-tree.md) skips the
+   * telegraph turn entirely: a `charge` move resolves as an immediate `release`, never enters
+   * `chargePending`, and so never costs the extra turn a normal charge move does.
    */
   const pickMove = (
     side: Side,
@@ -201,7 +350,9 @@ export function simulateBattle(a: MonSnapshot, b: MonSnapshot, seed: string): Ba
       return { move, charge: 'release' };
     }
     const [opener, standard, finisher] = loadoutMoves[side];
-    const chargeOf = (m: Move) => (m.effect === 'charge' ? ('telegraph' as const) : null);
+    const tempest = hasCapstone(side, 'chargeInstant') !== undefined;
+    const chargeOf = (m: Move) =>
+      m.effect === 'charge' ? (tempest ? ('release' as const) : ('telegraph' as const)) : null;
     if (turnNum === 1) return { move: opener, charge: chargeOf(opener) };
     const foeSide: Side = side === 'a' ? 'b' : 'a';
     const ownFrac = hp[side] / mons[side].stats.hp;
@@ -222,9 +373,10 @@ export function simulateBattle(a: MonSnapshot, b: MonSnapshot, seed: string): Ba
   ): BattleAction => {
     const M = mons[me];
     const nationEff = effectiveness(M.nation, mons[foe].nation);
-    const meStats = effStats[me];
-    const foeStats = effStats[foe];
+    const meStats = liveStats(me);
+    const foeStats = liveStats(foe);
     const moveEff: 0.5 | 1 | 2 = move.type === 'neutral' ? 1 : nationEff;
+    const upgrade = moveUpgradeFor(me, move);
 
     if (charge === 'telegraph') {
       return {
@@ -242,9 +394,7 @@ export function simulateBattle(a: MonSnapshot, b: MonSnapshot, seed: string): Ba
     }
 
     // `true_hit` ignores the target's dodge chance entirely -- no roll is made for it, same as no
-    // roll is made for a battle that never reaches this action (both are new v3 branch points; the
-    // protocol version bump means the old "every action rolls dodge" call order does not need
-    // preserving).
+    // roll is made for a battle that never reaches this action.
     let dodged = false;
     if (move.effect !== 'true_hit') {
       const dodge = Math.min(0.2, Math.max(0, (foeStats.spd - meStats.spd) / 250));
@@ -266,38 +416,153 @@ export function simulateBattle(a: MonSnapshot, b: MonSnapshot, seed: string): Ba
     }
 
     let critChance = Math.min(0.3, Math.max(0.03, 0.08 + (meStats.spd - foeStats.spd) / 250));
-    if (move.effect === 'crit_up') critChance = Math.min(CRIT_UP_MAX, critChance + CRIT_UP_BONUS);
-    const crit = rng() < critChance;
+    if (move.effect === 'crit_up') {
+      critChance = Math.min(
+        CRIT_UP_MAX,
+        critChance + CRIT_UP_BONUS * (upgrade ? upgrade.effectMult : 1),
+      );
+    }
+    // Ember Heart (shared passive): armed bonus applies to this mon's very next move, one-shot.
+    if (fx[me].emberHeartPending) {
+      critChance = Math.min(1, critChance + EMBER_HEART_CRIT_BONUS);
+      fx[me].emberHeartPending = false;
+    }
+    let crit = rng() < critChance;
+    // Bedrock (shared passive): absolute crit immunity for the defender, wins over the above.
+    if (hasPassive(foe, 'bedrock')) crit = false;
+    // Tailwind (shared passive): this mon's own slot-1 move always crits.
+    if (!crit && hasPassive(me, 'tailwind') && slotOf[me][move.id] === 1) crit = true;
+
     const variance = 0.7 + rng() * 0.6;
-    const power = charge === 'release' ? move.power * CHARGE_MULTIPLIER : move.power;
-    const foeDef = foeStats.def * (fx[foe].defDownTurns > 0 ? DEF_DOWN_MULT : 1);
+    let power = move.power;
+    if (charge === 'release') {
+      power = move.power * CHARGE_MULTIPLIER * (upgrade ? upgrade.effectMult : 1);
+    } else if (!move.effect || move.effect === 'priority' || move.effect === 'true_hit') {
+      // Move-upgrade's "+10% power if the move has no scaling effect" branch (docs/design/
+      // talent-tree.md): priority/true_hit have nothing to scale, and null is defensive (every
+      // shipped move carries one of the 8 effects, but the type allows it).
+      if (upgrade) power = move.power * upgrade.powerMult;
+    }
+
+    // Fire's Supernova capstone: a crit ignores the target's shield_first/def_down for this hit
+    // only (deepRoots is a separate, unrelated buff and is not ignored).
+    const supernova = crit && hasCapstone(me, 'critIgnoresGuards') !== undefined;
+    const foeState = fx[foe];
+    const defDownMult = foeState.defDownTurns > 0 && !supernova ? foeState.defDownMult : 1;
+    const deepRootsMult = foeState.deepRootsActive ? 1 + DEEP_ROOTS_DEF_BONUS : 1;
+    const defTerm = effStats[foe].def * defDownMult * deepRootsMult;
+
+    const maelstrom = hasCapstone(me, 'critMultiplier');
+    const critMultiplier = crit
+      ? move.type === 'nation' && maelstrom
+        ? maelstrom.multiplier
+        : 2
+      : 1;
+
     const raw =
-      ((power * meStats.atk) / foeDef) *
+      ((power * meStats.atk) / defTerm) *
       scale *
       0.25 *
       moveEff *
-      (crit ? 2 : 1) *
+      critMultiplier *
       variance *
       (counters[me] ? STANCE_COUNTER_DEALT_MULT : 1) *
       (counters[foe] ? STANCE_COUNTER_TAKEN_MULT : 1);
     let damage = Math.max(1, Math.floor(raw));
 
-    // `shield_first`: the first hit this mon takes in the whole battle is reduced (once/battle).
-    const foeState = fx[foe];
-    if (foeState.hasShieldFirst && !foeState.shieldConsumed) {
-      damage = Math.max(1, Math.floor(damage * (1 - SHIELD_FIRST_REDUCTION)));
-      foeState.shieldConsumed = true;
+    // `shield_first` / Stone Skin: the first hit this mon takes in the whole battle is reduced,
+    // once each per battle (independent sources, so they stack multiplicatively); a Supernova crit
+    // ignores both.
+    if (!supernova) {
+      if (foeState.hasShieldFirst && !foeState.shieldConsumed) {
+        const shieldUpgrade = foeState.shieldFirstSlot
+          ? treeOf[foe].moveUpgradeBySlot[foeState.shieldFirstSlot]
+          : undefined;
+        const reduction = SHIELD_FIRST_REDUCTION * (shieldUpgrade ? shieldUpgrade.effectMult : 1);
+        damage = Math.max(1, Math.floor(damage * (1 - reduction)));
+        foeState.shieldConsumed = true;
+      }
+      if (foeState.hasStoneSkin && !foeState.stoneSkinConsumed) {
+        damage = Math.max(1, Math.floor(damage * (1 - STONE_SKIN_REDUCTION)));
+        foeState.stoneSkinConsumed = true;
+      }
     }
+
+    // Air's Ceiling Break capstone: once/battle, a hit exceeding the cap is clamped down to it.
+    const ceilingBreak = hasCapstone(foe, 'damageCap');
+    if (ceilingBreak && !foeState.damageCapConsumed) {
+      const cap = Math.floor(mons[foe].stats.hp * ceilingBreak.capPct);
+      if (damage > cap) {
+        damage = cap;
+        foeState.damageCapConsumed = true;
+      }
+    }
+
+    // Earth's Unmovable capstone: once/battle, a hit cannot take this mon below the floor.
+    const unmovable = hasCapstone(foe, 'hitFloor');
+    if (unmovable && !foeState.unmovableConsumed) {
+      const floor = Math.ceil(mons[foe].stats.hp * unmovable.floorPct);
+      if (hp[foe] - damage < floor) {
+        damage = Math.max(0, hp[foe] - floor);
+        foeState.unmovableConsumed = true;
+      }
+    }
+
     hp[foe] = Math.max(0, hp[foe] - damage);
+    tookDamageThisTurn[foe] = true;
+
+    // Fire's Phoenix Reborn capstone, then the shared Second Breath passive (in that order --
+    // both are once/battle KO interceptions, and a mon's own nation-locked capstone takes
+    // precedence over the nation-agnostic passive when it somehow has both routes available).
+    if (hp[foe] === 0) {
+      const phoenix = hasCapstone(foe, 'phoenix');
+      // Tuned by simulation on 2026-09-13 (docs/design/talent-tree.md Balance targets): even
+      // stripped of the design doc's "guaranteed crit" follow-up and shrunk to a minimal 5% HP
+      // (see the node's own comment in packages/shared/src/game/tree.ts), a *guaranteed* once-
+      // per-battle save from a KO still won Fire's Backdraft ~75% of its branch-vs-branch matrix
+      // against sibling branch Blaze (40-60% target) -- merely surviving to act again, at any HP,
+      // is what wins short battles, not how much HP it survives at. Making the save probabilistic
+      // (rather than shrinking its magnitude further, which the above showed doesn't move the
+      // needle) is what actually lands it in band; this costs one extra rng() call exactly when a
+      // Phoenix-capable mon would otherwise be KO'd (a rare event), which is why it's not gated
+      // behind a broader "does this mon have Phoenix" check made every action.
+      const phoenixTriggered =
+        phoenix && !foeState.phoenixConsumed && rng() < PHOENIX_TRIGGER_CHANCE;
+      if (phoenixTriggered) {
+        foeState.phoenixConsumed = true;
+        hp[foe] = Math.max(1, Math.ceil(mons[foe].stats.hp * phoenix.hpFraction));
+      } else if (hasPassive(foe, 'second-breath') && !foeState.secondBreathConsumed) {
+        foeState.secondBreathConsumed = true;
+        hp[foe] = SECOND_BREATH_HP;
+      }
+    }
+    checkThresholdPassives(foe);
 
     if (move.effect === 'drain') {
-      hp[me] = Math.min(M.stats.hp, hp[me] + Math.floor(damage * DRAIN_FRACTION));
+      const heal = Math.floor(damage * DRAIN_FRACTION * (upgrade ? upgrade.effectMult : 1));
+      hp[me] = Math.min(M.stats.hp, hp[me] + heal);
     }
-    if (move.effect === 'def_down') {
-      foeState.defDownTurns = DEF_DOWN_TURNS; // refreshes rather than stacking
+    if (move.effect === 'def_down') applyDefDown(me, foe, upgrade);
+    if (crit && hasPassive(me, 'aftershock') && move.effect !== 'def_down') {
+      applyDefDown(me, foe, undefined);
     }
-    if (move.effect === 'burn' && foeState.burnTurns === 0) {
-      foeState.burnTurns = BURN_TURNS; // only one instance active at a time
+    if (crit && hasPassive(me, 'tidal-recovery')) {
+      hp[me] = Math.min(M.stats.hp, hp[me] + Math.floor(M.stats.hp * TIDAL_RECOVERY_HEAL_FRACTION));
+    }
+    if (move.effect === 'burn') {
+      const wildfire = hasPassive(me, 'wildfire');
+      const fraction =
+        BURN_FRACTION * (upgrade ? upgrade.effectMult : 1) +
+        (wildfire ? WILDFIRE_BURN_BONUS_FRACTION : 0);
+      const turnsFor = BURN_TURNS + (wildfire ? WILDFIRE_BURN_EXTRA_TURNS : 0);
+      if (foeState.burnTurns === 0) {
+        foeState.burnTurns = turnsFor;
+        foeState.burnFraction = fraction;
+      } else if (hasCapstone(me, 'burnStacks') && foeState.burnStackTurns === 0) {
+        // Ashen Cascade (Fire capstone): a second, independent instance instead of a no-op.
+        foeState.burnStackTurns = turnsFor;
+        foeState.burnStackFraction = fraction;
+      }
     }
 
     return {
@@ -315,6 +580,8 @@ export function simulateBattle(a: MonSnapshot, b: MonSnapshot, seed: string): Ba
   };
 
   for (let t = 1; t <= MAX_TURNS && hp.a > 0 && hp.b > 0; t++) {
+    tookDamageThisTurn.a = false;
+    tookDamageThisTurn.b = false;
     const pickA = pickMove('a', t);
     const pickB = pickMove('b', t);
     const priorityA = pickA.move.effect === 'priority';
@@ -323,12 +590,32 @@ export function simulateBattle(a: MonSnapshot, b: MonSnapshot, seed: string): Ba
     if (priorityA !== priorityB) {
       first = priorityA ? 'a' : 'b';
     } else {
-      // Turn order is probabilistic by speed (P(a first) = spd_a / (spd_a + spd_b)) so a one-point
-      // speed edge does not decide every turn; a hard "faster always first" rule made +1 level ≈
-      // 90 %. Uses stance-modified speed, same as in-battle dodge/crit math above. `def_down` never
-      // touches SPD, so this does not need to account for it.
-      const pFirstA = effStats.a.spd / (effStats.a.spd + effStats.b.spd);
-      first = rng() < pFirstA ? 'a' : 'b';
+      // Air's Eye of the Storm capstone (acted on last turn's damage) takes precedence over the
+      // shared Updraft passive (turn 1 only), which takes precedence over the normal probabilistic
+      // roll. Tuned by simulation on 2026-09-13 (docs/design/talent-tree.md Balance targets): a
+      // *guaranteed* "always acts first the turn after it took damage" fires most turns in a real
+      // fight (a mon rarely goes a whole turn unhit), making this capstone's branch (Cirrus) beat
+      // both its siblings well above the 40-60% target (~67% and ~63%) -- rolling it, same fix as
+      // Phoenix Reborn's KO-save above, is what actually lands it in band.
+      const eyeA = hasCapstone('a', 'actFirstAfterDamage') !== undefined && fx.a.tookDamageLastTurn;
+      const eyeB = hasCapstone('b', 'actFirstAfterDamage') !== undefined && fx.b.tookDamageLastTurn;
+      const eyeTriggered = eyeA !== eyeB && rng() < EYE_OF_STORM_CHANCE;
+      const updraftA = t === 1 && hasPassive('a', 'updraft');
+      const updraftB = t === 1 && hasPassive('b', 'updraft');
+      if (eyeTriggered) {
+        first = eyeA ? 'a' : 'b';
+      } else if (updraftA !== updraftB) {
+        first = updraftA ? 'a' : 'b';
+      } else {
+        // Turn order is probabilistic by speed (P(a first) = spd_a / (spd_a + spd_b)) so a
+        // one-point speed edge does not decide every turn; a hard "faster always first" rule made
+        // +1 level ≈ 90 %. Uses stance-modified (and, Phase C, def_down-debuffed) speed, same as
+        // in-battle dodge/crit math above.
+        const spdA = liveStats('a').spd;
+        const spdB = liveStats('b').spd;
+        const pFirstA = spdA / (spdA + spdB);
+        first = rng() < pFirstA ? 'a' : 'b';
+      }
     }
     const second: Side = first === 'a' ? 'b' : 'a';
     const firstPick = first === 'a' ? pickA : pickB;
@@ -341,14 +628,15 @@ export function simulateBattle(a: MonSnapshot, b: MonSnapshot, seed: string): Ba
       if (secondPick.charge === 'telegraph') fx[second].chargePending = secondPick.move;
     }
 
-    // End-of-turn burn ticks, then decrement both timed effects. A tick that KOs a mon ends the
-    // battle at the top of the next loop iteration (hp.a > 0 && hp.b > 0 fails), reported as
-    // reason: 'ko' below, same as any other KO.
+    // End-of-turn burn ticks (primary instance, then Ashen Cascade's stacked second instance),
+    // then decrement the timed effects. A tick that KOs a mon ends the battle at the top of the
+    // next loop iteration (hp.a > 0 && hp.b > 0 fails), reported as reason: 'ko' below, same as any
+    // other KO -- Phoenix Reborn/Second Breath only intercept a direct hit in `act()`, not a tick.
     for (const side of ['a', 'b'] as const) {
       if (hp[side] <= 0) continue;
       const state = fx[side];
       if (state.burnTurns > 0) {
-        const tick = burnTickDamage(mons[side].stats.hp);
+        const tick = burnTickDamage(mons[side].stats.hp, state.burnFraction);
         const after = Math.max(0, hp[side] - tick);
         hp[side] = after;
         actions.push({
@@ -363,9 +651,30 @@ export function simulateBattle(a: MonSnapshot, b: MonSnapshot, seed: string): Ba
           effect: 'burn',
         });
         state.burnTurns--;
+        checkThresholdPassives(side);
+      }
+      if (hp[side] > 0 && state.burnStackTurns > 0) {
+        const tick = burnTickDamage(mons[side].stats.hp, state.burnStackFraction);
+        const after = Math.max(0, hp[side] - tick);
+        hp[side] = after;
+        actions.push({
+          actor: side,
+          move: 'Burn',
+          moveId: null,
+          dodged: false,
+          damage: tick,
+          crit: false,
+          effectiveness: 1,
+          targetHpAfter: after,
+          effect: 'burn',
+        });
+        state.burnStackTurns--;
+        checkThresholdPassives(side);
       }
       if (state.defDownTurns > 0) state.defDownTurns--;
     }
+    fx.a.tookDamageLastTurn = tookDamageThisTurn.a;
+    fx.b.tookDamageLastTurn = tookDamageThisTurn.b;
 
     turns.push({ turn: t, first, actions });
   }
