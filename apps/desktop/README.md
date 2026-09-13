@@ -3,7 +3,7 @@ doc_type: reference
 purpose: "Understand the desktop app's process model, module map, IPC channels, and CLI flags."
 audience: agent
 last_verified: 2026-09-13
-last_verified_commit: 8a24ac9
+last_verified_commit: 44486b0
 related_files:
   - apps/desktop/src/**
   - apps/desktop/IPC.md
@@ -56,7 +56,7 @@ All windows share one preload (`src/preload/index.ts`); four renderers (pet, pan
 | `src/main/App.ts` | Composition root; IPC; snapshot feed; nation choice; battle request/finish; hook fan-out |
 | `src/main/PetHost.ts` | Pet window, tray, cursor tracking; drag/shake/click; world bounds; stimulus forwarding; withholds the window and stimuli until a nation is chosen (`canRevealPet`/`canStimulatePet`) |
 | `src/main/petGate.ts` | Pure `canRevealPet`/`canStimulatePet` helpers deciding whether the pet window may be shown or animated before onboarding picks a nation |
-| `src/main/display.ts` | Pure geometry (`compactBounds`/`battleBounds`/`motionBounds`, `needsHop` hop threshold, anchor memory, display lookup); `nextArenaMode`/`canHopFollow` pure mode-transition helpers for `PetWindow`'s follow/motion/battle machine (see "Motion mode" in `docs/architecture/overlay-and-input.md`); `toIntPoint`/`toIntRect` round-and-validate coordinates before any `BrowserWindow.setBounds`/`setPosition` call |
+| `src/main/display.ts` | Pure geometry (`compactBounds`/`battleBounds`/`motionBounds`, `needsHop` hop threshold, anchor memory, display lookup); `nextArenaMode`/`canHopFollow` pure mode-transition helpers for `PetWindow`'s follow/motion/battle machine (see "Motion mode" in `docs/architecture/overlay-window.md`); `toIntPoint`/`toIntRect` round-and-validate coordinates before any `BrowserWindow.setBounds`/`setPosition` call |
 | `src/main/windows/*` | PetWindow (compact `follow` / full-work-area `motion` arena for the whole of a drag through landing / `battle` arena, geometry-version counter + geo broadcast; every bounds/position change goes through the integer-safe `setBoundsSafe`; re-asserts always-on-top + z-order via `reassertTopmost()` on every mode switch), PanelWindow (lazy, remembered pos), HoverCardWindow (delayed card), ReminderWindow (interactive water reminder card; same family as HoverCardWindow but not click-through, since it has Done/Snooze buttons) |
 | `src/main/game/GameService.ts` | Hook events → provisional XP, buckets, daily bonus/streak, level-ups, hatch/evolve |
 | `src/main/game/BattleService.ts` | Cooldown/daily cap, remote or offline wild battle, battle history |
@@ -164,6 +164,12 @@ All channel names and payload types live in `src/common/ipc.ts`. See `apps/deskt
 | `--dev-water-in <seconds>` | Yes | Force the water reminder due N seconds after start (`WaterReminder.devForceDueInSeconds`), so the card appears quickly for manual testing or `--capture` instead of waiting out a full interval |
 | `--autostart` | No | Marker for installer (not read by app) |
 
+Electron's own flags apply too, and two matter for testing: `--user-data-dir=<dir>` runs against a
+throwaway profile (its own state, its own single-instance lock, so it runs alongside your installed
+app) and `--remote-debugging-port=<port>` exposes the renderers to the Chrome DevTools Protocol for
+`scripts/ui-probe.mjs`. Pass them after `--`, e.g. `pnpm dev -- --user-data-dir=/tmp/mons-ui
+--remote-debugging-port=9333`. See `docs/runbooks/verify-a-ui-change.md`.
+
 ## Environment variables
 
 | Variable | Effect |
@@ -204,3 +210,9 @@ All channel names and payload types live in `src/common/ipc.ts`. See `apps/deskt
 | `test/onboardingSteps.test.ts` | Onboarding wizard step clamping (`nextOnboardingStep`/`prevOnboardingStep`) and Back/Next availability at the edges |
 | `test/WaterReminder.test.ts` | `nextDueAt` derivation, `tick`/`done`/`snooze`/auto-hide re-arm, skip-while-asleep and skip-while-in-battle, daily sip counter rollover across a UTC day boundary, `onConfigChanged`, `devForceDueInSeconds` |
 | `test/account.test.ts` | Email format validation, `describeAuthError` code mapping, `buildAdoptedProfile`/`resetToAnonymousProfile` state transforms |
+| `test/battleTreeLayout.test.ts` | Pure talent-tree SVG coordinate lookup (`treeNodePosition`) |
+| `test/bannerFit.test.ts` | Battle banner wrap/shrink/truncate and HUD clamp helpers |
+| `test/leaderboardHelpers.test.ts` | Podium ordering (2nd/1st/3rd) |
+| `test/updaterInterop.test.ts` | `pickAutoUpdater` module shapes, `describeUpdateError`, `isNoReleaseError` |
+| `test/state.test.ts` | `MIGRATIONS` is append-only; the v6→v7 backfill of `opponent.loadout` on stored battle history |
+| `test/styleContract.test.ts` | Every class name a renderer writes must exist as a selector in a stylesheet that renderer loads (comments stripped); catches rules dropped by a stylesheet rewrite, as in 0.2.0 |
