@@ -175,7 +175,23 @@ export interface BattleSummary {
   turns: number;
   reason: BattleResult['reason'];
   me: { speciesId: string; stage: Stage; level: number };
-  opponent: { nickname: string; speciesId: string; stage: Stage; level: number; nation: Nation };
+  opponent: {
+    nickname: string;
+    speciesId: string;
+    stage: Stage;
+    level: number;
+    nation: Nation;
+    /**
+     * The opponent's loadout at the time of this battle (docs/design/progression.md Phase D:
+     * recent-opponent intel) -- `stance`/`moves`/`tree`, same shape as `MonLoadout` everywhere
+     * else, so the Battles tab's "Recent opponents" cards can rebuild a snapshot-shaped object and
+     * pass it straight to `explainMatchup` (`packages/shared/src/battle/matchup.ts`). Always `{}`
+     * for history recorded before this field existed (`addOpponentLoadoutSummary` migration,
+     * `apps/desktop/src/main/persistence/state.ts`) -- `explainMatchup` already defaults an absent
+     * stance/moves/tree the same way a pre-Phase-A/B/C `MonSnapshot.loadout` does.
+     */
+    loadout: MonLoadout;
+  };
 }
 
 export type HookStatusValue =

@@ -154,6 +154,9 @@ export class BattleService {
         stage: play.opponent.stage,
         level: play.opponent.level,
         nation: play.opponent.nation,
+        // snapshotFor (battle.ts) always fills this in for a freshly-resolved opponent; the `?? {}`
+        // is only defensive typing (MonSnapshot.loadout stays optional for old replayed logs).
+        loadout: play.opponent.loadout ?? {},
       },
     };
     this.deps.state.update((st) => {

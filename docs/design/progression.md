@@ -3,10 +3,11 @@ doc_type: design
 purpose: "Read this when changing moves, stances, talents, matchmaking windows, streaks or evolution stat multipliers, or building the loadout editor."
 audience: agent
 last_verified: 2026-09-13
-last_verified_commit: 1196eff
+last_verified_commit: e3483fc
 related_files:
   - packages/shared/src/battle/battle.ts
   - packages/shared/src/battle/effects.ts
+  - packages/shared/src/battle/matchup.ts
   - packages/shared/src/game/species.ts
   - packages/shared/src/game/levels.ts
   - packages/shared/src/game/nations.ts
@@ -19,7 +20,10 @@ related_files:
   - packages/shared/src/game/progression.ts
   - packages/shared/src/game/tree.ts
   - packages/shared/test/balance.test.ts
+  - packages/shared/test/matchup.test.ts
   - apps/desktop/src/renderer/panel/views/Battles.tsx
+  - apps/desktop/src/main/game/BattleService.ts
+  - apps/desktop/src/main/persistence/state.ts
 ---
 
 # Progression system
@@ -218,7 +222,52 @@ the mon's own `loadout`, `unlockedMoveIds`, `treePoints`/`sharedPassivePoints` a
 the client can render the loadout editor without a separate call.
 `apps/desktop/src/renderer/panel/views/Battles.tsx` has a loadout editor overlay (move dropdowns
 per slot with reorder, locked moves greyed with "unlocks at level N", the stance picker, and a
-Talents section — see `docs/design/talent-tree.md`); recent-opponent cards are still Phase D.
+Talents section — see `docs/design/talent-tree.md`) and, since Phase D, "Recent opponents" cards —
+see Recent-opponent intel below.
+
+## Recent-opponent intel
+
+Phase D adds no new battle math -- it is a read-only explainer over facts the battle system already
+computes, so the Battles tab can teach a player *why* a recent fight went the way it did and what to
+try next, without a server round-trip. The shared pure `explainMatchup(me, opp)`
+(`packages/shared/src/battle/matchup.ts`, `MonSnapshot` on both sides) returns:
+
+- `nationLine` -- which side's nation type has the advantage (`effectiveness()`,
+  `packages/shared/src/game/nations.ts`), or that they trade evenly;
+- `stanceLine` -- whether either stance counters the other (`stanceBeats()`, Stances above), or that
+  both picked the same stance;
+- `openerLine`/`finisherLine` -- the opponent's loadout slot 1/3 move name plus a one-line gloss on
+  its effect (defaulting to `defaultLoadoutMoveIds` for a snapshot with fewer than 3 stored moves,
+  same fallback `snapshotFor` itself uses);
+- `topBranchLine` -- the opponent's nation talent-tree branch with the highest rank total
+  (`treeSummary()`, `docs/design/talent-tree.md`), or null with no spent tree;
+- `suggestion` (with `suggestedStance` set only when it recommends a stance switch) -- exactly one
+  rule-derived tip, first match wins:
+  1. the opponent's stance counters mine -> switch to the stance that counters theirs;
+  2. the opponent has a `shield_first` move equipped, or the Stone Skin shared passive -> `burn`
+     ignores a one-hit shield (it is end-of-turn damage, not a hit `shield_first`/Stone Skin ever
+     reduce);
+  3. the opponent is in Gale (its SPD grant raises their dodge chance, Move pool and effects'
+     dodge formula) -> a `true_hit` opener ignores dodge entirely;
+  4. my nation type is resisted by theirs -> avoid trading nation-type hits;
+  5. my nation type has the advantage -> lean on nation-type moves;
+  6. none of the above -> a neutral fallback line.
+
+Every field falls back the same way `snapshotFor`/`resolveLoadoutMoves` already do for a snapshot
+that predates a field entirely (an absent `loadout` -> `DEFAULT_STANCE` + `defaultLoadoutMoveIds`,
+an absent `tree` -> no branch line) -- `packages/shared/test/matchup.test.ts` covers this alongside
+the rule priority above (12 cases).
+
+The Battles tab's "Recent opponents" cards (last 10, `apps/desktop/src/renderer/panel/views/
+Battles.tsx`) call `explainMatchup` with `opp` rebuilt from the recorded `BattleSummary.opponent`
+(nickname/nation/speciesId/level/loadout -- `apps/desktop/src/common/ipc.ts`, recorded by
+`BattleService.finish`) and `me` rebuilt from the player's *current* loadout (`UiSnapshot.battles.
+loadout`), not the loadout that was actually equipped in that stored battle -- re-run on every
+render, so the explanation and the "Counter this" button (pre-selects `suggestedStance` in the
+loadout editor without saving it) track loadout edits without a round-trip. Each card also shows the
+opponent's nation badge, species + level, stance, its 3 equipped move names, and a "Branch RankSum"
+badge (roman numeral, e.g. "Tremor III") from the same `topBranch`/`toRoman` helpers
+`packages/shared/src/battle/matchup.ts` exports.
 
 ## Balance targets
 
@@ -249,4 +298,4 @@ Any change to `simulateBattle`'s RNG call order (a talent-tree roll, a stance ch
 | A | Stances, evolution multipliers, matchmaking windows, win streaks | shipped |
 | B | Move pool (6/species), loadout policy, `MonSnapshot.loadout`, `set-loadout` | shipped |
 | C | Talent tree (nation branches + shared passives), respec | shipped |
-| D | Recent-opponent intel: `explainMatchup` summaries on the Battles tab | not started |
+| D | Recent-opponent intel: `explainMatchup` summaries on the Battles tab | shipped |

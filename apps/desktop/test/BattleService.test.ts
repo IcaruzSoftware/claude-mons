@@ -55,6 +55,12 @@ describe('BattleService (offline / wild mon)', () => {
     expect(summary?.won).toBe(r.play.result.winner === 'a');
     expect(state.battles.history).toHaveLength(1);
     expect(state.battles.history[0]?.opponent.nation).toBe(r.play.opponent.nation);
+    // Phase D (docs/design/progression.md recent-opponent intel): the opponent's loadout at battle
+    // time is recorded alongside the rest of the summary, for `explainMatchup` to read back later.
+    expect(state.battles.history[0]?.opponent.loadout.stance).toBe(r.play.opponent.loadout?.stance);
+    expect(state.battles.history[0]?.opponent.loadout.moves).toEqual(
+      r.play.opponent.loadout?.moves,
+    );
   });
 
   it('enforces the cooldown and the daily cap locally', async () => {

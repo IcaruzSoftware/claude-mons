@@ -188,6 +188,23 @@ function addTalentTree(state: Record<string, unknown>): Record<string, unknown> 
   return { ...state, loadout: { ...loadout, lastRespecAt: null } };
 }
 
+/** v6 -> v7: `BattleSummary.opponent` gains a `loadout` field (docs/design/progression.md Phase D:
+ * recent-opponent intel) -- every history entry recorded before this migration predates it, and
+ * the original opponent's actual loadout at battle time was never stored, so there is nothing to
+ * backfill it *with*; each entry gets an empty `{}` (same as an unset `MonLoadout`), which
+ * `explainMatchup` already treats the same way it treats a pre-Phase-A/B/C snapshot with no
+ * loadout at all -- default stance, default moves for the opponent's level, no tree facts. */
+function addOpponentLoadoutSummary(state: Record<string, unknown>): Record<string, unknown> {
+  const battles = (state.battles as Record<string, unknown> | undefined) ?? {};
+  const history = Array.isArray(battles.history) ? battles.history : [];
+  const migratedHistory = history.map((entry) => {
+    const e = entry as Record<string, unknown>;
+    const opponent = (e.opponent as Record<string, unknown> | undefined) ?? {};
+    return { ...e, opponent: { ...opponent, loadout: opponent.loadout ?? {} } };
+  });
+  return { ...state, battles: { ...battles, history: migratedHistory } };
+}
+
 /** migrations[i] upgrades version i+1 -> i+2. Add new ones at the end; never edit old ones. */
 export const MIGRATIONS: readonly Migration[] = [
   addHookEndpoint,
@@ -195,4 +212,5 @@ export const MIGRATIONS: readonly Migration[] = [
   addProfileEmail,
   addProgressionPhaseA,
   addTalentTree,
+  addOpponentLoadoutSummary,
 ];

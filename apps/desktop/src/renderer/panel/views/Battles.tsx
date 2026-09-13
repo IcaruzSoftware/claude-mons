@@ -1,24 +1,32 @@
 import { useState } from 'preact/hooks';
 import {
+  DEFAULT_STANCE,
   EFFECT_DESCRIPTIONS,
   NATION_INFO,
   RESPEC_COOLDOWN_MS,
   RESPEC_FREE_BELOW_LEVEL,
   SHARED_PASSIVE_NODES,
   STANCES,
+  defaultLoadoutMoveIds,
   displayName,
+  explainMatchup,
+  findMove,
   isRespec,
   nationNodes,
   pointsAvailable,
   sharedPassivePoints,
   speciesOf,
+  toRoman,
+  topBranch,
   treeSpent,
+  type MatchupExplanation,
   type Move,
+  type MonSnapshot,
   type Nation,
   type Stance,
   type TreeNode,
 } from '@claude-mons/shared';
-import type { SetLoadoutPayload, UiSnapshot } from '../../../common/ipc.ts';
+import type { BattleSummary, SetLoadoutPayload, UiSnapshot } from '../../../common/ipc.ts';
 
 /**
  * Tuned by simulation on 2026-09-13 (docs/design/progression.md Stances); keep this copy in sync
@@ -178,8 +186,21 @@ function TalentsSection({
   );
 }
 
-/** The loadout editor overlay: 3 move slots (dropdown + reorder), stance picker, save/cancel. */
-function LoadoutEditor({ s, onClose }: { s: UiSnapshot; onClose: () => void }) {
+/**
+ * The loadout editor overlay: 3 move slots (dropdown + reorder), stance picker, save/cancel.
+ * `initialStance` lets the Battles tab's "Counter this" button (Recent opponents cards, Phase D
+ * of docs/design/progression.md) pre-select a stance without saving it -- the player still has to
+ * hit Save for it to take effect, same as any other in-progress edit here.
+ */
+function LoadoutEditor({
+  s,
+  initialStance,
+  onClose,
+}: {
+  s: UiSnapshot;
+  initialStance?: Stance | null;
+  onClose: () => void;
+}) {
   const species = speciesOf(s.pet.speciesId!);
   const unlockedIds = new Set(s.battles.unlockedMoveIds);
   const initial =
@@ -188,7 +209,9 @@ function LoadoutEditor({ s, onClose }: { s: UiSnapshot; onClose: () => void }) {
       : (species.movePool.slice(0, 3).map((m) => m.id) as [string, string, string]);
 
   const [moves, setMoves] = useState<[string, string, string]>(initial);
-  const [stance, setStance] = useState<Stance>(s.battles.loadout.stance ?? 'bulwark');
+  const [stance, setStance] = useState<Stance>(
+    initialStance ?? s.battles.loadout.stance ?? 'bulwark',
+  );
   const savedTree = s.battles.loadout.tree ?? {};
   const [tree, setTree] = useState<Record<string, number>>(savedTree);
   const [respecArmed, setRespecArmed] = useState(false);
@@ -359,8 +382,107 @@ function ago(ts: number): string {
   return `${Math.round(h / 24)} d ago`;
 }
 
+/**
+ * Builds a `MonSnapshot`-shaped object good enough for `explainMatchup`
+ * (`packages/shared/src/battle/matchup.ts`), which only ever reads `nation`/`speciesId`/`level`/
+ * `loadout` off either side -- `monId`/`playerId`/`nickname`/`stats` are filled with placeholders
+ * that are never inspected. Used for both the player's current loadout and a recorded opponent's
+ * (docs/design/progression.md Phase D: recent-opponent intel).
+ */
+function matchupSnapshot(input: {
+  nickname: string;
+  nation: Nation;
+  speciesId: string;
+  level: number;
+  loadout: { stance?: Stance; moves?: string[]; tree?: Record<string, number> };
+}): MonSnapshot {
+  return {
+    monId: '',
+    playerId: null,
+    nickname: input.nickname,
+    nation: input.nation,
+    speciesId: input.speciesId,
+    stage: 'adult',
+    level: input.level,
+    stats: { hp: 0, atk: 0, def: 0, spd: 0 },
+    loadout: input.loadout,
+  };
+}
+
+/** One "Recent opponents" card: who it was, their prepared loadout at battle time, the result, and
+ * a rules-derived matchup tip against the player's CURRENT loadout (recomputed on every render, so
+ * it tracks loadout edits without a server round-trip -- see `explainMatchup`'s own doc comment). */
+function RecentOpponentCard({
+  b,
+  me,
+  onCounter,
+}: {
+  b: BattleSummary;
+  me: MonSnapshot | null;
+  onCounter: (stance: Stance) => void;
+}) {
+  const o = b.opponent;
+  const species = speciesOf(o.speciesId);
+  const moveIds =
+    o.loadout.moves && o.loadout.moves.length === 3
+      ? o.loadout.moves
+      : defaultLoadoutMoveIds(species, o.level);
+  const moveNames = moveIds.map((id) => findMove(species, id)?.name ?? id);
+  const stance = o.loadout.stance ?? DEFAULT_STANCE;
+  const branch = topBranch(o.nation, o.loadout.tree);
+
+  const opp = matchupSnapshot({
+    nickname: o.nickname,
+    nation: o.nation,
+    speciesId: o.speciesId,
+    level: o.level,
+    loadout: o.loadout,
+  });
+  const explanation: MatchupExplanation | null = me ? explainMatchup(me, opp) : null;
+
+  return (
+    <div class="opponent-card">
+      <div class="opponent-head">
+        <span class="opponent-name">{b.isBot ? 'Wild' : o.nickname}</span>
+        <span class={`badge ${o.nation}`}>{NATION_INFO[o.nation].name}</span>
+        {b.isElite && <span class="badge">Elite</span>}
+      </div>
+      <div class="hint">
+        {displayName(o.speciesId, o.stage)} Lv {o.level} · {STANCE_INFO[stance].name} stance
+      </div>
+      <div class="opponent-moves">
+        {moveNames.map((name, i) => (
+          <span class="chip" key={i}>
+            {name}
+          </span>
+        ))}
+        {branch && <span class="chip">{`${branch.branch} ${toRoman(branch.ranks)}`}</span>}
+      </div>
+      <div class="row" style={{ border: 0, padding: '4px 0' }}>
+        <span>
+          <b style={{ color: b.won ? '#7cb342' : '#ff5252' }}>{b.won ? 'Won' : 'Lost'}</b>{' '}
+          <span class="hint">
+            {b.turns} turn{b.turns === 1 ? '' : 's'} · {b.reason === 'ko' ? 'knockout' : 'timeout'}
+            {b.won && b.winStreak > 1 ? ` · streak x${b.winStreak}` : ''} · {ago(b.at)}
+          </span>
+        </span>
+        <span style={{ color: 'var(--accent)', fontWeight: 600 }}>+{b.xp} XP</span>
+      </div>
+      {explanation && (
+        <div class="opponent-tip">
+          <span class="hint">{explanation.suggestion}</span>
+          {explanation.suggestedStance && (
+            <button onClick={() => onCounter(explanation.suggestedStance!)}>Counter this</button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function BattlesView({ s }: { s: UiSnapshot }) {
   const [editing, setEditing] = useState(false);
+  const [counterStance, setCounterStance] = useState<Stance | null>(null);
   const history = s.battles.history;
   const cd = s.battles.cooldownUntil;
   const cdLeft = cd ? Math.max(0, Math.ceil((cd - Date.now()) / 60000)) : 0;
@@ -369,6 +491,15 @@ export function BattlesView({ s }: { s: UiSnapshot }) {
   const moves = species
     ? (s.battles.loadout.moves ?? []).map((id) => species.movePool.find((m) => m.id === id))
     : [];
+  const me = species
+    ? matchupSnapshot({
+        nickname: s.profile.nickname ?? 'You',
+        nation: species.nation,
+        speciesId: s.pet.speciesId!,
+        level: s.progress.level,
+        loadout: s.battles.loadout,
+      })
+    : null;
 
   return (
     <div>
@@ -411,33 +542,35 @@ export function BattlesView({ s }: { s: UiSnapshot }) {
         )}
       </div>
       <div class="section">
-        <h3>History</h3>
+        <h3>Recent opponents</h3>
         {history.length === 0 ? (
           <p class="flavor">No battles yet.</p>
         ) : (
-          history.map((b) => (
-            <div class="row" key={b.id}>
-              <div>
-                <b style={{ color: b.won ? '#7cb342' : '#ff5252' }}>{b.won ? 'Won' : 'Lost'}</b> vs{' '}
-                {b.opponent.nickname}{' '}
-                <span class={`badge ${b.opponent.nation}`}>
-                  {NATION_INFO[b.opponent.nation].name}
-                </span>
-                {b.isElite && <span class="badge">Elite</span>}
-                <div class="hint">
-                  {displayName(b.opponent.speciesId, b.opponent.stage)} Lv {b.opponent.level} ·{' '}
-                  {b.turns} turn{b.turns === 1 ? '' : 's'} ·{' '}
-                  {b.reason === 'ko' ? 'knockout' : 'timeout'}
-                  {b.isBot ? ' · wild' : ''}
-                  {b.won && b.winStreak > 1 ? ` · streak x${b.winStreak}` : ''} · {ago(b.at)}
-                </div>
-              </div>
-              <div style={{ color: 'var(--accent)', fontWeight: 600 }}>+{b.xp} XP</div>
-            </div>
-          ))
+          <div class="opponent-cards">
+            {history.slice(0, 10).map((b) => (
+              <RecentOpponentCard
+                b={b}
+                me={me}
+                key={b.id}
+                onCounter={(stance) => {
+                  setCounterStance(stance);
+                  setEditing(true);
+                }}
+              />
+            ))}
+          </div>
         )}
       </div>
-      {editing && hatched && <LoadoutEditor s={s} onClose={() => setEditing(false)} />}
+      {editing && hatched && (
+        <LoadoutEditor
+          s={s}
+          initialStance={counterStance}
+          onClose={() => {
+            setCounterStance(null);
+            setEditing(false);
+          }}
+        />
+      )}
     </div>
   );
 }

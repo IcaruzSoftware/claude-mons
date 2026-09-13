@@ -3,7 +3,7 @@ doc_type: reference
 purpose: "Look up IPC channel names and payload types for renderer-to-main and main-to-renderer communication."
 audience: agent
 last_verified: 2026-09-13
-last_verified_commit: 1196eff
+last_verified_commit: e3483fc
 related_files:
   - apps/desktop/src/common/ipc.ts
   - apps/desktop/README.md
@@ -90,7 +90,7 @@ Handled by `App.registerUiIpc`.
 - **StateMessage:** pet state, stage, x/y (world DIPs).
 - **StimulusMessage:** = shared Stimulus (union type from @claude-mons/shared).
 - **BattlePlayMessage:** id, result (BattleResult, whose `turns[].actions[]` now carry `moveId`/`effect`/`charge` per docs/design/progression.md Move pool and effects), me/opponent (MonSnapshot, now carrying `loadout.stance`/`loadout.moves`), reward XP, isBot, isElite (10% elite Wild Mon encounter), winStreak (challenger's streak after this battle).
-- **BattleSummary:** id, at (timestamp), won, xp, isBot, isElite, winStreak, turns, reason, me stats, opponent (nickname, nation, stats).
+- **BattleSummary:** id, at (timestamp), won, xp, isBot, isElite, winStreak, turns, reason, me (speciesId, stage, level), opponent (nickname, speciesId, stage, level, nation, `loadout: MonLoadout` — the opponent's stance/moves/tree at battle time, `{}` for history recorded before this field existed; docs/design/progression.md Phase D: recent-opponent intel). The Battles tab's "Recent opponents" cards rebuild a `MonSnapshot`-shaped object from `opponent` and pass it to the shared pure `explainMatchup` (`packages/shared/src/battle/matchup.ts`) against the player's current loadout.
 - **UiSnapshot:** version, isDev, profile (nickname, nation, userId), account (email, anonymous), pet (speciesId, stage, state), progress (localXp, serverXp, streakDays), hooks (status, mode, effectiveMode, probe), settings (scale, autostart), online (connected, lastSyncAt, lastError, configured), update status, notifications, battles (history, cooldownUntil, remainingToday, winStreak, loadout, unlockedMoveIds, treePoints, sharedPassivePoints, lastRespecAt), water (enabled, intervalMin, todayCount, nextDueAt).
 - **SetLoadoutPayload:** `{ stance?: Stance, moves?: string[], tree?: Record<string, number>, respec?: boolean }` — same shape the `set-loadout` Edge Function accepts (`packages/shared/src/api.ts:SetLoadoutRequest`); `tree`/`respec` are docs/design/talent-tree.md.
 - **AccountOpResult:** `{ok: boolean, error: string | null}`; `error` is a short user-facing string (see `apps/desktop/src/main/net/SupabaseClient.ts`'s `describeAuthError`). See `docs/architecture/flows/account-linking.md`.

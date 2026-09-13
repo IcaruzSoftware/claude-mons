@@ -3,8 +3,9 @@ doc_type: architecture
 purpose: "Read this when tracing how a shake gesture becomes a battle, from cursor drag to a history entry."
 audience: agent
 last_verified: 2026-09-13
-last_verified_commit: 1196eff
+last_verified_commit: e3483fc
 related_files:
+  - packages/shared/src/battle/matchup.ts
   - apps/desktop/src/main/PetHost.ts
   - packages/shared/src/input/shake.ts
   - packages/shared/src/behavior/reducer.ts
@@ -153,7 +154,13 @@ canvas rect, even when a mon stands close to the arena's edge.
 When the schedule reaches `endAt`, `BattlePlayer` emits `battle:done` and calls `onDone()`, which is
 `window.mons.battleDone(id)` — `IPC.petBattleDone` — landing in `App.onBattleDone`. That calls
 `BattleService.finish(id)`, which clears `pending` (only if the id matches — a stale or duplicate
-call is a no-op) and unshifts a `BattleSummary` onto `battles.history`, capped at 50 entries. XP
+call is a no-op) and unshifts a `BattleSummary` onto `battles.history`, capped at 50 entries. Since
+Phase D (docs/design/progression.md Recent-opponent intel), `BattleSummary.opponent` also carries
+`loadout: MonLoadout` (`{ stance?, moves?, tree? }`, the opponent's prepared loadout at battle
+time — `{}` for history recorded before this field existed, backfilled by the `addOpponentLoadoutSummary`
+migration, `apps/desktop/src/main/persistence/state.ts`) so the Battles tab can rebuild a
+`MonSnapshot`-shaped object from a history entry and pass it to the shared pure `explainMatchup`
+(`packages/shared/src/battle/matchup.ts`) without a server round-trip. XP
 crediting then forks on whether this app instance has a backend:
 
 - **Online** (`this.api` set): the Edge Function already credited XP as part of resolving the battle,
@@ -163,19 +170,21 @@ crediting then forks on whether this app instance has a backend:
   reconcile, so `GameService.addBattleXp(summary.xp)` applies the reward locally, immediately.
 
 Either way `App.onBattleDone` finishes with `pushSnapshot()`, and
-`apps/desktop/src/renderer/panel/views/Battles.tsx` renders the new history row: win/loss, opponent
-nickname and nation badge, an `Elite` badge when `isElite` (a Wild Mon that rolled the 10 % elite
-encounter, `docs/design/progression.md` Matchmaking and streaks), species/level/turns/reason, a
-`wild` tag when `isBot`, a `streak x<n>` note on a win that extends a streak past 1, and the XP
-reward. The Battles tab also shows the mon's loadout (3 move chips + stance) with an "Edit loadout"
-overlay (`IPC.battleSetLoadout`, moves/stance/tree together, including a Talents section —
-`docs/design/talent-tree.md`) and a "win streak" line, fed by `UiSnapshot.battles.winStreak`/
-`.loadout`/`.unlockedMoveIds`/`.treePoints`/`.sharedPassivePoints`/`.lastRespecAt` — unrelated to the
-shake gesture itself, but sourced from the same `LocalState.battles`/`loadout` this flow reads and
-writes. During
-playback, `BattlePlayer` (above) reads each `BattleAction.effect`/`.charge` to show which effect
-fired in the banner (e.g. "Sparkit's Brushfire burns Pebblet") — see `docs/design/progression.md`
-Move pool and effects.
+`apps/desktop/src/renderer/panel/views/Battles.tsx` renders a new "Recent opponents" card (last 10
+of `battles.history`): win/loss, opponent nickname (or "Wild") and nation badge, an `Elite` badge
+when `isElite` (a Wild Mon that rolled the 10 % elite encounter, `docs/design/progression.md`
+Matchmaking and streaks), species/level/stance/3 move names, a branch-invested badge (e.g. "Tremor
+III"), turns/reason, a `streak x<n>` note on a win that extends a streak past 1, the XP reward, and
+(Phase D) one `explainMatchup` line against the player's *current* loadout with a "Counter this"
+button that pre-selects the suggested stance in the loadout editor — see docs/design/progression.md
+Recent-opponent intel. The Battles tab also shows the mon's own loadout (3 move chips + stance) with
+an "Edit loadout" overlay (`IPC.battleSetLoadout`, moves/stance/tree together, including a Talents
+section — `docs/design/talent-tree.md`) and a "win streak" line, fed by
+`UiSnapshot.battles.winStreak`/`.loadout`/`.unlockedMoveIds`/`.treePoints`/`.sharedPassivePoints`/
+`.lastRespecAt` — unrelated to the shake gesture itself, but sourced from the same
+`LocalState.battles`/`loadout` this flow reads and writes. During playback, `BattlePlayer` (above)
+reads each `BattleAction.effect`/`.charge` to show which effect fired in the banner (e.g. "Sparkit's
+Brushfire burns Pebblet") — see `docs/design/progression.md` Move pool and effects.
 
 ## Sequence
 
