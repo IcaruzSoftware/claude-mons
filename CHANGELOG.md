@@ -3,7 +3,7 @@ doc_type: reference
 purpose: "Release notes and version history; check this when seeing claude-mons updates or deciding what version to expect features in."
 audience: both
 last_verified: 2026-09-13
-last_verified_commit: e3483fc
+last_verified_commit: ec08bb6
 related_files:
   - docs/history/v1-handoff-2026-09-04.md
   - docs/README.md
@@ -19,6 +19,31 @@ related_files:
 All notable changes to claude-mons are documented here. See [Keep a Changelog](https://keepachangelog.com/) for format details.
 
 ## [Unreleased]
+
+## [0.1.2] - 2026-09-13
+
+### Fixed
+- **Dragging the pet stuttered, and a dropped pet could appear to fall behind another window until
+  it landed.** Both traced to the same cause: the compact `follow` window used to be repositioned
+  (`setBounds`) every frame while dragging and falling, which raced the renderer's paint (visible
+  stutter) and could let a fast fall outrun the not-yet-repositioned window, clipping the sprite
+  against its own edge (reads as "went behind," reappearing once the window caught up on landing).
+  `PetWindow` gains a third mode, `motion` (`PetWindow.enterMotion`/`retargetMotion`,
+  `apps/desktop/src/main/display.ts:motionBounds`): on `beginDrag` the window is sized once to the
+  current display's full work area and never moved again — the sprite moves freely inside that
+  canvas at render rate from the reducer's own position — through `dragged` → `falling` until the
+  reducer emits `landed`, at which point `PetHost.onLanded` computes compact bounds around the
+  landing point and switches back with one more `setBounds` (`PetWindow.enterFollow`). Dragging
+  across displays re-targets the arena live (`PetHost.onDragMove` + `retargetMotion`, one
+  `setBounds` only when the display actually changes) instead of waiting for the drop. Click-through
+  and the hover card behave the same as before — a battle still owns the window and vetoes a drag
+  that starts mid-battle (`apps/desktop/src/main/display.ts:nextArenaMode`/`canHopFollow`).
+  `apps/desktop/src/renderer/pet/loop.ts`'s `PetLoop.step` also now sends the landing frame's
+  `pet:state` message before dispatching the `landed` effect (previously after), so `PetHost` reads
+  the true landed position rather than the previous frame's when it exits `motion` mode — without
+  that ordering fix, live testing showed a second, avoidable `setBounds` right after the intended
+  one. See "Motion mode" in `docs/architecture/overlay-and-input.md` and the Consequences note on
+  `docs/decisions/0018-compact-window-and-fail-closed-click-through.md`.
 
 ## [0.1.1] - 2026-09-13
 

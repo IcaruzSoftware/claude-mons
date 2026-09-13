@@ -1,10 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import {
   battleBounds,
+  canHopFollow,
   clampRectToArea,
   compactBounds,
   displayContaining,
+  motionBounds,
   needsHop,
+  nextArenaMode,
   rememberAnchor,
   restoreAnchorX,
   toIntPoint,
@@ -152,6 +155,80 @@ describe('display geometry', () => {
       const r = clampRectToArea({ x: 1900, y: -300, width: 200, height: 200 }, area);
       expect(r.x).toBeGreaterThanOrEqual(1920);
       expect(r.y).toBeGreaterThanOrEqual(-200);
+    });
+  });
+
+  describe('motionBounds', () => {
+    it('equals the clamped work area', () => {
+      const b = motionBounds(primary);
+      expect(b).toEqual(clampRectToArea(primary.workArea, primary.workArea));
+      expect(b).toEqual({ x: 0, y: 0, width: 1920, height: 1032 });
+    });
+
+    it('equals the clamped work area on a secondary, offset display', () => {
+      const b = motionBounds(secondary);
+      expect(b).toEqual(clampRectToArea(secondary.workArea, secondary.workArea));
+      expect(b.x).toBe(1920);
+      expect(b.y).toBe(-200);
+    });
+
+    it('rounds a fractional work area the same way compactBounds/worldForDisplay do', () => {
+      const fractional: DisplayLike = {
+        id: 6,
+        bounds: { x: 0, y: 0, width: 1536, height: 864 },
+        workArea: { x: 0, y: 0, width: 1536, height: 833.6 },
+        scaleFactor: 1.25,
+      };
+      const b = motionBounds(fractional);
+      expect(Number.isInteger(b.height)).toBe(true);
+    });
+  });
+
+  describe('compact bounds after landing', () => {
+    it('is centred on the landing point, matching how PetHost.onLanded calls enterFollow', () => {
+      const landingPoint = { x: 640, y: 1032 };
+      const b = compactBounds(landingPoint, 144 * 2, 120 * 2, primary);
+      expect(b.x + b.width / 2).toBe(landingPoint.x);
+    });
+  });
+
+  describe('arena mode transitions (drag -> motion -> landed -> compact/follow)', () => {
+    it('a drag enters motion mode from follow', () => {
+      expect(nextArenaMode('follow', 'drag-start')).toBe('motion');
+    });
+
+    it('landed returns motion mode to the compact follow window', () => {
+      expect(nextArenaMode('motion', 'landed')).toBe('follow');
+    });
+
+    it('a battle owns the window: drag-start is ignored while battling', () => {
+      expect(nextArenaMode('battle', 'drag-start')).toBe('battle');
+    });
+
+    it('landed is a no-op outside motion mode', () => {
+      expect(nextArenaMode('follow', 'landed')).toBe('follow');
+      expect(nextArenaMode('battle', 'landed')).toBe('battle');
+    });
+
+    it('battle-start/battle-done are absolute regardless of prior mode', () => {
+      expect(nextArenaMode('follow', 'battle-start')).toBe('battle');
+      expect(nextArenaMode('motion', 'battle-start')).toBe('battle');
+      expect(nextArenaMode('battle', 'battle-done')).toBe('follow');
+    });
+
+    it('the full sequence: follow -> drag-start -> motion -> landed -> follow', () => {
+      let mode = nextArenaMode('follow', 'drag-start');
+      expect(mode).toBe('motion');
+      mode = nextArenaMode(mode, 'landed');
+      expect(mode).toBe('follow');
+    });
+  });
+
+  describe('canHopFollow', () => {
+    it('only follow mode may hop (followTo is a no-op in motion or battle)', () => {
+      expect(canHopFollow('follow')).toBe(true);
+      expect(canHopFollow('motion')).toBe(false);
+      expect(canHopFollow('battle')).toBe(false);
     });
   });
 

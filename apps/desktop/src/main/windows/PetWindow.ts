@@ -1,11 +1,20 @@
 import { join } from 'node:path';
 import { BrowserWindow, screen, type Display } from 'electron';
 import { IPC, type WindowGeometry } from '../../common/ipc.ts';
-import { battleBounds, compactBounds, needsHop, toIntRect } from '../display.ts';
+import {
+  battleBounds,
+  canHopFollow,
+  compactBounds,
+  motionBounds,
+  needsHop,
+  nextArenaMode,
+  toIntRect,
+  type ArenaMode,
+} from '../display.ts';
 
 const DEBUG = process.env.CLAUDE_MONS_DEBUG === '1';
 
-export type PetWindowMode = 'follow' | 'battle';
+export type PetWindowMode = ArenaMode;
 
 export interface PetWindowOptions {
   spriteScale: number;
@@ -38,10 +47,14 @@ export const BATTLE_HEIGHT_GRID = 150;
  * `COMPACT_HEIGHT_GRID`) except during a battle, when it grows to the arena size
  * (`BATTLE_WIDTH_GRID`/`BATTLE_HEIGHT_GRID`) and shrinks back afterward.
  *
- * Two modes:
+ * Three modes:
  * - follow: the one normal-mode compact window, always present; `PetHost` hops it (via `followTo`)
- *   whenever the sprite drifts far enough from the window's center, or immediately while dragging,
- *   falling, or landing.
+ *   whenever the sprite drifts far enough from the window's center.
+ * - motion: entered for the duration of a drag through landing (see `enterMotion`) — the window
+ *   covers the current display's full work area and never moves again until `enterFollow` shrinks
+ *   it back down on `landed`; the sprite moves freely inside that canvas at render rate instead of
+ *   the window hopping every frame. See "Motion mode" in
+ *   `docs/architecture/overlay-and-input.md`.
  * - battle: a generously-sized box entered by `PetHost.playBattle` and left again on
  *   `IPC.petBattleDone`.
  */
@@ -160,10 +173,11 @@ export class PetWindow {
   }
 
   /**
-   * Re-anchor to a display (after a drop on another monitor, or a display-added/removed/
-   * metrics-changed event). Only stores the new display; callers always follow up with
-   * `followTo(anchor, { force: true })` or `enterBattle(anchor)` using a freshly recomputed anchor,
-   * so there is no stale-anchor window to reposition here.
+   * Re-anchor to a display (after a drop on another monitor, a display-added/removed/
+   * metrics-changed event, or the cursor crossing displays mid-drag). Only stores the new display;
+   * callers always follow up with one of `followTo(anchor, { force: true })`, `enterBattle(anchor)`,
+   * `enterFollow(anchor)`, or `retargetMotion()` using freshly recomputed bounds, so there is no
+   * stale-anchor window to reposition here.
    */
   setDisplay(display: Display): void {
     this.display = display;
@@ -210,14 +224,42 @@ export class PetWindow {
   }
 
   /**
+   * Switch to the motion arena for the duration of a drag through landing: bounds = the current
+   * display's full (clamped) work area (`motionBounds`), set once; the window is never moved again
+   * until `enterFollow` shrinks it back down on `landed`. Ignored (no-op) if a battle currently owns
+   * the window — `nextArenaMode('drag-start')` is the only event a battle can veto, matching
+   * `PetHost.beginDrag`'s own `inBattle` guard as a second line of defense. See "Motion mode" in
+   * `docs/architecture/overlay-and-input.md`.
+   */
+  enterMotion(): void {
+    const next = nextArenaMode(this.mode, 'drag-start');
+    if (next === this.mode) return;
+    this.mode = next;
+    this.setBoundsSafe(motionBounds(this.display));
+    this.reassertTopmost();
+  }
+
+  /**
+   * Re-target the motion arena to a different display's work area mid-drag (one `setBounds`).
+   * No-op outside motion mode. Call only when the display actually changed (`PetHost.onDragMove`
+   * compares `displayContaining` against the last known display) — never on every drag tick.
+   */
+  retargetMotion(): void {
+    if (this.mode !== 'motion') return;
+    this.setBoundsSafe(motionBounds(this.display));
+    this.reassertTopmost();
+  }
+
+  /**
    * Re-center the compact window on `anchor` (world DIPs) — a "hop". Only ever called in `follow`
-   * mode (a no-op in `battle`). By default only actually repositions when `needsHop` says the
-   * sprite has drifted too far from the window's current center (so a smoothly walking pet doesn't
-   * make the window visibly jump every frame); `force` (drag/fall/landing) always repositions
-   * immediately, matching the old per-frame follow behavior for those cases.
+   * mode (a no-op in `battle` or `motion` — see `canHopFollow`). By default only actually
+   * repositions when `needsHop` says the sprite has drifted too far from the window's current
+   * center (so a smoothly walking pet doesn't make the window visibly jump every frame); `force`
+   * always repositions immediately. Drag/fall no longer call this at all (see `enterMotion`); it
+   * still exists for ordinary walk hops and the display-change `reanchor` handler.
    */
   followTo(anchor: { x: number; y: number }, opts: { force?: boolean } = {}): void {
-    if (this.mode !== 'follow') return;
+    if (!canHopFollow(this.mode)) return;
     this.lastAnchor = anchor;
     const current = this.win.getBounds();
     if (!opts.force && !needsHop(anchor, current)) return;
@@ -253,6 +295,7 @@ export class PetWindow {
 
   private reapplyBounds(): void {
     if (this.mode === 'follow') this.enterFollow(this.lastAnchor);
+    else if (this.mode === 'motion') this.setBoundsSafe(motionBounds(this.display));
     else this.enterBattle(this.lastAnchor);
   }
 

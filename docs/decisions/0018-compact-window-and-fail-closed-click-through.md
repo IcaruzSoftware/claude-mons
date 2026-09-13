@@ -3,7 +3,7 @@ doc_type: decision
 purpose: "Read this when questioning why the pet window is always compact (no full-width strip) or why click-through defaults to closed and re-derives itself every tick."
 audience: both
 last_verified: 2026-09-13
-last_verified_commit: 5363066
+last_verified_commit: ec08bb6
 related_files:
   - apps/desktop/src/main/windows/PetWindow.ts
   - apps/desktop/src/main/input/CursorTracker.ts
@@ -88,6 +88,13 @@ geometry version tag is what lets the main process tell a window-local hitbox co
   `STRIP_HEIGHT_GRID`, `enterStrip`) had to be deleted; a future feature that wants "the pet
   wanders freely across the whole taskbar without the window visibly hopping" would need to revisit
   this trade-off explicitly rather than resurrecting the strip window as-is.
+- That future feature arrived for drag/fall specifically: a third mode, `motion` (`PetWindow`'s
+  `enterMotion`/`retargetMotion`), temporarily grows the window to the full display work area for
+  the duration of a drag through landing so per-frame hops during a fast fall can't outrun the
+  window — see "Motion mode" in `docs/architecture/overlay-and-input.md`. This is deliberately
+  scoped to drag/fall only, kept safe by the same principle this ADR established: even the huge
+  motion-mode window only ever accepts input over the renderer-reported sprite hitbox, never its
+  own (now much larger) bounds, so click-through still fails closed exactly as before.
 - `PetWindow`, `CursorTracker`, and `PetHost` gained slightly more surface area (geometry
   versioning, freshness timers, explicit `forceIgnore` call sites) in exchange for the self-healing
   property; see `docs/architecture/overlay-and-input.md` for the current design in full.

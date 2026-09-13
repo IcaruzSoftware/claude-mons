@@ -3,7 +3,7 @@ doc_type: reference
 purpose: "Understand the desktop app's process model, module map, IPC channels, and CLI flags."
 audience: agent
 last_verified: 2026-09-13
-last_verified_commit: e3483fc
+last_verified_commit: ec08bb6
 related_files:
   - apps/desktop/src/**
   - apps/desktop/IPC.md
@@ -26,7 +26,7 @@ src/main/index.ts (single-instance lock, transparency switch, GPU disable flag)
     ↓
 src/main/App.ts (composition root)
     ├─ PetHost (owns PetWindow, tray, cursor tracking; broadcasts stimulus)
-    │   ├─ PetWindow (compact follow / battle-arena overlay)
+    │   ├─ PetWindow (compact follow / motion-arena drag-fall / battle-arena overlay)
     │   ├─ AppTray (context menu, tooltip)
     │   └─ CursorTracker (cursor polling, click-through toggle)
     │
@@ -56,8 +56,8 @@ All windows share one preload (`src/preload/index.ts`); four renderers (pet, pan
 | `src/main/App.ts` | Composition root; IPC; snapshot feed; nation choice; battle request/finish; hook fan-out |
 | `src/main/PetHost.ts` | Pet window, tray, cursor tracking; drag/shake/click; world bounds; stimulus forwarding; withholds the window and stimuli until a nation is chosen (`canRevealPet`/`canStimulatePet`) |
 | `src/main/petGate.ts` | Pure `canRevealPet`/`canStimulatePet` helpers deciding whether the pet window may be shown or animated before onboarding picks a nation |
-| `src/main/display.ts` | Pure geometry (`compactBounds`/`battleBounds`, `needsHop` hop threshold, anchor memory, display lookup); `toIntPoint`/`toIntRect` round-and-validate coordinates before any `BrowserWindow.setBounds`/`setPosition` call |
-| `src/main/windows/*` | PetWindow (compact `follow` / `battle` arena, geometry-version counter + geo broadcast; every bounds/position change goes through the integer-safe `setBoundsSafe`; re-asserts always-on-top + z-order via `reassertTopmost()` on every mode switch), PanelWindow (lazy, remembered pos), HoverCardWindow (delayed card), ReminderWindow (interactive water reminder card; same family as HoverCardWindow but not click-through, since it has Done/Snooze buttons) |
+| `src/main/display.ts` | Pure geometry (`compactBounds`/`battleBounds`/`motionBounds`, `needsHop` hop threshold, anchor memory, display lookup); `nextArenaMode`/`canHopFollow` pure mode-transition helpers for `PetWindow`'s follow/motion/battle machine (see "Motion mode" in `docs/architecture/overlay-and-input.md`); `toIntPoint`/`toIntRect` round-and-validate coordinates before any `BrowserWindow.setBounds`/`setPosition` call |
+| `src/main/windows/*` | PetWindow (compact `follow` / full-work-area `motion` arena for the whole of a drag through landing / `battle` arena, geometry-version counter + geo broadcast; every bounds/position change goes through the integer-safe `setBoundsSafe`; re-asserts always-on-top + z-order via `reassertTopmost()` on every mode switch), PanelWindow (lazy, remembered pos), HoverCardWindow (delayed card), ReminderWindow (interactive water reminder card; same family as HoverCardWindow but not click-through, since it has Done/Snooze buttons) |
 | `src/main/game/GameService.ts` | Hook events → provisional XP, buckets, daily bonus/streak, level-ups, hatch/evolve |
 | `src/main/game/BattleService.ts` | Cooldown/daily cap, remote or offline wild battle, battle history |
 | `src/main/game/species.ts` | Species lookup per nation (offline hatching only) |
@@ -174,7 +174,7 @@ All channel names and payload types live in `src/common/ipc.ts`. See `apps/deskt
 | `test/rawHook.test.ts` | `rawHookToEnvelope` whitelist parity with `buildEnvelope`, cwd hashing, unknown event → null |
 | `test/mode.test.ts` | `probeBinary` classification (ok/blocked/missing/timeout) via injected spawn, `computeEffectiveMode` |
 | `test/JsonStore.test.ts` | Atomic write, `.bak` recovery, corrupt recovery, ordered migrations, debouncing |
-| `test/display.test.ts` | `compactBounds`/`battleBounds` (incl. fractional-work-area rounding, clamping to a small display), `needsHop` threshold, displayContaining, fractional anchor memory, `toIntPoint`/`toIntRect` |
+| `test/display.test.ts` | `compactBounds`/`battleBounds`/`motionBounds` (incl. fractional-work-area rounding, clamping to a small display), `needsHop` threshold, `nextArenaMode`/`canHopFollow` mode-transition table, displayContaining, fractional anchor memory, `toIntPoint`/`toIntRect` |
 | `test/hooks.test.ts` | HookServer `/event` and `/hook` auth, port persistence/fallback, SpoolDrainer junk skip, ActivityTracker collapsing/pruning |
 | `test/petGate.test.ts` | `canRevealPet`/`canStimulatePet`: withheld until nation + window-ready + user-visible, refused while any is missing |
 | `test/onboardingSteps.test.ts` | Onboarding wizard step clamping (`nextOnboardingStep`/`prevOnboardingStep`) and Back/Next availability at the edges |

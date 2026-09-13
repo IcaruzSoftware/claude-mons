@@ -130,6 +130,66 @@ export function battleBounds(
   return clampRectToArea(raw, roundRect(display.workArea));
 }
 
+/**
+ * Bounds of the "motion" arena: the whole of a display's work area, clamped (in practice a no-op
+ * clamp, since the work area is already the outer limit — `clampRectToArea` is reused so this goes
+ * through the exact same integer/shrink-to-fit path as `compactBounds`/`battleBounds` rather than a
+ * bespoke one). `PetWindow.enterMotion` sizes the window to this once at the start of a drag and
+ * leaves it untouched (one `setBounds`) through `dragged` → `falling` → `landed`, instead of hopping
+ * a small compact window every frame — see "Motion mode" in
+ * `docs/architecture/overlay-and-input.md` for the jitter and "falls behind another window" bugs
+ * this replaces: a per-frame `setBounds` raced the renderer's paint (stutter), and a fast fall could
+ * outrun the not-yet-repositioned compact window, clipping the sprite against its own edge.
+ */
+export function motionBounds(display: DisplayLike): {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+} {
+  const wa = roundRect(display.workArea);
+  return clampRectToArea(wa, wa);
+}
+
+/** The pet window's three modes: see `PetWindow` and "Motion mode" in
+ * `docs/architecture/overlay-and-input.md`. */
+export type ArenaMode = 'follow' | 'battle' | 'motion';
+
+export type ArenaEvent = 'drag-start' | 'landed' | 'battle-start' | 'battle-done';
+
+/**
+ * Pure decision table for `PetWindow`'s mode machine: drag → motion → landed → back to the compact
+ * `follow` window, plus the battle arena's own enter/exit. Extracted so the sequence is
+ * unit-testable without a real `BrowserWindow` (see `apps/desktop/test/display.test.ts`).
+ * `battle-start`/`battle-done` are absolute — a battle always owns or releases the window
+ * regardless of what preceded it (mirrored unconditionally by `PetWindow.enterBattle`/
+ * `enterFollow`) — while `drag-start` is the one event a battle can veto: a drag beginning
+ * mid-battle is ignored rather than shrinking the arena out from under an in-progress animation
+ * (`PetWindow.enterMotion` calls this directly).
+ */
+export function nextArenaMode(current: ArenaMode, event: ArenaEvent): ArenaMode {
+  switch (event) {
+    case 'drag-start':
+      return current === 'battle' ? current : 'motion';
+    case 'landed':
+      return current === 'motion' ? 'follow' : current;
+    case 'battle-start':
+      return 'battle';
+    case 'battle-done':
+      return 'follow';
+  }
+}
+
+/**
+ * True only in `follow` mode — the one mode `PetWindow.followTo` is allowed to hop (reposition)
+ * in. Extracted from the old inline `if (this.mode !== 'follow') return` guard so "no `followTo`
+ * calls in motion mode" is a pure, unit-tested predicate instead of only living inside the
+ * Electron-coupled `PetWindow`.
+ */
+export function canHopFollow(mode: ArenaMode): boolean {
+  return mode === 'follow';
+}
+
 export function displayContaining<D extends DisplayLike>(
   displays: readonly D[],
   point: { x: number; y: number },

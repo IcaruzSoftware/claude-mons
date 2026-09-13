@@ -1,7 +1,6 @@
 import { app, ipcMain, screen, type Display, type IpcMainEvent } from 'electron';
 import {
   createShakeState,
-  isAirborneState,
   pushShakeSample,
   type ShakeDetectorState,
   type Stage,
@@ -110,6 +109,11 @@ export class PetHost {
       {
         onDragMove: (cursor, t) => this.onDragMove(cursor, t),
         onHoverChange: (hovering) => {
+          // Suppressed in motion mode (the whole of a drag through landing): the hover card must
+          // stay hidden through the fall too, not just while the button is held, even though the
+          // huge motion-arena window can technically report "over" if the cursor happens to sit on
+          // the falling sprite's hitbox. See docs/architecture/overlay-and-input.md "Motion mode".
+          if (this.window.getMode() === 'motion') return;
           if (DEBUG) console.info('[pet] hover', hovering);
           this.callbacks.onHover(hovering, this.spriteAnchorInfo());
         },
@@ -347,20 +351,17 @@ export class PetHost {
       // Persisted for restart/resolution-change restore regardless of whether this tick hops the
       // window (see `AnchorMemory`/`rememberAnchor`).
       this.callbacks.onAnchor(this.display, msg.x);
-      // Bug: after a release that starts a real fall (`above` in the reducer's `input:release`
-      // handler), nothing repositioned the follow window while the model fell — `followTo` was
-      // only ever called from `onDragMove`, which stops the moment the pointer is released. The
-      // window stayed wherever the drag left it while the sprite kept falling inside it, so the
-      // hitbox (and the sprite itself) drifted past the window's own bottom edge until landing
-      // (visible as `assertHitboxWithinWindow` firing repeatedly with a growing `hitbox.y`).
-      // Tracking every reported position here, drag or fall alike, keeps the window under the
-      // sprite the whole time; it's a harmless no-op duplicate of the drag-time call while
-      // `this.drag` is still set, since both compute the same anchor for the same frame. `force`
-      // keeps drag/fall glued to the anchor every frame (as before the compact window); an
+      // Drag and fall no longer hop this window at all: `beginDrag` switches to the motion arena
+      // (`PetWindow.enterMotion`, full display work area, set once) and `onLanded` switches back
+      // once the reducer emits `landed`, so `this.window.getMode() !== 'follow'` is already true
+      // for the whole dragged/falling stretch and this handler returns above without calling
+      // `followTo` — see "Motion mode" in docs/architecture/overlay-and-input.md (this replaced a
+      // bug where a per-frame `setBounds` during a fast fall raced the renderer's paint, visible as
+      // sprite stutter, and the sprite could still outrun a not-yet-repositioned window). An
       // ordinary walk only hops once the sprite drifts far enough from the window's center (see
-      // `PetWindow.followTo`/`needsHop`).
-      const force = this.drag !== null || isAirborneState(msg.state);
-      this.window.followTo({ x: msg.x, y: msg.y }, { force });
+      // `PetWindow.followTo`/`needsHop`); airborne states never reach here in `follow` mode, so no
+      // `force` flag is needed any more.
+      this.window.followTo({ x: msg.x, y: msg.y });
     });
 
     ipcMain.on(IPC.petPointer, (e, msg: PointerMessage) => {
@@ -474,30 +475,39 @@ export class PetHost {
   }
 
   private beginDrag(cursor: { x: number; y: number }): void {
-    // A pointer-down landing on the sprite mid-battle would otherwise call `enterFollow` and
-    // shrink the window out from under the battle arena (`playBattle`/`enterBattle`), clipping the
+    // A pointer-down landing on the sprite mid-battle would otherwise call `enterMotion` and
+    // shrink the arena out from under the battle window (`playBattle`/`enterBattle`), clipping the
     // in-progress HUD. The battle owns the window until `IPC.petBattleDone` reverts it.
     if (this.inBattle) return;
     const anchor = this.currentAnchor();
     this.drag = { anchorAtGrab: anchor, cursorAtGrab: cursor, startedAt: Date.now(), maxDist: 0 };
     this.shake = createShakeState();
     this.callbacks.onHover(false, this.spriteAnchorInfo());
-    this.window.enterFollow(anchor);
+    // Motion mode: the window is sized once to the whole display work area and never moves again
+    // until `onLanded` shrinks it back — the model's own position (from `input:grab`/`input:drag`
+    // stimuli below) is what moves the sprite inside that canvas at render rate. See "Motion mode"
+    // in docs/architecture/overlay-and-input.md.
+    this.window.enterMotion();
     this.tracker.beginDrag();
     this.stimulate({ type: 'input:grab', x: cursor.x, y: cursor.y });
   }
 
   private onDragMove(cursor: { x: number; y: number }, t: number): void {
     if (!this.drag) return;
-    const anchor = {
-      x: cursor.x + (this.drag.anchorAtGrab.x - this.drag.cursorAtGrab.x),
-      y: cursor.y + (this.drag.anchorAtGrab.y - this.drag.cursorAtGrab.y),
-    };
     this.drag.maxDist = Math.max(
       this.drag.maxDist,
       Math.hypot(cursor.x - this.drag.cursorAtGrab.x, cursor.y - this.drag.cursorAtGrab.y),
     );
-    this.window.followTo(anchor, { force: true });
+    // Re-target the motion arena to whatever display the cursor is over now — a no-op most ticks
+    // (one setBounds only when the display actually changes), rather than hopping this window every
+    // frame the way `follow` mode's compact window used to.
+    const target = displayContaining(screen.getAllDisplays(), cursor, this.display);
+    if (target.id !== this.display.id) {
+      this.display = target;
+      this.window.setDisplay(target);
+      this.window.retargetMotion();
+      this.pushWorld();
+    }
     this.stimulate({ type: 'input:drag', x: cursor.x, y: cursor.y });
 
     const res = pushShakeSample(this.shake, { t, x: cursor.x, y: cursor.y });
@@ -513,24 +523,36 @@ export class PetHost {
       Date.now() - this.drag.startedAt < CLICK_MAX_MS && this.drag.maxDist < CLICK_MAX_DIST;
     this.drag = null;
     this.tracker.endDrag();
-    // The compact window hopped repeatedly during the drag (every frame, `force: true`); its
-    // geometry version has moved on from whatever hitbox the renderer last reported mid-drag, so
-    // the next tick would already fail closed on the version mismatch alone — forcing it here too
-    // is redundant but cheap, and keeps every drag/mode transition point behaving the same way.
+    // Not strictly required to close click-through by itself (the motion-mode window's geometry
+    // hasn't changed, so a stale hitbox wouldn't fail the version check) — but forcing it here is
+    // cheap and keeps every drag/mode transition point behaving the same way, and it discards the
+    // hitbox outright rather than leaving whatever the drag last reported in place a tick longer.
     this.tracker.forceIgnore();
     if (wasClick) this.callbacks.onClick();
-    // The pet falls to the ground of whichever display it was dropped over.
+    // The pet falls to the ground of whichever display it was dropped over. `onDragMove` already
+    // retargets the motion arena live as the cursor crosses displays; this is a harmless no-op
+    // duplicate in the common case and a safety net for the one drag tick that ends the drag itself.
     const target = displayContaining(screen.getAllDisplays(), cursor, this.display);
     if (target.id !== this.display.id) {
       this.display = target;
+      this.window.setDisplay(target);
+      this.window.retargetMotion();
       this.pushWorld();
     }
     this.stimulate({ type: 'input:release', x: cursor.x, y: cursor.y });
   }
 
+  /**
+   * The reducer emits `landed` both right after a release that never left the ground and after a
+   * real fall finishes (`packages/shared/src/behavior/reducer.ts`) — either way this is the one
+   * place that exits `motion` mode: compute compact bounds around the now-resting anchor and
+   * switch back with a single `setBounds` (`PetWindow.enterFollow`, which also bumps
+   * `geometryVersion` and re-asserts topmost). `followTo` would have been a no-op here since the
+   * window is still in `motion` mode at this point.
+   */
   private onLanded(): void {
     this.window.setDisplay(this.display);
-    this.window.followTo(this.currentAnchor(), { force: true });
+    this.window.enterFollow(this.currentAnchor());
     this.tracker.forceIgnore();
     this.pushWorld();
   }

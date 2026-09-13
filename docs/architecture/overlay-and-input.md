@@ -3,7 +3,7 @@ doc_type: architecture
 purpose: "Read this when changing the pet overlay window, click-through detection, drag/shake gestures, or hover-card timing."
 audience: agent
 last_verified: 2026-09-13
-last_verified_commit: 5363066
+last_verified_commit: ec08bb6
 related_files:
   - apps/desktop/src/main/windows/PetWindow.ts
   - apps/desktop/src/main/input/CursorTracker.ts
@@ -11,6 +11,7 @@ related_files:
   - apps/desktop/src/main/display.ts
   - apps/desktop/src/main/windows/HoverCardWindow.ts
   - apps/desktop/src/common/ipc.ts
+  - apps/desktop/src/renderer/pet/loop.ts
   - packages/shared/src/input/shake.ts
   - packages/shared/src/behavior/reducer.ts
   - apps/desktop/test/CursorTracker.test.ts
@@ -29,25 +30,76 @@ state machine (idle/walk/dragged/falling/battle_*) see `docs/design/behavior-eng
 ## One window, always compact
 
 `apps/desktop/src/main/windows/PetWindow.ts` owns a single `BrowserWindow` per pet; there is no
-separate window per mode. `PetHost` moves and resizes it between two bounds:
+separate window per mode. `PetHost` moves and resizes it between three bounds:
 
-- **follow** — the one normal mode, always present. A compact rect about 3 sprite-widths by
-  2.5 sprite-heights (`PetWindow.COMPACT_WIDTH_GRID`/`COMPACT_HEIGHT_GRID`, grid px scaled by
-  sprite scale), positioned so the sprite's anchor sits inside it. The sprite moves smoothly within
-  the canvas as the pet walks; `PetHost` only *hops* the window (`PetWindow.followTo`, a
-  reposition) once the sprite drifts more than 1/3 of the window's width from its center
-  (`apps/desktop/src/main/display.ts:needsHop`), or immediately during a drag, fall, landing, or display change (`force:
-  true`). See [ADR 0018](../decisions/0018-compact-window-and-fail-closed-click-through.md) for why
-  this replaced an earlier full-work-area-width "strip" window.
+- **follow** — the one normal mode, always present outside a drag/fall/battle. A compact rect about
+  3 sprite-widths by 2.5 sprite-heights (`PetWindow.COMPACT_WIDTH_GRID`/`COMPACT_HEIGHT_GRID`, grid
+  px scaled by sprite scale), positioned so the sprite's anchor sits inside it. The sprite moves
+  smoothly within the canvas as the pet walks; `PetHost` only *hops* the window (`PetWindow.followTo`,
+  a reposition) once the sprite drifts more than 1/3 of the window's width from its center
+  (`apps/desktop/src/main/display.ts:needsHop`), or immediately on an ordinary display change
+  (`force: true`). See [ADR 0018](../decisions/0018-compact-window-and-fail-closed-click-through.md)
+  for why this replaced an earlier full-work-area-width "strip" window.
+- **motion** — entered for the whole of a drag through landing; see "Motion mode" below.
 - **battle** — a generously-sized box (`BATTLE_WIDTH_GRID`/`BATTLE_HEIGHT_GRID`) entered by
   `PetHost.playBattle` and left again on `IPC.petBattleDone` (back to `follow`), wide/tall enough
   to fit both mons, hp bars, popups and the banner without depending on banner text width — see
   `docs/architecture/flows/shake-to-battle.md` for the arena sizing and HUD-fitting details.
 
-Bounds math lives in `apps/desktop/src/main/display.ts`: `compactBounds` and `battleBounds` both
-clamp into the display's work area via `clampRectToArea`, so neither window ever has to hang off a
-small/secondary display or leave it. `needsHop` is the pure predicate `PetWindow.followTo` uses to
-decide whether an anchor update warrants a reposition.
+Bounds math lives in `apps/desktop/src/main/display.ts`: `compactBounds`, `motionBounds` and
+`battleBounds` all clamp into the display's work area via `clampRectToArea`, so no window ever has
+to hang off a small/secondary display or leave it. `needsHop` is the pure predicate
+`PetWindow.followTo` uses to decide whether an anchor update warrants a reposition; `canHopFollow`
+is the pure predicate that keeps `followTo` from ever hopping outside `follow` mode.
+
+## Motion mode
+
+Dragging used to reposition the compact `follow` window every frame (`PetWindow.followTo(anchor,
+{ force: true })`) all the way through `dragged` → `falling`, the same way an ordinary walk hops it
+occasionally. Two bugs traced back to that: a per-frame `setBounds` raced the renderer's paint, so
+for one frame the sprite was drawn against bounds the window had already moved past (visible as
+stutter/jitter while dragging), and a fast fall could outrun the not-yet-repositioned window before
+the next hop landed, clipping the sprite against the window's own edge — reads as the pet "falling
+behind" whatever window is underneath, popping back in front once geometry resynced on landing.
+
+`PetWindow` gains a third mode, `motion`, that sidesteps both: on `PetHost.beginDrag`,
+`PetWindow.enterMotion()` sizes the window once to the current display's full (clamped) work area
+(`apps/desktop/src/main/display.ts:motionBounds`) and never touches its bounds again for the rest of
+the drag. The sprite still moves every frame — driven by the reducer's own `pos` from the
+`input:grab`/`input:drag` stimuli, exactly as `dragged`/`falling` states already worked — but purely
+inside the canvas the (now stationary) window provides, so there is no window move to race the
+paint against and no window edge for a fast fall to outrun. The window stays in `motion` mode
+through `dragged` → `falling` (regardless of whether a real fall happens, since a release right at
+ground level also emits `landed`, see `packages/shared/src/behavior/reducer.ts`'s `input:release`
+handler) until the reducer's `landed` effect reaches `PetHost.onLanded`, which computes compact
+bounds around the now-resting anchor and switches back with one more `setBounds`
+(`PetWindow.enterFollow`, which also bumps `geometryVersion` and calls `reassertTopmost()`).
+
+Dragging across a display boundary re-targets the arena live: `PetHost.onDragMove` compares
+`displayContaining(cursor)` against the display it last knew about and, only when it actually
+changed, calls `window.setDisplay(target)` + `window.retargetMotion()` (one more `setBounds`) —
+never every tick. `PetWindow.enterMotion()` is a no-op if a battle currently owns the window
+(`apps/desktop/src/main/display.ts:nextArenaMode` returns the current mode unchanged for a
+`drag-start` event when it's already `'battle'`), mirroring `PetHost.beginDrag`'s own `inBattle`
+guard as a second line of defense — see "Battle arena mode stays as is."
+
+Click-through does **not** need any special-casing for a window this much larger: `CursorTracker`'s
+accept decision (see "Fail-closed click-through" below) was already keyed off the renderer-reported
+sprite hitbox, tagged with the current `geometryVersion`, not the window's own bounds — the window
+bounds only gate the coarse "is the cursor even inside the window" pre-check. A huge motion-mode
+window therefore still only ever accepts input over the sprite itself: while the mouse button stays
+down (`CursorTracker.beginDrag()`), the tracker never re-evaluates hover at all (it streams
+`onDragMove` samples instead); once released, `PetHost.endDrag` calls `CursorTracker.forceIgnore()`
+immediately and every following tick re-derives acceptance from the fresh per-frame hitbox the
+falling sprite keeps reporting, same as any other tick. The hover card is explicitly suppressed for
+the whole of `motion` mode (not just while the button is held) so it can't flash on mid-fall; FX are
+already suppressed for `dragged`/`falling` by `animationFor` (`packages/shared/src/behavior/states.ts`)
+regardless of window mode.
+
+Unit-tested in `apps/desktop/test/display.test.ts`: `motionBounds` equals the clamped work area,
+`nextArenaMode`'s drag → motion → landed → follow sequence (and the battle veto), and `canHopFollow`.
+`PetWindow`/`PetHost` themselves stay Electron-coupled and untested (see "Test coverage" below), but
+the mode-transition decision they call into is a pure, tested function.
 
 Window flags, all set in the `PetWindow` constructor unless noted:
 
@@ -213,33 +265,42 @@ unconditionally (the drag's own grab already passed this check).
 
 1. `IPC.petPointer` `down` (button 0), once `isPointAccepted` passes → `PetHost.beginDrag`: records
    `anchorAtGrab`/`cursorAtGrab`/`startedAt`, resets the shake detector, hides the hover card, and
-   calls `PetWindow.enterFollow(anchor)` — repositioning the compact window around the current
-   anchor — then `CursorTracker.beginDrag()`. Emits stimulus `input:grab`.
-2. While dragging, `CursorTracker.tick` streams cursor positions to `PetHost.onDragMove`, which
-   computes the new anchor (cursor position offset by the grab delta), calls
-   `PetWindow.followTo(anchor, { force: true })` to reposition the window every frame, emits
-   `input:drag`, and feeds the sample to the shake detector (below). `followTo` broadcasts the new
-   `IPC.petWindowMoved` geometry synchronously from the bounds it just commanded, rather than
-   waiting for the native `'move'`/`'resize'` event: that event can lag a frame behind the actual
-   OS move, during which the renderer would otherwise paint the sprite against the previous frame's
-   window origin while the window itself has already moved — a one-frame offset/flicker.
+   calls `PetWindow.enterMotion()` — switching to the motion arena (see "Motion mode" above), sized
+   once to the current display's full work area — then `CursorTracker.beginDrag()`. Emits stimulus
+   `input:grab`.
+2. While dragging, `CursorTracker.tick` streams cursor positions to `PetHost.onDragMove`, which no
+   longer repositions the window at all: the reducer's `input:drag` handler moves the model's `pos`
+   directly (cursor offset by the grab delta), and the sprite just moves within the stationary
+   motion-mode canvas. `onDragMove` only touches the window if `displayContaining(cursor)` differs
+   from the display it last knew about, in which case it calls `window.setDisplay(target)` +
+   `window.retargetMotion()` (one `setBounds`) before emitting `input:drag` and feeding the sample
+   to the shake detector (below).
 3. `IPC.petPointer` `up` → `PetHost.endDrag`: a press under
    `apps/desktop/src/main/PetHost.ts:CLICK_MAX_MS` (300 ms) that moved less than
    `CLICK_MAX_DIST` (6 DIPs) counts as a click, not a drag, and fires `onClick` (opens the tray/panel
-   path). Otherwise the drop point decides which display the pet falls toward
-   (`apps/desktop/src/main/display.ts:displayContaining`); emits `input:release`.
-   `CursorTracker.forceIgnore()` is called immediately after `endDrag`, ahead of the next tick.
+   path). The drop point re-checks which display the cursor ended on (same
+   `displayContaining`-based retarget as step 2, a harmless no-op duplicate in the common case);
+   emits `input:release`. `CursorTracker.forceIgnore()` is called immediately after `endDrag`, ahead
+   of the next tick. The window is still in `motion` mode at this point — nothing shrinks it back
+   yet.
 4. The shared reducer (`docs/design/behavior-engine.md`) drives the actual `dragged` → `falling` →
-   `idle` state transitions from these stimuli; when it reaches the ground it emits effect
-   `{ type: 'landed' }`, which the renderer turns into `window.mons.landed()` →
-   `IPC.petLanded` → `PetHost.onLanded()`, which re-anchors the window to the (possibly new)
-   display and hops it (`force: true`) onto the landed anchor.
+   `idle` state transitions from these stimuli, moving the model's `pos` every step while the window
+   itself stays put; when it reaches the ground (or the release never left the ground to begin with)
+   it emits effect `{ type: 'landed' }`, which the renderer turns into `window.mons.landed()` →
+   `IPC.petLanded` → `PetHost.onLanded()`, which re-anchors the window to the (possibly new) display
+   and calls `PetWindow.enterFollow(anchor)` to compute compact bounds around the landing point and
+   switch back out of motion mode with one more `setBounds`. `PetLoop.step()`
+   (`apps/desktop/src/renderer/pet/loop.ts`) sends this frame's `pet:state` message *before*
+   dispatching the `landed` effect (not after, as for every other frame), so `PetHost.lastState`
+   already carries the true landed position by the time `onLanded` reads it via `currentAnchor()` —
+   otherwise `onLanded` would anchor the compact window around the second-to-last (still slightly
+   airborne) position and need an immediate corrective `followTo` hop once the fresher state message
+   arrived, an extra `setBounds` beyond the one this section promises.
 
-Every `IPC.petState` message while in `follow` mode (drag, fall, or ordinary walk alike) calls
-`PetWindow.followTo`, with `force: true` while dragging or airborne (`isAirborneState`) and
-threshold-gated (`needsHop`) otherwise — this is what keeps a real fall's window glued to the
-sprite every frame (a fall that outran a not-yet-repositioned window used to be a real bug: see
-git history on this file) while an ordinary walk only hops occasionally.
+Every `IPC.petState` message while in `follow` mode calls `PetWindow.followTo`, threshold-gated
+(`needsHop`) so an ordinary walk only hops occasionally; `followTo` is a no-op outside `follow` mode
+(`canHopFollow`), which is exactly the case for the whole dragged/falling stretch now that it lives
+in `motion` mode instead.
 
 ## Shake detector
 
@@ -343,9 +404,9 @@ re-assertion timer (not just mode switches as on Windows).
 | Area | Coverage |
 |---|---|
 | `CursorTracker` (fail-closed default, re-assertion every tick, hitbox/cursor freshness, geometry-version mismatch discarded, `forceIgnore`, exception-forces-closed, `isPointAccepted`, drag streaming, poll-rate switching, non-finite cursor sample dropped) | Unit-tested, `apps/desktop/test/CursorTracker.test.ts` |
-| `apps/desktop/src/main/display.ts` (world bounds, `compactBounds`/`battleBounds`, `needsHop`, `clampRectToArea`, display lookup, anchor memory, `toIntPoint`/`toIntRect`, fractional-work-area rounding) | Unit-tested, `apps/desktop/test/display.test.ts` |
+| `apps/desktop/src/main/display.ts` (world bounds, `compactBounds`/`battleBounds`/`motionBounds`, `needsHop`, `canHopFollow`, `nextArenaMode` mode-transition table, `clampRectToArea`, display lookup, anchor memory, `toIntPoint`/`toIntRect`, fractional-work-area rounding) | Unit-tested, `apps/desktop/test/display.test.ts` |
 | Banner wrap/shrink/truncate and HUD-clamp helpers (`apps/desktop/src/renderer/pet/bannerFit.ts`) | Unit-tested, `apps/desktop/test/bannerFit.test.ts` |
 | Shake detector | Unit-tested in `packages/shared` (see that package's tests, not duplicated here) |
 | Reducer `world:bounds` clamp and `world:recenter` recovery | Unit-tested, `packages/shared/test/behavior.test.ts` |
-| `PetWindow`, `PetHost`, `HoverCardWindow` (actual window flags, always-on-top/z-order behavior, transparency, crash-log handlers, battle arena mode switch) | No automated test — Electron-coupled; verified manually on Windows (see [ADR 0018](../decisions/0018-compact-window-and-fail-closed-click-through.md)) |
+| `PetWindow`, `PetHost`, `HoverCardWindow` (actual window flags, always-on-top/z-order behavior, transparency, crash-log handlers, battle arena mode switch, motion-mode drag/fall/landing) | No automated test — Electron-coupled; verified manually on Windows (see [ADR 0018](../decisions/0018-compact-window-and-fail-closed-click-through.md)); the mode-transition decision itself is a pure, tested function (`nextArenaMode`/`canHopFollow`, see "Motion mode" above) |
 | Linux window flags, `enable-transparent-visuals`, the 300 ms boot delay, XWayland behavior | No automated test; not covered by the manual Windows verification either |

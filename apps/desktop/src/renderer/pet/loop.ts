@@ -112,11 +112,6 @@ export class PetLoop {
     const result = stepBehavior(this.model, stimuli, now);
     this.model = result.model;
 
-    for (const effect of result.effects) {
-      if (effect.type === 'request-battle') window.mons.requestBattle();
-      else if (effect.type === 'landed') window.mons.landed();
-    }
-
     if (this.battle) {
       // face the opponent for the whole battle
       if (this.model.facing !== this.battle.facing())
@@ -142,12 +137,25 @@ export class PetLoop {
 
     if (this.model.state !== prevState || stimuli.length > 0 || now - this.lastStateSentAt > 1000) {
       this.lastStateSentAt = now;
+      // Sent before the `landed`/`request-battle` effects below so that, by the time the main
+      // process handles those (`PetHost.onLanded`/`onBattleRequest`), `PetHost`'s own `lastState`
+      // already reflects this frame's final position rather than the previous frame's. Otherwise
+      // `onLanded` could anchor the compact window around a stale (still slightly airborne)
+      // position and need a second corrective `followTo` hop moments later once the fresher
+      // `pet:state` message arrived — an extra, avoidable `setBounds` right after the one
+      // `enterFollow` is supposed to be the only bounds change on landing (see "Motion mode" in
+      // docs/architecture/overlay-and-input.md).
       window.mons.sendState({
         state: this.model.state,
         stage: this.model.stage,
         x: this.model.pos.x,
         y: this.model.pos.y,
       });
+    }
+
+    for (const effect of result.effects) {
+      if (effect.type === 'request-battle') window.mons.requestBattle();
+      else if (effect.type === 'landed') window.mons.landed();
     }
   }
 }
