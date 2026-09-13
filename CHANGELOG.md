@@ -3,7 +3,7 @@ doc_type: reference
 purpose: "Release notes and version history; check this when seeing claude-mons updates or deciding what version to expect features in."
 audience: both
 last_verified: 2026-09-13
-last_verified_commit: 8a24ac9
+last_verified_commit: 1fefd03
 related_files:
   - docs/history/v1-handoff-2026-09-04.md
   - docs/README.md
@@ -21,6 +21,21 @@ All notable changes to claude-mons are documented here. See [Keep a Changelog](h
 ## [Unreleased]
 
 ### Fixed
+
+- **Nothing in the Battles tab responded to a click: "Edit loadout", the stance triangle and the
+  talent tree all looked dead.** The 0.2.0 panel redesign rewrote
+  `apps/desktop/src/renderer/panel/panel.css` and dropped the `.loadout-overlay` and `.loadout-card`
+  rules; only a stale comment still referenced `.loadout-card`, so the loss was invisible to a
+  reader and to `pnpm check` (no test asserts that a class used in the panel TSX resolves to a
+  selector). "Edit loadout" did in fact fire -- `LoadoutEditor` rendered -- but with no
+  `position: fixed` the overlay laid out as a plain block at the end of the Battles view, putting
+  its Save button ~700px below the fold inside `.view`, which sets `scrollbar-width: none` and so
+  offered no hint that anything was down there. The stance triangle and talent tree follow from the
+  same cause: on the main tab they are deliberately read-only previews (interactivity is an optional
+  `onPick`/`onAdd`/`onRemove` prop they are not given, see `docs/design/ui-panels.md`), and the one
+  place they *are* interactive is that invisible editor. Both rules are restored, in the 0.2.0 idiom
+  (2px border and `var(--bevel)` matching `.pixel-panel`, spacing tokens, and the card heading in
+  `var(--font-display)` at 15px, above the ~11px pixel-font legibility floor).
 
 - **Deleted test accounts' battles counted as wins for nations with no trainers, and an empty nation showed a full win bar.** A battle's `challenger_snapshot`/`opponent_snapshot` keeps the player's nation even after that player's row is deleted, so `leaderboard_nations`'s weekly-battles tally counted a challenger-side battle regardless of whether `challenger_id` still pointed at a real player -- only the defender side already excluded a missing `opponent_id` (for Wild Mons). Deleting a test account therefore left its battles behind with a live nation in the snapshot, inflating that nation's win/loss tally on the leaderboard even though the nation had no real trainers. `leaderboard_nations` (`supabase/migrations/20260913050000_nations_exclude_orphan_battles.sql`) now also requires `challenger_id is not null` before counting a battle toward either side's weekly tally, matching the existing opponent-side check. Separately, the Leaderboard panel tile (`apps/desktop/src/renderer/panel/views/Leaderboard.tsx`) now shows "no battles yet" instead of a win bar when a nation has zero weekly battles, rather than rendering a misleadingly empty -- or, previously, wrongly inflated -- bar.
 

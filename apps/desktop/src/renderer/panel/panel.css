@@ -1207,6 +1207,44 @@
   flex: none;
 }
 
+/* The loadout editor is rendered inline at the end of the Battles view, so without these rules it
+   lays out as a plain block below the fold -- with `.view`'s scrollbar hidden, "Edit loadout" looks
+   like a dead button. It must stay a fixed, stacked overlay above the game-menu bar. */
+.loadout-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--sp-4);
+  z-index: 10;
+}
+.loadout-card {
+  width: 100%;
+  max-height: 100%;
+  overflow: auto;
+  background: var(--bg-2);
+  border: 2px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--bevel);
+  padding: var(--sp-3);
+  /* The talent tree can push this overlay past the panel's 440x660 size; keep scrolling available
+     but never show the bar, same treatment as .onboard-content. */
+  scrollbar-width: none;
+}
+.loadout-card::-webkit-scrollbar {
+  display: none;
+}
+.loadout-card h3 {
+  font-family: var(--font-display);
+  font-size: 15px;
+  letter-spacing: normal;
+  text-transform: none;
+  color: var(--fg);
+  margin-bottom: var(--sp-3);
+}
+
 .loadout-error {
   color: var(--fire);
   font-weight: 600;
