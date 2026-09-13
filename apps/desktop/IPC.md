@@ -3,14 +3,15 @@ doc_type: reference
 purpose: "Look up IPC channel names and payload types for renderer-to-main and main-to-renderer communication."
 audience: agent
 last_verified: 2026-09-13
-last_verified_commit: 8a24ac9
+last_verified_commit: 44486b0
 related_files:
   - apps/desktop/src/common/ipc.ts
   - apps/desktop/README.md
   - docs/decisions/0014-curl-script-mode-hook-fallback.md
   - docs/decisions/0018-compact-window-and-fail-closed-click-through.md
   - docs/design/talent-tree.md
-  - docs/architecture/overlay-and-input.md
+  - docs/architecture/overlay-window.md
+  - docs/architecture/input-and-gestures.md
 ---
 
 # IPC Channels
@@ -83,9 +84,9 @@ Handled by `App.registerUiIpc`.
 ## Payload type reference
 
 - **PetConfig:** Sprite scale (2, 3, 4), version, stage, speciesId, nation, world bounds, x position, seed (PRNG stable per install), debug flag, `windowGeometry` (the window's own geometry at the moment this config was sent — seeds `PetRenderer`'s initial geometry so the very first hitbox isn't computed against a `{0,0,0,0}` placeholder before the separate `pet:window-moved` message arrives).
-- **WindowGeometry:** x, y, width, height in world DIPs, plus display scaleFactor and `geometryVersion` (bumped by `PetWindow` on every bounds/position change; see `docs/architecture/overlay-and-input.md`).
+- **WindowGeometry:** x, y, width, height in world DIPs, plus display scaleFactor and `geometryVersion` (bumped by `PetWindow` on every bounds/position change; see `docs/architecture/overlay-window.md`).
 - **Hitbox:** `{x, y, w, h}` (window-local) or null when nothing drawn.
-- **HitboxMessage:** `{hitbox: Hitbox, geometryVersion: number}` — the geometry version the renderer had in hand when it computed the hitbox, so `CursorTracker` can discard one computed against a since-superseded window position/size (window hop, mode switch, or resize) — see "Geometry versions" in [`docs/architecture/overlay-and-input.md`](../../docs/architecture/overlay-and-input.md#geometry-versions).
+- **HitboxMessage:** `{hitbox: Hitbox, geometryVersion: number}` — the geometry version the renderer had in hand when it computed the hitbox, so `CursorTracker` can discard one computed against a since-superseded window position/size (window hop, mode switch, or resize) — see "Geometry versions" in [`docs/architecture/input-and-gestures.md`](../../docs/architecture/input-and-gestures.md#geometry-versions).
 - **PointerMessage:** type (down/up/move/enter/leave/contextmenu), button, x, y (window-local).
 - **StateMessage:** pet state, stage, x/y (world DIPs).
 - **StimulusMessage:** = shared Stimulus (union type from @claude-mons/shared).

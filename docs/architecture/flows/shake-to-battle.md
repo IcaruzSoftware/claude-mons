@@ -3,7 +3,7 @@ doc_type: architecture
 purpose: "Read this when tracing how a shake gesture becomes a battle, from cursor drag to a history entry."
 audience: agent
 last_verified: 2026-09-13
-last_verified_commit: 8a24ac9
+last_verified_commit: 44486b0
 related_files:
   - packages/shared/src/battle/matchup.ts
   - apps/desktop/src/main/PetHost.ts
@@ -119,7 +119,7 @@ A successful `BattleOutcome` (`{ok: true, play}`) is stashed as `BattleService.p
 `PetHost.playBattle`, which first switches the pet window into the **battle** arena
 (`PetWindow.enterBattle`, `apps/desktop/src/main/display.ts:battleBounds`) before sending
 `IPC.petBattlePlay` to the pet renderer — the arena is a generously-sized box (see
-`docs/architecture/overlay-and-input.md`'s "One window, always compact"), not the small `follow`
+`docs/architecture/overlay-window.md`'s "One window, always compact"), not the small `follow`
 square used the rest of the time, so the opponent, hp bars, popups and banner all have room.
 `PetHost` reverts to `follow` (`PetWindow.enterFollow`) on `IPC.petBattleDone` and ignores a
 pointer-down that would otherwise start a drag out from under an in-progress battle.

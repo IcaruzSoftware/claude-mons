@@ -539,10 +539,15 @@ function checkDoc(root, relPath, opts, ctx) {
   // Fences (check 9)
   checkFences(bodyLines, addIssue);
 
-  // Length warning (check 10)
+  // Length (check 10). The 80-250 line target in CLAUDE.md is enforced with a small margin, so a
+  // doc that grows past it has to be split rather than accumulating a warning nobody acts on.
+  // `docs/history` is frozen and therefore exempt: those files must never be edited.
   const nonBlankBodyLen = bodyLines.length;
-  if (nonBlankBodyLen > 260) {
-    addIssue('warn', `body is long (${nonBlankBodyLen} lines); consider splitting`);
+  if (nonBlankBodyLen > 260 && docType !== 'history') {
+    addIssue(
+      'error',
+      `body is ${nonBlankBodyLen} lines, over the 260-line cap; split it into two docs`,
+    );
   }
 
   return { docType, frontmatter: fm.present && !fm.error ? fm.data : null };

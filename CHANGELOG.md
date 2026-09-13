@@ -3,7 +3,7 @@ doc_type: reference
 purpose: "Release notes and version history; check this when seeing claude-mons updates or deciding what version to expect features in."
 audience: both
 last_verified: 2026-09-13
-last_verified_commit: 1fefd03
+last_verified_commit: 44486b0
 related_files:
   - docs/history/v1-handoff-2026-09-04.md
   - docs/README.md
@@ -17,6 +17,37 @@ related_files:
 # Changelog
 
 All notable changes to claude-mons are documented here. See [Keep a Changelog](https://keepachangelog.com/) for format details.
+
+## [Unreleased]
+
+### Added
+
+- **A test that a class name used by a renderer exists in a stylesheet that renderer loads**
+  (`apps/desktop/test/styleContract.test.ts`). It follows each renderer entry's relative imports to
+  collect its stylesheets, extracts static class tokens from `class=` attributes (template
+  interpolations and comparison operands excluded) and strips CSS comments, so the exact 0.2.1
+  failure -- rules dropped by a stylesheet rewrite while a comment still mentioned them -- fails
+  `pnpm check` instead of shipping. Verified by reverting the 0.2.1 fix locally: the test names
+  `.loadout-overlay` and `.loadout-card`.
+- **`docs/runbooks/verify-a-ui-change.md` and `scripts/ui-probe.mjs`**: how to prove a renderer
+  change works before shipping it -- throwaway `--user-data-dir` and `CLAUDE_MONS_OFFLINE=1` so a
+  test run cannot touch your own pet or leave a junk trainer on the leaderboard, a debugging port,
+  and a dependency-free CDP client that clicks by visible label and asserts geometry and state.
+  Nothing previously documented how to drive the app at all.
+
+### Changed
+
+- **`CLAUDE.md` routes UI work.** The "Before you touch ... read ..." table covered every subsystem
+  except the one the app *is*: nothing pointed at `docs/design/ui-style.md` or
+  `docs/design/ui-panels.md`, which is how the 0.2.0 redesign rewrote `apps/desktop/src/renderer/panel/panel.css` without consulting
+  either. Added rows for panel/onboarding/hover-card styling and for verifying any renderer change,
+  plus a hard rule against testing with your real profile.
+- **The 80-250 line doc rule is enforced instead of warned about.** `scripts/check-docs.mjs` now
+  errors above 260 lines (frozen `docs/history/*` excepted). The one doc over the cap, the
+  392-line overlay-and-input doc, is split along its natural seam into
+  `docs/architecture/overlay-window.md` (where the window is: modes, bounds, integer geometry,
+  displays, Linux) and `docs/architecture/input-and-gestures.md` (how input reaches it: fail-closed
+  click-through, pointer handling, drag, shake, hover card).
 
 ## [0.2.1] - 2026-09-13
 
@@ -106,7 +137,7 @@ All notable changes to claude-mons are documented here. See [Keep a Changelog](h
   `pet:state` message before dispatching the `landed` effect (previously after), so `PetHost` reads
   the true landed position rather than the previous frame's when it exits `motion` mode — without
   that ordering fix, live testing showed a second, avoidable `setBounds` right after the intended
-  one. See "Motion mode" in `docs/architecture/overlay-and-input.md` and the Consequences note on
+  one. See "Motion mode" in `docs/architecture/overlay-window.md` and the Consequences note on
   `docs/decisions/0018-compact-window-and-fail-closed-click-through.md`.
 
 ## [0.1.1] - 2026-09-13
@@ -156,7 +187,8 @@ First published pre-release: everything below plus the v0.1.0 feature set.
   closed outright on blur/hide/mode-switch/display-change and re-checks `isPointAccepted` before
   acting on a pointerdown/context-menu. "Bring pet back" still works but should no longer be the
   only fix. See [ADR 0018](docs/decisions/0018-compact-window-and-fail-closed-click-through.md) and
-  the rewritten `docs/architecture/overlay-and-input.md`.
+  the rewritten overlay docs (`docs/architecture/overlay-window.md`,
+  `docs/architecture/input-and-gestures.md`, split out of the former combined overlay-and-input doc).
 - **Suspicion false positive for legitimate heavy users.** `ingest-xp`'s suspicion heuristic used to increment `players.suspicion` whenever more than half of a batch's claimed XP was dropped for *any* reason, including the per-minute/hour/day caps that a heavy user (or a spooled offline replay) trips as a matter of course. `supabase/functions/_shared/pipeline.ts:runIngestPipeline` now returns `out.suspicious`, true only when a batch claimed at least 100 XP and more than half of it was dropped for a non-cap reason (`stale`/`future`/`implausible`/`no_prompt_context`); cap drops (`cap_minute`/`cap_hour`/`cap_day`) never count. `apply_xp` (`supabase/migrations/20260913000000_suspicion_and_nations_filter.sql`) also now decays `suspicion` by 1 (floor 0) every time a batch activates a new day, so a flagged player who keeps playing normally recovers. The same migration fixes `leaderboard_nations`, whose `weekly_xp` aggregate did not exclude suspicion ≥10 players even though its other columns did, so a flagged player's weekly XP still counted toward their nation while their personal entry had already dropped off `leaderboard_alltime`/`leaderboard_weekly`. See `docs/design/backend-rules.md`.
 - Update check no longer fails with "Cannot read properties of undefined (reading 'checkForUpdates')": electron-updater is CommonJS and its `autoUpdater` export is only reachable through the default export in the packaged ESM bundle. Update errors are now one readable line (e.g. no release published yet, offline).
 - **Linux overlay always stays on top.** The app now forces XWayland (X11 backend via `ozone-platform x11` switch) on all Linux distributions, even native Wayland sessions, because native Wayland cannot provide window positioning, cursor polling, or always-on-top semantics (see [ADR 0017](docs/decisions/0017-force-x11-backend-on-linux.md)). `PetWindow.reassertTopmost()` now runs every 5 s on Linux as well as Windows, since some X11 window managers drop the `_NET_WM_STATE_ABOVE` flag after focus changes. Set `CLAUDE_MONS_NATIVE_WAYLAND=1` to override and test native Wayland (currently unsupported).

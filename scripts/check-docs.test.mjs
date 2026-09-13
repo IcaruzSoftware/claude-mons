@@ -225,6 +225,29 @@ test('future last_verified is an error', { skip: !GIT_OK }, () => {
   assert.match(res.stdout, /future/);
 });
 
+test('over-long body is an error, except in a frozen history doc', { skip: !GIT_OK }, () => {
+  const root = mkRepo();
+  const sha = initGit(root);
+  const today = todayLocal();
+  const NL = String.fromCharCode(10);
+  const longBody = (NL + 'Paragraph.' + NL).repeat(300);
+  fs.writeFileSync(
+    path.join(root, 'CLAUDE.md'),
+    frontmatter({ doc_type: 'reference', last_verified: today, last_verified_commit: sha }) + longBody,
+  );
+  const tooLong = run(root, ['--file', 'CLAUDE.md']);
+  assert.equal(tooLong.status, 1);
+  assert.match(tooLong.stdout, /over the 260-line cap/);
+
+  fs.mkdirSync(path.join(root, 'docs', 'history'), { recursive: true });
+  fs.writeFileSync(
+    path.join(root, 'docs', 'history', 'v1-long.md'),
+    frontmatter({ doc_type: 'history', last_verified: today, last_verified_commit: sha }) + longBody,
+  );
+  const frozen = run(root, ['--file', 'docs/history/v1-long.md']);
+  assert.equal(frozen.status, 0, frozen.stdout + frozen.stderr);
+});
+
 test('gapped ADR numbering is an error', { skip: !GIT_OK }, () => {
   const root = mkRepo();
   const sha = initGit(root);
