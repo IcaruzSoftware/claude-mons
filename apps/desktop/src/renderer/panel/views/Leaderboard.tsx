@@ -63,9 +63,13 @@ export function LeaderboardView({ s }: { s: UiSnapshot }) {
                   {r.avg_level ? Math.round(r.avg_level) : '–'}
                 </div>
               </div>
-              <div class="winbar" title={games > 0 ? `${winPct}% battles won` : 'no battles yet'}>
-                <i style={{ width: `${winPct}%` }} />
-              </div>
+              {games > 0 ? (
+                <div class="winbar" title={`${winPct}% battles won`}>
+                  <i style={{ width: `${winPct}%` }} />
+                </div>
+              ) : (
+                <span class="winbar-empty">no battles yet</span>
+              )}
             </div>
           );
         })}

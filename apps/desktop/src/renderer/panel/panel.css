@@ -712,6 +712,11 @@
   height: 100%;
   background: var(--nation);
 }
+.winbar-empty {
+  font-size: 10px;
+  color: var(--fg-dim);
+  flex: none;
+}
 
 .seg-pixel {
   display: inline-flex;
