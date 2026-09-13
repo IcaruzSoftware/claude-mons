@@ -17,6 +17,10 @@ on:
         description: 'Build the apt repository in --dry-run mode (no signing, no gh-pages push) and upload it as an artifact for inspection'
         type: boolean
         default: false
+      sign_test:
+        description: 'Sign this manual build with the SignPath test-signing policy (consumes the yearly artifact-size quota; off by default)'
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -193,7 +197,10 @@ jobs:
         id: sign
         shell: bash
         run: |
-          if [ -n "${{ secrets.SIGNPATH_API_TOKEN }}" ] && [ -n "${{ secrets.SIGNPATH_ORGANIZATION_ID }}" ] && [ -n "${{ vars.SIGNPATH_PROJECT_SLUG }}" ]; then
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.sign_test == true }}" != "true" ]; then
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Manual run: signing skipped to save the SignPath artifact-size quota (set sign_test to sign)"
+          elif [ -n "${{ secrets.SIGNPATH_API_TOKEN }}" ] && [ -n "${{ secrets.SIGNPATH_ORGANIZATION_ID }}" ] && [ -n "${{ vars.SIGNPATH_PROJECT_SLUG }}" ]; then
             echo "enabled=true" >> "$GITHUB_OUTPUT"
           else
             echo "enabled=false" >> "$GITHUB_OUTPUT"

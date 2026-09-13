@@ -174,6 +174,10 @@ Two artifact configurations with XML are needed to sign the executables (pass 1)
 
 4. Run the workflow once via `workflow_dispatch` to test; it uses `test-signing`.
 
+## Signing quota
+
+SignPath's free trial meters the yearly artifact size. Manual `workflow_dispatch` runs therefore build **unsigned** Windows artifacts unless the `sign_test` input is set; only `v*` tag builds sign with `release-signing`. A run that fails with "Yearly quota for artifact size has been exceeded" needs the quota reset or a plan change on the SignPath side; the Linux job and the unsigned Windows artifact are unaffected.
+
 ## Acceptance
 
 - [ ] Verify that the tag `v*` exists and is pushed: `git tag`
