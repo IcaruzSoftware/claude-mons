@@ -22,6 +22,12 @@ All notable changes to claude-mons are documented here. See [Keep a Changelog](h
 
 ### Added
 
+- **A third Water species: Ottlet → Brookfin → Tidewhisker** (`ottlet`, rare, 75/60/40/40 — a fast
+  attacker to Bubblit's tank). Registered in the shared game table, a new `species_base_stats`
+  migration, the desktop offline hatch table, and the docs. Water now has three species (one common,
+  two rare), so its hatch odds become dripple 60 % / bubblit 20 % / ottlet 20 % (Fire/Earth/Air stay
+  75 % / 25 %); the Mon view's "What could hatch" list now computes these percentages from
+  `RARITY_WEIGHT` instead of hard-coding 75 %/25 %.
 - **A test that a class name used by a renderer exists in a stylesheet that renderer loads**
   (`apps/desktop/test/styleContract.test.ts`). It follows each renderer entry's relative imports to
   collect its stylesheets, extracts static class tokens from `class=` attributes (template

@@ -2,8 +2,8 @@
 doc_type: design
 purpose: "Read this when adding/changing a nation, species, hatch rarity, stage threshold, or sprite id, and need every place that must stay in sync."
 audience: agent
-last_verified: 2026-09-13
-last_verified_commit: 8a24ac9
+last_verified: 2026-09-22
+last_verified_commit: 6d5bbcd
 related_files:
   - packages/shared/src/game/nations.ts
   - packages/shared/src/game/species.ts
@@ -43,12 +43,13 @@ Each nation beats exactly one other and is resisted by exactly one other; the fo
 
 ## Species
 
-Eight species, two per nation (one common, one rare), defined in `packages/shared/src/game/species.ts` and mirrored in `supabase/migrations/20260904000000_init.sql` (`species_base_stats`). Rarity weights: `RARITY_WEIGHT = { common: 75, rare: 25 }`.
+Nine species, defined in `packages/shared/src/game/species.ts` and mirrored in `supabase/migrations/20260904000000_init.sql` (`species_base_stats`) plus later per-species migrations. Every nation has one common and one rare; Water additionally has a second rare (Ottlet). Rarity weights: `RARITY_WEIGHT = { common: 75, rare: 25 }`.
 
 | Nation | Id | Rarity | Baby → Teen → Adult | HP/ATK/DEF/SPD |
 |---|---|---|---|---|
 | Water | dripple | common | Dripple → Pipefin → Torrentide | 85/45/50/30 |
 | Water | bubblit | rare | Bubblit → Cachecoral → Deepseaquel | 80/50/55/30 |
+| Water | ottlet | rare | Ottlet → Brookfin → Tidewhisker | 75/60/40/40 |
 | Fire | sparkit | common | Sparkit → Blazebit → Infernode | 70/60/40/40 |
 | Fire | cinderpup | rare | Cinderpup → Hotfixhound → Overclockwolf | 75/60/40/40 |
 | Earth | pebblet | common | Pebblet → Boulderbyte → Monolithor | 90/45/55/20 |
@@ -65,6 +66,8 @@ in `docs/design/progression.md` Move pool and effects — not restated here sinc
 ## Hatch roll
 
 The species is chosen server-side, restricted to the player's own nation, weighted by rarity. `packages/shared/src/game/species.ts:rollSpecies` takes a nation and a uniform `roll` in `[0, 1)` supplied by the caller (never `Math.random()` inside this function) and walks the nation's species in table order, subtracting each one's weight until the running total goes negative. `supabase/migrations/20260904000000_init.sql`'s `roll_species(p_nation, p_roll)` function implements the identical algorithm over `species_base_stats`, walking rows by `sort_order` — the two must stay in the same relative order (common before rare) so the same `roll` value picks the same species on both sides. In production the roll comes from `supabase/functions/_shared/random.ts:randomUnit`, passed through as `apply_xp`'s `p_species_roll`.
+
+Because weights are per-species, the resulting odds depend on how many species a nation has. Fire, Earth and Air each have one common and one rare, so their odds are common 75 % / rare 25 %. Water has a third species (a second rare), so its total weight is 75 + 25 + 25 = 125 and its odds are dripple 60 % / bubblit 20 % / ottlet 20 %. The Mon view's "What could hatch" list (`apps/desktop/src/renderer/panel/views/Mon.tsx`) computes these percentages from `RARITY_WEIGHT` over `speciesForNation(nation)` rather than hard-coding them, so they follow this table automatically.
 
 ## Stages
 
@@ -101,8 +104,8 @@ These must agree on id, nation, rarity, and (for the first two) stats — the co
 | Location | Path | Holds |
 |---|---|---|
 | Shared game table | `packages/shared/src/game/species.ts` | Canonical: id, nation, rarity, names, base stats, moves, flavor |
-| SQL seed | `supabase/migrations/20260904000000_init.sql` (`species_base_stats`) | id, nation, rarity, weight, stats, `sort_order` — used by `roll_species` and the nation leaderboard |
-| Sprite files | `packages/sprites/src/species/<stageFormName>.ts` (one file per stage form, e.g. `packages/sprites/src/species/pebblet.ts`, `packages/sprites/src/species/boulderbyte.ts`, `packages/sprites/src/species/monolithor.ts`; 24 files total, aggregated per nation by `packages/sprites/src/species/{water,fire,earth,air}.ts`) | One `SpriteDef` per stage form, id `<stageFormName>-baby\|teen\|adult`; mapped back to a species id by `EVOLUTION_LINES` above |
+| SQL seed | `supabase/migrations/20260904000000_init.sql` (`species_base_stats`), plus later per-species migrations (e.g. `supabase/migrations/20260922054153_add_ottlet_species.sql`) | id, nation, rarity, weight, stats, `sort_order` — used by `roll_species` and the nation leaderboard. `sort_order` must follow the insertion order of `SPECIES` in `packages/shared/src/game/species.ts` so the same roll picks the same species on both sides |
+| Sprite files | `packages/sprites/src/species/<stageFormName>.ts` (one file per stage form, e.g. `packages/sprites/src/species/pebblet.ts`, `packages/sprites/src/species/boulderbyte.ts`, `packages/sprites/src/species/monolithor.ts`; 27 files total, aggregated per nation by `packages/sprites/src/species/{water,fire,earth,air}.ts`) | One `SpriteDef` per stage form, id `<stageFormName>-baby\|teen\|adult`; mapped back to a species id by `EVOLUTION_LINES` above |
 
 ## Egg cracking
 

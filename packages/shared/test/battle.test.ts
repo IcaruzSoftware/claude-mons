@@ -47,29 +47,38 @@ describe('nations', () => {
 });
 
 describe('species table', () => {
-  it('has two species per nation with the agreed stat budgets', () => {
+  it('has the agreed per-nation species shape and stat budgets', () => {
+    // Water carries a third species (Ottlet, rare): 1 common + 2 rare. The other three nations
+    // still hold exactly one common and one rare each.
     for (const n of NATIONS) {
       const pool = speciesForNation(n);
-      expect(pool).toHaveLength(2);
-      expect(pool.map((s) => s.rarity).sort()).toEqual(['common', 'rare']);
+      if (n === 'water') {
+        expect(pool).toHaveLength(3);
+        expect(pool.map((s) => s.rarity).sort()).toEqual(['common', 'rare', 'rare']);
+      } else {
+        expect(pool).toHaveLength(2);
+        expect(pool.map((s) => s.rarity).sort()).toEqual(['common', 'rare']);
+      }
     }
     for (const s of Object.values(SPECIES)) {
       const total = s.baseStats.hp + s.baseStats.atk + s.baseStats.def + s.baseStats.spd;
       expect(total).toBe(s.rarity === 'common' ? 210 : 215);
       expect(s.id).toBe(s.names.baby.toLowerCase());
     }
-    expect(SPECIES_IDS).toHaveLength(8);
+    expect(SPECIES_IDS).toHaveLength(9);
   });
 
-  it('rolls rare species 25 % of the time', () => {
+  it('rolls rare species 25 % of the time and walks water in table order', () => {
     let rare = 0;
     const N = 4000;
     const r = makeRng('roll');
     for (let i = 0; i < N; i++) if (rollSpecies('fire', r()).rarity === 'rare') rare++;
     expect(rare / N).toBeGreaterThan(0.21);
     expect(rare / N).toBeLessThan(0.29);
+    // Water weights 75/25/25 (total 125): dripple owns [0, 0.6), bubblit [0.6, 0.8), ottlet [0.8, 1).
     expect(rollSpecies('water', 0).id).toBe('dripple');
-    expect(rollSpecies('water', 0.99).id).toBe('bubblit');
+    expect(rollSpecies('water', 0.61).id).toBe('bubblit');
+    expect(rollSpecies('water', 0.99).id).toBe('ottlet');
   });
 });
 

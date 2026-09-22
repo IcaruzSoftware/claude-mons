@@ -39,6 +39,7 @@ export type Stage = 'egg' | 'baby' | 'teen' | 'adult';
 export const EVOLUTION_LINES: Record<string, { baby: string; teen: string; adult: string }> = {
   dripple: { baby: 'dripple', teen: 'pipefin', adult: 'torrentide' },
   bubblit: { baby: 'bubblit', teen: 'cachecoral', adult: 'deepseaquel' },
+  ottlet: { baby: 'ottlet', teen: 'brookfin', adult: 'tidewhisker' },
   sparkit: { baby: 'sparkit', teen: 'blazebit', adult: 'infernode' },
   cinderpup: { baby: 'cinderpup', teen: 'hotfixhound', adult: 'overclockwolf' },
   pebblet: { baby: 'pebblet', teen: 'boulderbyte', adult: 'monolithor' },

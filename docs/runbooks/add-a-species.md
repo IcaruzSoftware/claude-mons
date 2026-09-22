@@ -2,8 +2,8 @@
 doc_type: runbook
 purpose: "Read this when adding a new species to a nation."
 audience: both
-last_verified: 2026-09-13
-last_verified_commit: 8a24ac9
+last_verified: 2026-09-22
+last_verified_commit: 6d5bbcd
 related_files:
   - packages/shared/src/game/species.ts
   - packages/shared/src/battle/effects.ts
@@ -129,7 +129,7 @@ export const SPECIES: Record<string, Species> = {
 };
 ```
 
-After adding the species, re-run the balance suite (step 7) — the new species also joins the
+After adding the species, re-run the balance suite (step 8) — the new species also joins the
 archetype matrix in `packages/shared/test/balance.test.ts`, which needs at least one unlocked move
 per `ARCHETYPE_EFFECTS` cluster to build a sensible loadout at every level.
 
@@ -152,9 +152,36 @@ values
 EOF
 ```
 
-Use the same stats as in step 5. The `sort_order` must increment from the highest existing row.
+Use the same stats as in step 5. The `sort_order` must increment from the highest existing row, and
+it must keep each nation's rows in the same relative order as the `SPECIES` object in
+`packages/shared/src/game/species.ts` — insert the SPECIES entry right after the species it follows,
+and append the SQL row with the next `sort_order`, so `roll_species` and `rollSpecies` walk the
+nation's species in the same order and the same roll picks the same species on both sides.
 
-## 7. Run the balance suite
+## 7. Keep the rest of the code in sync
+
+Adding a species touches a few places beyond the three data homes in step 5/6. Skipping any of
+these leaves a test failing or the UI/offline hatch out of step:
+
+- **`packages/shared/test/battle.test.ts` shape assertions.** The `species table` describe block
+  asserts each nation's species count and rarities, the total `SPECIES_IDS` length, and explicit
+  `rollSpecies(nation, roll)` boundaries. When your species changes a nation's count (e.g. a nation
+  gaining a second rare), update the per-nation `toHaveLength`/rarity check, the total-count
+  assertion, and that nation's roll boundaries (the weights set the cut points — e.g. Water's
+  75/25/25 makes the ranges dripple `[0, 0.6)`, bubblit `[0.6, 0.8)`, ottlet `[0.8, 1)`).
+- **`packages/sprites/test/index.test.ts` species list.** The "resolves a registered sprite for
+  every species at every stage" test iterates a hard-coded list of species ids; add yours so its
+  teen/adult sprites are covered.
+- **`apps/desktop/src/main/game/species.ts` offline table.** `SPECIES_BY_NATION` (the local/dev
+  hatch table used in `CLAUDE_MONS_OFFLINE` / `LOCAL_GAME` mode) must gain the same id + rarity.
+  `rollSpeciesForNation` already picks deterministically among species that share the drawn rarity,
+  so no code change is needed there for an extra rare — but add it to the table.
+- **Mon view odds copy.** `apps/desktop/src/renderer/panel/views/Mon.tsx`'s "What could hatch" list
+  computes each species' percentage from `RARITY_WEIGHT` over `speciesForNation(nation)`, so it
+  needs no edit; just note the displayed odds shift for any nation whose species set you change (see
+  `docs/design/species-and-nations.md` Hatch roll for the per-nation numbers).
+
+## 8. Run the balance suite
 
 ```bash
 pnpm test
@@ -170,7 +197,7 @@ Two other harnesses in the same file (the 3-level-advantage check and the stance
 exercise a small fixed set of existing species regardless of how many are in `SPECIES`; they need
 no changes for a new species addition.
 
-## 8. Check and deploy
+## 9. Check and deploy
 
 ```bash
 pnpm check

@@ -153,7 +153,9 @@ export class GameService extends EventEmitter<GameEvents> {
       s.progress.localXp = server.totalXp + provisionalSince;
       if (server.speciesId && !s.pet.speciesId) {
         s.pet.speciesId = server.speciesId;
-        s.progress.hatchedAt = this.now();
+        // A pre-destined egg carries its species before it hatches; only stamp hatchedAt once the
+        // server reports it past the egg stage, so the sprite and Mon view stay "egg" until then.
+        if (server.stage !== 'egg') s.progress.hatchedAt = this.now();
       }
     });
     if (server.speciesId && !this.stateBefore(before).speciesId)

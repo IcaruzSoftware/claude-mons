@@ -24,6 +24,7 @@ describe('spriteIdFor', () => {
     const species = [
       'dripple',
       'bubblit',
+      'ottlet',
       'sparkit',
       'cinderpup',
       'pebblet',

@@ -2,8 +2,8 @@
 doc_type: design
 purpose: "Read this when changing moves, stances, talents, matchmaking windows, streaks or evolution stat multipliers, or building the loadout editor."
 audience: agent
-last_verified: 2026-09-13
-last_verified_commit: 8a24ac9
+last_verified: 2026-09-22
+last_verified_commit: 4db405e
 related_files:
   - packages/shared/src/battle/battle.ts
   - packages/shared/src/battle/effects.ts
@@ -74,6 +74,12 @@ Unlock schedule (by mon level): 2 moves at hatch (level 2), 3rd at 5, 4th at 10,
 | bubblit | 4 | Foam Barrier | 50 | nation | shield_first | 10 |
 | bubblit | 5 | Brine Corrode | 55 | nation | def_down | 15 |
 | bubblit | 6 | Scalding Current | 65 | nation | burn | 20 |
+| ottlet | 1 | Splash Dash | 45 | neutral | priority | 2 |
+| ottlet | 2 | Fish Flick | 40 | nation | crit_up | 2 |
+| ottlet | 3 | River Rush | 75 | nation | def_down | 5 |
+| ottlet | 4 | Whisker Sense | 50 | nation | true_hit | 10 |
+| ottlet | 5 | Undertow | 55 | nation | drain | 15 |
+| ottlet | 6 | Tidal Tumble | 65 | nation | burn | 20 |
 | sparkit | 1 | Spark Nip | 45 | neutral | priority | 2 |
 | sparkit | 2 | Hot Reload | 40 | nation | crit_up | 2 |
 | sparkit | 3 | Force Push | 75 | nation | def_down | 5 |

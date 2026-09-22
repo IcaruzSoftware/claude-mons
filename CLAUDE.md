@@ -12,7 +12,7 @@ related_files:
 
 # claude-mons — agent entry point
 
-claude-mons is a desktop-pet overlay (Electron) crossed with Pokémon: the pet earns XP while the user works with Claude Code, hatches into one of eight species within a chosen nation, evolves, appears on a global leaderboard and fights async battles against other nations. Backend is Supabase; the hook forwarder is a Go binary. Every documentation file is indexed in [docs/README.md](docs/README.md); the system map is [docs/architecture/overview.md](docs/architecture/overview.md).
+claude-mons is a desktop-pet overlay (Electron) crossed with Pokémon: the pet earns XP while the user works with Claude Code, hatches into one of nine species within a chosen nation, evolves, appears on a global leaderboard and fights async battles against other nations. Backend is Supabase; the hook forwarder is a Go binary. Every documentation file is indexed in [docs/README.md](docs/README.md); the system map is [docs/architecture/overview.md](docs/architecture/overview.md).
 
 ## Before you touch ... read ...
 

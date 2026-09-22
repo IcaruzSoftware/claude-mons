@@ -1,6 +1,7 @@
 import {
   HATCH_XP,
   NATION_INFO,
+  RARITY_WEIGHT,
   SPECIES,
   displayName,
   speciesForNation,
@@ -18,11 +19,13 @@ import { PixelPanel } from '../../ui/PixelPanel.tsx';
 export function MonView({ s }: { s: UiSnapshot }) {
   const nation = s.profile.nation!;
   const info = NATION_INFO[nation];
-  const species = s.pet.speciesId ? SPECIES[s.pet.speciesId] : null;
+  const isEgg = s.pet.stage === 'egg';
+  // While the mon is still an egg, treat it as an egg even if the server has pre-set its species
+  // (pre-destined eggs): the sprite stays the egg and this view shows the egg/hatch copy.
+  const species = !isEgg && s.pet.speciesId ? SPECIES[s.pet.speciesId] : null;
   const p = s.progress;
   const total = p.xpIntoLevel + p.xpToNext;
   const pct = total > 0 ? Math.round((p.xpIntoLevel / total) * 100) : 100;
-  const isEgg = s.pet.stage === 'egg';
   const stats = species ? statsAtLevel(species.baseStats, p.level) : null;
   const shortPersonality = info.personality.split('.')[0]!.toLowerCase();
 
@@ -67,19 +70,29 @@ export function MonView({ s }: { s: UiSnapshot }) {
         </div>
       )}
 
-      {!species && (
-        <div class="section">
-          <h3>What could hatch</h3>
-          <div class="hatch-odds">
-            {speciesForNation(nation).map((sp) => (
-              <div class="row" key={sp.id}>
-                <span>{sp.names.baby}</span>
-                <span class="hint">{sp.rarity === 'rare' ? '★ rare · 25%' : 'common · 75%'}</span>
+      {!species &&
+        (() => {
+          const pool = speciesForNation(nation);
+          const weightTotal = pool.reduce((sum, sp) => sum + RARITY_WEIGHT[sp.rarity], 0);
+          return (
+            <div class="section">
+              <h3>What could hatch</h3>
+              <div class="hatch-odds">
+                {pool.map((sp) => {
+                  const odds = Math.round((RARITY_WEIGHT[sp.rarity] / weightTotal) * 100);
+                  return (
+                    <div class="row" key={sp.id}>
+                      <span>{sp.names.baby}</span>
+                      <span class="hint">
+                        {sp.rarity === 'rare' ? `★ rare · ${odds}%` : `common · ${odds}%`}
+                      </span>
+                    </div>
+                  );
+                })}
               </div>
-            ))}
-          </div>
-        </div>
-      )}
+            </div>
+          );
+        })()}
 
       {species &&
         (() => {

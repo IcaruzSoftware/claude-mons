@@ -93,6 +93,22 @@ export const SPECIES: Record<string, Species> = {
     ]),
     flavor: 'Remembers every query you ever ran. Forgives none of them.',
   },
+  ottlet: {
+    id: 'ottlet',
+    nation: 'water',
+    rarity: 'rare',
+    names: { baby: 'Ottlet', teen: 'Brookfin', adult: 'Tidewhisker' },
+    baseStats: { hp: 75, atk: 60, def: 40, spd: 40 },
+    movePool: pool([
+      ['Splash Dash', 45, 'neutral', 'priority'],
+      ['Fish Flick', 40, 'nation', 'crit_up'],
+      ['River Rush', 75, 'nation', 'def_down'],
+      ['Whisker Sense', 50, 'nation', 'true_hit'],
+      ['Undertow', 55, 'nation', 'drain'],
+      ['Tidal Tumble', 65, 'nation', 'burn'],
+    ]),
+    flavor: 'Never lets go of its fish, not even mid-somersault down the rapids.',
+  },
   sparkit: {
     id: 'sparkit',
     nation: 'fire',
