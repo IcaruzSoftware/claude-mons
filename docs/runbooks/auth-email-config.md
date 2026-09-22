@@ -2,8 +2,8 @@
 doc_type: runbook
 purpose: "Read this when you need to change the Supabase auth email config (templates, site_url, manual linking) for account linking, or when a player reports never receiving a sign-in code."
 audience: both
-last_verified: 2026-09-13
-last_verified_commit: 8a24ac9
+last_verified: 2026-09-22
+last_verified_commit: 6d5bbcd
 related_files:
   - scripts/supabase-auth-config.mjs
   - apps/desktop/src/main/net/SupabaseClient.ts
@@ -18,6 +18,10 @@ related_files:
 Configures the Supabase project's auth config settings so email OTP account linking
 (`docs/decisions/0016-email-otp-account-linking.md`) actually delivers a typed 6-digit code.
 Requires `SUPABASE_ACCESS_TOKEN` and `SUPABASE_PROJECT_REF` in `.env.local`.
+
+**As of today:** the project is still on the free tier with the default mailer, so linking an email
+still works through the link-click fallback below, but signing in on a second device is blocked until
+custom SMTP is configured. `mailer_otp_length` is already `6` — no change needed there.
 
 ## What it changes
 
@@ -57,19 +61,19 @@ node scripts/supabase-auth-config.mjs --apply
 
 ## The free-tier template limitation
 
-> Unverified beyond this project's own live run: `docs/decisions/0016-email-otp-account-linking.md`'s Verification section records the exact `PATCH` response. Re-check if the project's plan changes.
+Verified live today (2026-09-22): the non-template keys apply normally. The three
+`mailer_templates_*`/`mailer_subjects_*` keys are rejected with an HTTP 400 whose body is:
 
-The non-template keys apply normally. The three `mailer_templates_*`/`mailer_subjects_*` keys are
-rejected with **400 "Email template modification is not available for free tier projects using the
-default email provider. Please upgrade your plan or configure a custom SMTP provider."** The script
-detects this specific error and degrades to a warning rather than failing the whole run.
+```json
+{"message":"Email template modification is not available for free tier projects using the default email provider. Please upgrade your plan or configure a custom SMTP provider."}
+```
+
+The script detects this specific error and degrades to a warning rather than failing the whole run.
 
 Until custom SMTP is configured, the default mailer's built-in templates are used instead — they
 contain only a confirmation *link*, not the code, even though the same GoTrue call still generates
 and stores a real one under the hood (`verifyOtp` would work if the player somehow had the code).
-Practically: **players cannot see the 6-digit code in their email until this is fixed.** The
-`docs/decisions/0016-email-otp-account-linking.md` Verification section calls this out again with the
-exact error text.
+Practically: **players cannot see the 6-digit code in their email until this is fixed.**
 
 **With the default mailer today:**
 

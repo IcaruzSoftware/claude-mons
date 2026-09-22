@@ -2,8 +2,8 @@
 doc_type: reference
 purpose: "Read this when deploying the backend, debugging database issues, or contributing to Edge Functions."
 audience: agent
-last_verified: 2026-09-13
-last_verified_commit: 8a24ac9
+last_verified: 2026-09-22
+last_verified_commit: 6d5bbcd
 related_files:
   - supabase/migrations/20260904000000_init.sql
   - supabase/migrations/20260913020000_progression_phase_a.sql
@@ -84,7 +84,7 @@ Applied in filename-timestamp order by `npx supabase db push` / `npx supabase db
 | Table | Key columns | Notes |
 |---|---|---|
 | `players` | `id` (PK, auth.users FK) | One per user; nickname citext; suspicion tracks XP drops (≥10 excludes from leaderboards) |
-| `species_base_stats` | `species_id` (PK) | 8 species (1 per rarity per nation); hp/atk/def/spd base stats; seeded order for rarity rolls |
+| `species_base_stats` | `species_id` (PK) | 9 species (Water has a second rare one); hp/atk/def/spd base stats; seeded order for rarity rolls |
 | `mons` | `id` (PK), `player_id` (UQ FK) | One per player; egg until `HATCH_XP`, then rolls species; stage/level derived from total_xp; `loadout` jsonb (`{ stance?, moves?, tree? }`; all three settable via `set-loadout` — see `docs/design/progression.md`, `docs/design/talent-tree.md` for `tree`), `win_streak` int (consecutive real-player wins), `last_respec_at` (stamped on a genuine respec at or above level 10 — `docs/design/talent-tree.md` Respec) |
 | `xp_daily` | `player_id`, `day` (PK) | Per-UTC-day counters: work/bonus/battle XP, prompts, stops, battles_started/_defended |
 | `xp_minutes` | `player_id`, `minute` (PK) | Per-minute credited XP for rolling caps; pruned after 48 h |
@@ -160,10 +160,11 @@ Credentials live in `.env.local` (`SUPABASE_ACCESS_TOKEN`, `SUPABASE_DB_PASSWORD
 set -a; . ./.env.local; set +a
 npx supabase link --project-ref "$SUPABASE_PROJECT_REF"
 npx supabase db push                        # applies supabase/migrations/*
-npx supabase config push                    # enables anonymous sign-ins from config.toml
 pnpm sync:shared                            # refresh functions/_shared/game
 npx supabase functions deploy               # deploys all; honours per-function verify_jwt in config.toml
 ```
+
+Auth settings are never pushed from `config.toml`; they are managed by `scripts/supabase-auth-config.mjs`, see `docs/runbooks/auth-email-config.md`.
 
 The GitHub workflow `.github/workflows/supabase-deploy.yml` runs these steps on manual dispatch. `.github/workflows/keepalive.yml` pings `heartbeat` daily at 06:00 UTC.
 
