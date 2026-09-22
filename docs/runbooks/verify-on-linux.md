@@ -2,8 +2,8 @@
 doc_type: runbook
 purpose: "Verify that claude-mons works correctly on Linux (X11/Wayland, graphics, tray, autostart, updates, hook binary)."
 audience: both
-last_verified: 2026-09-13
-last_verified_commit: 8a24ac9
+last_verified: 2026-09-22
+last_verified_commit: b8e1934
 related_files:
   - docs/history/v1-handoff-2026-09-04.md
   - apps/desktop/src/main/index.ts
@@ -92,6 +92,22 @@ it is probably one of these two).
    sudo apt install ./claude-mons-*.deb
    # Launches from /opt/claude-mons/claude-mons after install
    ```
+
+   The packaged menu launcher passes `--ozone-platform=x11 --disable-gpu` before `%U`,
+   configured by `linux.executableArgs` in `apps/desktop/electron-builder.yml`. Check the
+   installed entry with `grep '^Exec=' /usr/share/applications/claude-mons.desktop`.
+   For an older package whose menu launch fails, back up and patch its entry:
+
+   ```bash
+   sudo cp -a /usr/share/applications/claude-mons.desktop /usr/share/applications/claude-mons.desktop.bak
+   sudo sed -i 's|^Exec=/opt/claude-mons/claude-mons %U$|Exec=/opt/claude-mons/claude-mons --ozone-platform=x11 --disable-gpu %U|' /usr/share/applications/claude-mons.desktop
+   desktop-file-validate /usr/share/applications/claude-mons.desktop
+   grep '^Exec=' /usr/share/applications/claude-mons.desktop
+   ```
+
+   To roll back, copy the `.desktop.bak` file over the `.desktop` file. Reinstalling an
+   older package can overwrite this local fix. For native-Wayland or GPU experiments below,
+   launch the executable directly: the menu entry explicitly forces X11 and software rendering.
 
 3. **Verify X11 session (if applicable)**
 
