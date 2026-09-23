@@ -3,7 +3,7 @@ doc_type: architecture
 purpose: "Read this when tracing what happens linking an email to the anonymous account, signing in with it on a second device, or signing out back to anonymous."
 audience: agent
 last_verified: 2026-09-23
-last_verified_commit: 274f3fe
+last_verified_commit: c7f00a8
 related_files:
   - apps/desktop/src/main/net/SupabaseClient.ts
   - apps/desktop/src/main/net/account.ts
@@ -72,7 +72,7 @@ clicking the confirmation link in the email confirms the email change server-sid
 Two entry points, same underlying calls:
 
 - **Onboarding**, before any nation is chosen (`profile.nation` is still null): the Welcome step has
-  a secondary "Already have a mon? Sign in" link (`apps/desktop/src/renderer/panel/views/Onboarding.tsx`'s
+  a secondary "Already have a mon? Sign in" button (`apps/desktop/src/renderer/panel/views/Onboarding.tsx`'s
   `SignInSubStep`) that replaces the whole wizard while active. No "replace this device" confirm is
   shown here — there is nothing local to replace yet.
 - **Settings**, when this device already has a nation chosen (anonymous or already linked to a

@@ -76,16 +76,10 @@ function WelcomeStep({ onSignIn }: { onSignIn: () => void }) {
       <WelcomeEgg />
       <h1>{onboardingCopy.welcome.title}</h1>
       <p class="lead">{onboardingCopy.welcome.lead}</p>
-      <p class="hint">
-        <a
-          href="#"
-          onClick={(e) => {
-            e.preventDefault();
-            onSignIn();
-          }}
-        >
+      <p>
+        <button type="button" onClick={onSignIn}>
           {accountCopy.onboardingSignin.link}
-        </a>
+        </button>
       </p>
     </div>
   );

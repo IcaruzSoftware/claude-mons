@@ -2,8 +2,8 @@
 doc_type: design
 purpose: "Read this when redesigning a specific panel tab (Mon, Leaderboard, Battles, Settings) or planning the order of work for the panel reskin."
 audience: agent
-last_verified: 2026-09-13
-last_verified_commit: 44486b0
+last_verified: 2026-09-23
+last_verified_commit: c7f00a8
 related_files:
   - docs/design/ui-style.md
   - docs/design/progression.md
@@ -243,6 +243,9 @@ window, not a tab):
 | Onboarding wizard | `apps/desktop/src/renderer/panel/views/Onboarding.tsx`, step arithmetic in `apps/desktop/src/renderer/panel/onboardingSteps.ts` | `--font-display` for step headings and nation titles, `SpriteView`, `AccountEmailCode`; account-linking copy is centralized in `apps/desktop/src/renderer/panel/accountCopy.ts` (shared with Settings' Account section) |
 | Hover card | `apps/desktop/src/renderer/hovercard/main.tsx`, `apps/desktop/src/renderer/hovercard/hovercard.css` | Imports `apps/desktop/src/renderer/ui/theme.css` directly; keeps its own compact DOM/legacy `.bar` fill (`docs/design/ui-style.md` calls this out as the one place the pre-redesign segmented-bar look intentionally remains) but re-textured to the bevelled chrome and `--font-display` name label |
 | Water reminder | `apps/desktop/src/renderer/reminder/main.tsx` | `SpriteView` (or a `Glyph name="drop"` fallback before a mon has hatched), `button.primary` chrome |
+
+The welcome sign-in action uses the shared secondary button at the 13px body size, with its light
+text and keyboard focus ring. A browser-default blue anchor on the dark background fails contrast.
 
 ## Build order and follow-ups (historical)
 
