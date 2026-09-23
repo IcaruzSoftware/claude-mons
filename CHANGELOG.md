@@ -22,6 +22,14 @@ All notable changes to claude-mons are documented here. See [Keep a Changelog](h
 
 ### Fixed
 
+- **A lost sign-in silently started a brand-new mon and reset XP to zero.** If the app was closed
+  or crashed at the wrong moment, the saved login could be dropped, and on the next launch the app
+  quietly created a fresh anonymous mon over your real one — the pet kept its look but its XP fell to
+  ~0, and repeated relaunches spawned several throwaway mons. Now the login is saved immediately (not
+  on a delay that a crash could lose), and if it is ever lost the app shows a clear "Signed out of
+  &lt;name&gt; — sign in again to continue" banner with the sign-in form and an explicit "Start fresh
+  instead" choice, instead of silently replacing your mon. Every login transition is recorded to
+  `auth.log` so the cause is diagnosable. See `docs/architecture/flows/account-linking.md`.
 - **Sign-in and link emails carried a link instead of the 6-digit code.** The project's free tier
   with the default Supabase mailer rejects any edit to `mailer_templates_*` (an HTTP 400), so the
   built-in templates — link only, no code — were used instead, blocking sign-in on a second device.

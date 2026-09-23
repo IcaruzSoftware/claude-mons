@@ -7,6 +7,8 @@ last_verified_commit: 274f3fe
 related_files:
   - apps/desktop/src/main/net/SupabaseClient.ts
   - apps/desktop/src/main/net/account.ts
+  - apps/desktop/src/main/net/SyncQueue.ts
+  - apps/desktop/src/renderer/ui/SignedOutBanner.tsx
   - apps/desktop/src/main/App.ts
   - apps/desktop/src/renderer/panel/views/Settings.tsx
   - apps/desktop/src/renderer/panel/views/Onboarding.tsx
@@ -110,6 +112,35 @@ server, simply never referenced by any device again ("orphaned"; see
 writes a blank local profile, hides the pet window, and reopens onboarding. The next `ensureSession()`
 call creates a brand-new anonymous user — this device's linked mon stays reachable only by signing
 back in with the same email.
+
+## Signed out
+
+Distinct from the voluntary sign-out above: an *involuntary* signed-out state for a device that has a
+known account but no valid Supabase session. supabase-js rotates the refresh token on every refresh;
+if the app is killed before the rotated token is persisted, the next launch presents an
+already-invalidated token, GoTrue rejects it, and the client is left with no session. Historically
+`ensureSession()` then signed in anonymously and `create-profile` minted a *new* player over the real
+one, resetting XP to ~0 (2026-09 incident). Two changes prevent that:
+
+- **Persistence:** the session is now written synchronously on every auth change and on `before-quit`
+  (`JsonStore.flushSync`, see `server-reconciliation.md`), so a rotated token is not lost to the
+  debounce.
+- **Fail closed:** `authActionOnLostSession` (`apps/desktop/src/main/net/account.ts`, pure) returns
+  `'signed-out'` whenever `profile.userId` or `profile.email` is set, and only `'anonymous'` for a
+  device that never had an account. `SupabaseClient.ensureSession` throws `SignedOutError` in the
+  first case instead of signing in anonymously; `SyncQueue` catches it (and a `NO_PROFILE` for a
+  known account) via `enterSignedOut()`: it stops flushing (the local XP ledger keeps buffering),
+  emits `signedout`, and `App` sets `UiSnapshot.account.signedOut`.
+
+The panel then renders `SignedOutBanner` (`apps/desktop/src/renderer/ui/SignedOutBanner.tsx`) above
+every tab: "Signed out of &lt;nickname&gt; — sign in again to continue", with the shared
+`AccountEmailCode` sign-in widget (pre-filled with `profile.email` when linked; a never-linked mon
+shows only a note that it can't be signed back in) plus an explicit **Start fresh instead**
+(`IPC.accountStartFresh`) that abandons the old identity and lets a fresh anonymous player be created
+— what used to happen silently. Signing back in (`adoptProfile`) or starting fresh clears the flag and
+calls `SyncQueue.resume()`. Every transition is logged to `<userData>/auth.log` (`App.authLog`, capped)
+so the next incident is diagnosable without a debug build. Two devices sharing one linked email are
+unaffected: refresh-token rotation makes each device's session independent.
 
 ## Sequence
 

@@ -12,7 +12,7 @@ import type {
   Nation,
 } from '@claude-mons/shared';
 import type { LocalState } from '../persistence/state.ts';
-import { ApiCallError, type SupabaseClient } from './SupabaseClient.ts';
+import { ApiCallError, SignedOutError, type SupabaseClient } from './SupabaseClient.ts';
 
 export interface SyncEvents {
   /** the server acknowledged a batch */
@@ -26,6 +26,8 @@ export interface SyncEvents {
   ];
   profile: [{ nickname: string; nation: Nation; userId: string }];
   status: [SyncStatus];
+  /** A known account lost its session: sync has stopped; the UI must offer sign-in / start-fresh. */
+  signedout: [{ nickname: string | null }];
 }
 
 export interface SyncStatus {
@@ -58,6 +60,7 @@ export class SyncQueue extends EventEmitter<SyncEvents> {
   private timer: NodeJS.Timeout | null = null;
   private stopTimer: NodeJS.Timeout | null = null;
   private inFlight = false;
+  private signedOut = false;
   private backoffMs = BACKOFF_MIN_MS;
   private status: SyncStatus = {
     connected: false,
@@ -73,6 +76,33 @@ export class SyncQueue extends EventEmitter<SyncEvents> {
 
   getStatus(): SyncStatus {
     return this.status;
+  }
+
+  /** True while this device is in the signed-out state (known account, no valid session). */
+  isSignedOut(): boolean {
+    return this.signedOut;
+  }
+
+  /**
+   * Leave the signed-out state and resume syncing. Called after the player signs back in
+   * (`App.adoptProfile`) or explicitly starts fresh (`App.startFresh`).
+   */
+  resume(): void {
+    if (!this.signedOut) return;
+    this.signedOut = false;
+    this.start();
+  }
+
+  /**
+   * Stop syncing without clearing local identity: a known account lost its session. The local XP
+   * ledger keeps buffering; the player recovers by signing in again or starting fresh.
+   */
+  private enterSignedOut(): void {
+    if (this.signedOut) return;
+    this.signedOut = true;
+    this.stop();
+    this.setStatus({ connected: false });
+    this.emit('signedout', { nickname: this.deps.state.get().profile.nickname });
   }
 
   start(): void {
@@ -98,6 +128,7 @@ export class SyncQueue extends EventEmitter<SyncEvents> {
 
   /** Create (or update) the server profile. Returns null when the server rejected the request. */
   async ensureProfile(req: CreateProfileRequest): Promise<CreateProfileResponse | null> {
+    if (this.signedOut) return null;
     try {
       const userId = await this.deps.api.ensureSession();
       const res = await this.deps.api.invoke<CreateProfileResponse>('create-profile', req);
@@ -110,6 +141,10 @@ export class SyncQueue extends EventEmitter<SyncEvents> {
       this.setStatus({ connected: true, lastError: null, needsNation: false });
       return res;
     } catch (err) {
+      if (err instanceof SignedOutError) {
+        this.enterSignedOut();
+        return null;
+      }
       this.setStatus({ connected: false, lastError: describe(err) });
       if (err instanceof ApiCallError && err.status < 500) throw err;
       return null;
@@ -118,7 +153,7 @@ export class SyncQueue extends EventEmitter<SyncEvents> {
 
   /** Send everything pending. Safe to call often; concurrent calls coalesce. */
   async flush(): Promise<void> {
-    if (this.inFlight) return;
+    if (this.inFlight || this.signedOut) return;
     const s = this.deps.state.get();
     if (!s.profile.nation) {
       this.setStatus({ needsNation: true });
@@ -172,7 +207,20 @@ export class SyncQueue extends EventEmitter<SyncEvents> {
         localXpAtSend,
       });
     } catch (err) {
+      if (err instanceof SignedOutError) {
+        this.enterSignedOut();
+        return;
+      }
       if (err instanceof ApiCallError && err.code === 'NO_PROFILE') {
+        const p = this.deps.state.get().profile;
+        if (p.userId || p.email) {
+          // The server has no player for this session's uid although we hold a known account:
+          // the session drifted to a different/new uid. Do NOT clear identity and re-create — that
+          // is exactly the incident. Enter the signed-out state and let the player sign back in.
+          this.enterSignedOut();
+          return;
+        }
+        // No known account: safe to clear so the next flush re-creates a fresh profile.
         this.deps.state.update((st) => {
           st.profile.userId = null;
           st.profile.nickname = null;

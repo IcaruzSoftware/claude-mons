@@ -36,6 +36,20 @@ export const accountCopy = {
     confirmCta: "Replace this device's mon",
     cancelCta: 'Cancel',
   },
+  /**
+   * Signed-out banner (`docs/architecture/flows/account-linking.md#signed-out`): shown when a known
+   * account lost its Supabase session. Linked accounts can sign back in; a never-linked anonymous
+   * mon can only start fresh.
+   */
+  signedOut: {
+    message: (nick: string) => `Signed out of ${nick} — sign in again to continue.`,
+    notLinkedHint: "This mon was never linked to an email, so it can't be signed back in on this device.",
+    startFreshCta: 'Start fresh instead',
+    startFreshConfirm: (nick: string) =>
+      `Start a new mon and abandon ${nick}? Its progress stays on the server, but this device won't show it again.`,
+    startFreshConfirmCta: 'Start fresh',
+    cancelCta: 'Cancel',
+  },
   onboardingSignin: {
     link: 'Already have a mon? Sign in',
     title: 'Sign in to your mon',

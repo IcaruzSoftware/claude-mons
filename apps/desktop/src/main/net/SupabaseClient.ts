@@ -39,6 +39,19 @@ export function describeAuthError(err: unknown): string {
   }
 }
 
+/**
+ * Thrown by `ensureSession` when there is no valid session *and* this device has a known account
+ * (see `authActionOnLostSession`): the caller must surface the signed-out state rather than mint a
+ * new anonymous user over the real player. Callers that don't care (e.g. an incidental
+ * `invoke`) simply let it propagate as a failed call.
+ */
+export class SignedOutError extends Error {
+  constructor() {
+    super('signed out: no valid session for a known account');
+    this.name = 'SignedOutError';
+  }
+}
+
 /** Thrown for non-2xx Edge Function responses, carrying the server's error code. */
 export class ApiCallError extends Error {
   constructor(
@@ -57,6 +70,14 @@ export interface SessionStorage {
   save(value: string | null): void;
 }
 
+/** Host hooks for the auth lifecycle, injected so `SupabaseClient` stays free of `LocalState`. */
+export interface SupabaseClientDeps {
+  /** True when this device already has a server player / linked email worth protecting. */
+  hasKnownAccount: () => boolean;
+  /** One-line diagnostics sink for every auth transition (`<userData>/auth.log` + debug console). */
+  onAuthEvent?: (line: string) => void;
+}
+
 /**
  * Thin wrapper around supabase-js for the main process: anonymous auth with the session persisted
  * in our own JSON store, and typed Edge Function calls.
@@ -68,6 +89,7 @@ export class SupabaseClient {
   constructor(
     readonly config: BackendConfig,
     storage: SessionStorage,
+    private readonly deps: SupabaseClientDeps = { hasKnownAccount: () => false },
   ) {
     this.client = createClient(config.url, config.anonKey, {
       auth: {
@@ -84,15 +106,33 @@ export class SupabaseClient {
     });
   }
 
-  /** Returns the user id, signing in anonymously on first use. */
+  private log(line: string): void {
+    this.deps.onAuthEvent?.(line);
+  }
+
+  /**
+   * Returns the user id. On first use with a restored session it reuses it; with no session it
+   * either signs in anonymously (fresh device) or throws `SignedOutError` (a device with a known
+   * account — never silently re-anon over the real player). A refresh failure surfaces here as a
+   * null session with an `error` (supabase-js removed the dead session), which we log verbatim so
+   * the next incident is diagnosable from `<userData>/auth.log`.
+   */
   async ensureSession(): Promise<string> {
     if (this.userId) return this.userId;
-    const { data } = await this.client.auth.getSession();
+    const { data, error } = await this.client.auth.getSession();
+    if (error) this.log(`refresh failed: ${error.message}`);
     let session: Session | null = data.session;
     if (!session) {
+      if (this.deps.hasKnownAccount()) {
+        this.log('signed-out state entered (no valid session for a known account)');
+        throw new SignedOutError();
+      }
+      this.log('anonymous sign-in (no prior account)');
       const res = await this.client.auth.signInAnonymously();
       if (res.error) throw res.error;
       session = res.data.session;
+    } else {
+      this.log(`session restored (uid=${session.user?.id ?? '?'})`);
     }
     if (!session?.user) throw new Error('no session after anonymous sign-in');
     this.userId = session.user.id;

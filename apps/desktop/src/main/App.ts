@@ -45,9 +45,15 @@ import { HookServer } from './hooks/HookServer.ts';
 import { SpoolDrainer } from './hooks/SpoolDrainer.ts';
 import { ensureHookBinary } from './hooks/binary.ts';
 import { computeEffectiveMode, probeBinary, type ProbeResult } from './hooks/mode.ts';
-import { buildAdoptedProfile, isValidEmailFormat, resetToAnonymousProfile } from './net/account.ts';
+import {
+  authActionOnLostSession,
+  buildAdoptedProfile,
+  isValidEmailFormat,
+  resetToAnonymousProfile,
+} from './net/account.ts';
 import { RemoteBattleBackend, fetchLeaderboard, type LeaderboardData } from './net/Backend.ts';
 import { ApiCallError, SupabaseClient } from './net/SupabaseClient.ts';
+import { appendCappedLog } from './diag.ts';
 import { SyncQueue } from './net/SyncQueue.ts';
 import { backendConfig } from './net/config.ts';
 import { JsonStore } from './persistence/JsonStore.ts';
@@ -68,6 +74,8 @@ import { PanelWindow } from './windows/PanelWindow.ts';
 import { ReminderWindow } from './windows/ReminderWindow.ts';
 
 const HOVER_DELAY_MS = 1000;
+/** `<userData>/auth.log` cap (bytes), matching the crash-log cap in `src/main/index.ts`. */
+const AUTH_LOG_MAX_BYTES = 256 * 1024;
 /** How often `WaterReminder.tick()` is polled; short enough that "due" and "asleep/battle ends" feel prompt. */
 const WATER_TICK_MS = 5000;
 const DEBUG = process.env.CLAUDE_MONS_DEBUG === '1';
@@ -96,6 +104,8 @@ export class App {
   private autostartEnabled = false;
   private api: SupabaseClient | null = null;
   private sync: SyncQueue | null = null;
+  /** True while a known account has lost its session; drives the panel's sign-in-again banner. */
+  private signedOut = false;
   private notifications: BattleNotification[] = [];
   private leaderboardCache: LeaderboardData | null = null;
   private readonly activity = new ActivityTracker();
@@ -114,10 +124,24 @@ export class App {
 
     const cfg = backendConfig();
     if (cfg) {
-      this.api = new SupabaseClient(cfg, {
-        load: () => this.store.get().auth.session,
-        save: (v) => this.store.update((s) => (s.auth.session = v)),
-      });
+      this.api = new SupabaseClient(
+        cfg,
+        {
+          load: () => this.store.get().auth.session,
+          save: (v) => {
+            this.store.update((s) => (s.auth.session = v));
+            // Persist the (rotated) session immediately: a debounced write lost to a crash/kill/OS
+            // shutdown is what silently signs the app out on the next launch. See
+            // docs/architecture/flows/server-reconciliation.md.
+            this.store.flushSync();
+          },
+        },
+        {
+          hasKnownAccount: () =>
+            authActionOnLostSession(this.store.get().profile) === 'signed-out',
+          onAuthEvent: (line) => this.authLog(line),
+        },
+      );
     }
 
     this.game = new GameService(this.store, {
@@ -224,6 +248,20 @@ export class App {
       }
       const devXp = parseDevXpArg(process.argv);
       if (devXp) setTimeout(() => this.game.grantXp(devXp, 'server'), 2000);
+      // Drives the signed-out banner without a backend: forces a known-account signed-out state so
+      // the UI can be verified offline (docs/runbooks/verify-a-ui-change.md).
+      if (process.argv.includes('--dev-signed-out')) {
+        setTimeout(() => {
+          this.store.update((s) => {
+            if (!s.profile.nation) s.profile.nation = 'water';
+            if (!s.profile.nickname) s.profile.nickname = 'Daedalus';
+            if (!s.profile.email) s.profile.email = 'owner@example.com';
+          });
+          this.host.setNation(this.store.get().profile.nation);
+          this.signedOut = true;
+          this.pushSnapshot();
+        }, 800);
+      }
       this.devOnboardingStep = parseDevOnboardingStepArg(process.argv);
       // Installs hooks into CLAUDE_CONFIG_DIR/settings.json in the currently effective mode, for
       // manual live testing without touching the developer's real ~/.claude/settings.json.
@@ -266,6 +304,9 @@ export class App {
 
     app.on('before-quit', () => {
       this.panel.destroy();
+      // Synchronous so the latest state (crucially the rotated auth session) is on disk before the
+      // process exits, without depending on the fire-and-forget async flush in shutdown().
+      this.store.flushSync();
       void this.shutdown();
     });
     this.host.stimulate({ type: 'stage:set', stage: state.progress.stage });
@@ -284,7 +325,11 @@ export class App {
       isDev: !app.isPackaged,
       devOnboardingStep: this.devOnboardingStep,
       profile: { nickname: s.profile.nickname, nation: s.profile.nation, userId: s.profile.userId },
-      account: { email: s.profile.email, anonymous: s.profile.email === null },
+      account: {
+        email: s.profile.email,
+        anonymous: s.profile.email === null,
+        signedOut: this.signedOut,
+      },
       pet: {
         speciesId: s.pet.speciesId,
         stage: s.progress.stage,
@@ -352,6 +397,12 @@ export class App {
     this.panel.send(IPC.uiSnapshot, snap);
     this.hoverCard.send(IPC.uiSnapshot, snap);
     this.host.tray.setTooltip(this.progressLine());
+  }
+
+  /** Records one auth transition to `<userData>/auth.log` (always) and the debug console (DEBUG). */
+  private authLog(line: string): void {
+    if (DEBUG) console.info(`[auth] ${line}`);
+    appendCappedLog(join(this.home, 'auth.log'), line, AUTH_LOG_MAX_BYTES);
   }
 
   private registerUiIpc(): void {
@@ -544,10 +595,30 @@ export class App {
       await this.api.signOutToAnonymous();
       const seed = randomBytes(4).readUInt32LE(0);
       this.store.update((s) => Object.assign(s, resetToAnonymousProfile(seed)));
+      this.signedOut = false;
+      this.sync?.resume();
       this.host.setStage('egg', null);
       this.host.setNation(null);
       this.host.window.win.hide();
       this.panel.show();
+      this.pushSnapshot();
+      return { ok: true, error: null };
+    });
+    ipcMain.handle(IPC.accountStartFresh, async (): Promise<AccountOpResult> => {
+      if (!this.api) return { ok: false, error: 'offline build' };
+      // The signed-out banner's "Start fresh instead": do explicitly what used to happen silently
+      // on a lost session — abandon the old identity (userId/nickname/email) so `ensureSession` is
+      // allowed to mint a fresh anonymous player, keeping this device's nation and pet sprite.
+      await this.api.signOutToAnonymous();
+      this.store.update((s) => {
+        s.profile.userId = null;
+        s.profile.nickname = null;
+        s.profile.email = null;
+      });
+      this.signedOut = false;
+      this.authLog('start fresh: abandoned known account, resuming anonymous');
+      this.sync?.resume();
+      void this.sync?.flush();
       this.pushSnapshot();
       return { ok: true, error: null };
     });
@@ -592,6 +663,8 @@ export class App {
     try {
       const res = await this.api.invoke<CreateProfileResponse>('create-profile', {});
       this.store.update((s) => Object.assign(s, buildAdoptedProfile(s, res, email)));
+      this.signedOut = false;
+      this.sync?.resume();
       this.game.applyServerState({
         totalXp: res.mon.totalXp,
         speciesId: res.mon.speciesId,
@@ -638,6 +711,11 @@ export class App {
     });
     this.sync.on('profile', () => this.pushSnapshot());
     this.sync.on('status', () => this.pushSnapshot());
+    this.sync.on('signedout', ({ nickname }) => {
+      this.signedOut = true;
+      this.authLog(`signed-out state active (nickname=${nickname ?? '?'})`);
+      this.pushSnapshot();
+    });
     this.sync.start();
   }
 

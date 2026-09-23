@@ -16,6 +16,22 @@ export function isValidEmailFormat(email: string): boolean {
 }
 
 /**
+ * What to do when there is no valid Supabase session (see
+ * `docs/architecture/flows/account-linking.md#signed-out`). A device that already created or
+ * signed into a server player (`profile.userId` set) or linked an email (`profile.email` set) has a
+ * *known account*: silently minting a fresh anonymous user + profile over it strands the real player
+ * and resets XP to ~0 (the 2026-09 incident), so instead the app enters an explicit signed-out
+ * state and lets the player sign back in (or explicitly start fresh). Only a device that never had
+ * an account (fresh install / offline-only) keeps the original behaviour of signing in anonymously.
+ */
+export function authActionOnLostSession(profile: {
+  userId: string | null;
+  email: string | null;
+}): 'anonymous' | 'signed-out' {
+  return profile.userId !== null || profile.email !== null ? 'signed-out' : 'anonymous';
+}
+
+/**
  * The confirmed linked email for a Supabase Auth user, or null while still anonymous, or while an
  * email-change is still awaiting confirmation. Backs `SupabaseClient.refreshLinkedEmail` — the
  * fallback for the free-tier default mailer's confirmation-*link* email (no 6-digit code,

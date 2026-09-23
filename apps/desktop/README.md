@@ -53,7 +53,7 @@ All windows share one preload (`src/preload/index.ts`); four renderers (pet, pan
 | Path | Responsibility |
 |---|---|
 | `src/main/index.ts` | Bootstrap: single instance, Linux transparency + forced X11 backend (`CLAUDE_MONS_NATIVE_WAYLAND=1` opts out), Linux GPU disabled by default (`CLAUDE_MONS_ENABLE_GPU=1` opts back in), app quit override, `new App().start()`; installs `uncaughtException`/`unhandledRejection` handlers that log to `<userData>/crash.log` (capped ~1 MB) instead of letting Electron show its blocking crash dialog |
-| `src/main/App.ts` | Composition root; IPC; snapshot feed; nation choice; battle request/finish; hook fan-out |
+| `src/main/App.ts` | Composition root; IPC; snapshot feed; nation choice; battle request/finish; hook fan-out; the signed-out state (`docs/architecture/flows/account-linking.md#signed-out`) and its `<userData>/auth.log` (one capped line per auth transition — session restored / refresh failed / anonymous sign-in / signed out — always written, so an auth incident is diagnosable without a debug build) |
 | `src/main/PetHost.ts` | Pet window, tray, cursor tracking; drag/shake/click; world bounds; stimulus forwarding; withholds the window and stimuli until a nation is chosen (`canRevealPet`/`canStimulatePet`) |
 | `src/main/petGate.ts` | Pure `canRevealPet`/`canStimulatePet` helpers deciding whether the pet window may be shown or animated before onboarding picks a nation |
 | `src/main/display.ts` | Pure geometry (`compactBounds`/`battleBounds`/`motionBounds`, `needsHop` hop threshold, anchor memory, display lookup); `nextArenaMode`/`canHopFollow` pure mode-transition helpers for `PetWindow`'s follow/motion/battle machine (see "Motion mode" in `docs/architecture/overlay-window.md`); `toIntPoint`/`toIntRect` round-and-validate coordinates before any `BrowserWindow.setBounds`/`setPosition` call |
@@ -162,6 +162,7 @@ All channel names and payload types live in `src/common/ipc.ts`. See `apps/deskt
 | `--dev-install-hooks` | Yes | Install hooks (`toggleHooks()`) 1.5 s after boot, in the effective mode; used for manual testing against `CLAUDE_CONFIG_DIR` |
 | `--dev-onboarding-step <n>` | Yes | Open the onboarding wizard on step n (via `UiSnapshot.devOnboardingStep`) instead of step 0; for capturing a specific step |
 | `--dev-water-in <seconds>` | Yes | Force the water reminder due N seconds after start (`WaterReminder.devForceDueInSeconds`), so the card appears quickly for manual testing or `--capture` instead of waiting out a full interval |
+| `--dev-signed-out` | Yes | Force the signed-out banner (`docs/architecture/flows/account-linking.md#signed-out`) ~0.8 s after start (fills in a demo linked account if none), so the banner can be verified offline without a backend |
 | `--autostart` | No | Marker for installer (not read by app) |
 
 Electron's own flags apply too, and two matter for testing: `--user-data-dir=<dir>` runs against a

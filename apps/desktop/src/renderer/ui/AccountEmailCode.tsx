@@ -40,6 +40,7 @@ export function AccountEmailCode({
   resendCta,
   codePlaceholder = '6-digit code',
   autoFocus = false,
+  defaultEmail = '',
   onRequestCode,
   onVerify,
   linkFallback,
@@ -50,12 +51,14 @@ export function AccountEmailCode({
   resendCta: string;
   codePlaceholder?: string;
   autoFocus?: boolean;
+  /** Pre-fills the email field (signed-out re-sign-in prompts for the linked email). */
+  defaultEmail?: string;
   onRequestCode: (email: string) => Promise<AccountOpResult>;
   onVerify: (email: string, code: string) => Promise<AccountOpResult>;
   linkFallback?: LinkFallback;
   signinHint?: string;
 }) {
-  const [email, setEmail] = useState('');
+  const [email, setEmail] = useState(defaultEmail);
   const [code, setCode] = useState('');
   const [step, setStep] = useState<'email' | 'code'>('email');
   const [busy, setBusy] = useState(false);

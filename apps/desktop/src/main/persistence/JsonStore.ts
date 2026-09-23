@@ -1,4 +1,4 @@
-import { promises as fs } from 'node:fs';
+import { promises as fs, copyFileSync, mkdirSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 
 export type Migration = (state: Record<string, unknown>) => Record<string, unknown>;
@@ -22,6 +22,10 @@ export class JsonStore<T extends { schemaVersion: number }> {
   private timer: NodeJS.Timeout | null = null;
   private writing: Promise<void> = Promise.resolve();
   private dirty = false;
+  /** Monotonic mutation counter; `writtenRev` is the highest already persisted. Together they stop
+   * an in-flight async write from renaming a stale snapshot over a newer `flushSync()`. */
+  private rev = 0;
+  private writtenRev = 0;
 
   constructor(private readonly opts: JsonStoreOptions<T>) {}
 
@@ -68,8 +72,40 @@ export class JsonStore<T extends { schemaVersion: number }> {
     await this.writing;
   }
 
+  /**
+   * Persist immediately and synchronously, bypassing the debounce. Used for state that must survive
+   * a crash/kill/OS-shutdown the very next moment — chiefly the supabase-js auth session, whose
+   * refresh token is rotated on every refresh: losing an already-rotated token to an un-flushed
+   * debounced write is what silently signs the app out (see
+   * `docs/architecture/flows/server-reconciliation.md`). Also called on `before-quit` so a normal
+   * quit never loses the latest state. Atomic (own `.tmp-sync` so it cannot collide with an
+   * in-flight async `writeNow`), and keeps a `.bak` like the async path.
+   */
+  flushSync(): void {
+    if (this.timer) {
+      clearTimeout(this.timer);
+      this.timer = null;
+    }
+    if (!this.dirty) return;
+    this.dirty = false;
+    const rev = this.rev;
+    const { path } = this.opts;
+    const snapshot = JSON.stringify(this.get(), null, 2);
+    mkdirSync(dirname(path), { recursive: true });
+    const tmp = `${path}.tmp-sync`;
+    writeFileSync(tmp, snapshot, 'utf8');
+    try {
+      copyFileSync(path, `${path}.bak`);
+    } catch {
+      /* no prior file yet */
+    }
+    renameSync(tmp, path);
+    this.writtenRev = rev;
+  }
+
   private schedule(): void {
     this.dirty = true;
+    this.rev++;
     if (this.timer) return;
     this.timer = setTimeout(() => {
       this.timer = null;
@@ -79,14 +115,24 @@ export class JsonStore<T extends { schemaVersion: number }> {
 
   private writeNow(): Promise<void> {
     this.dirty = false;
-    const snapshot = JSON.stringify(this.get(), null, 2);
     this.writing = this.writing.then(async () => {
+      // Serialize at execution time, not at schedule time, and skip entirely once a newer write
+      // (e.g. a synchronous `flushSync()` of a rotated auth session) has already landed — so a
+      // slow async write can never rename a stale snapshot back over fresh state.
+      const rev = this.rev;
+      if (this.writtenRev >= rev) return;
+      const snapshot = JSON.stringify(this.get(), null, 2);
       const { path } = this.opts;
       await fs.mkdir(dirname(path), { recursive: true });
       const tmp = `${path}.tmp`;
       await fs.writeFile(tmp, snapshot, 'utf8');
       await fs.copyFile(path, `${path}.bak`).catch(() => {});
+      if (this.writtenRev >= rev) {
+        await fs.rm(tmp).catch(() => {});
+        return;
+      }
       await fs.rename(tmp, path);
+      this.writtenRev = rev;
     });
     return this.writing;
   }

@@ -99,6 +99,7 @@ const uiApi = {
     signinVerify: (email: string, code: string): Promise<AccountOpResult> =>
       ipcRenderer.invoke(IPC.accountSigninVerify, email, code),
     signout: (): Promise<AccountOpResult> => ipcRenderer.invoke(IPC.accountSignout),
+    startFresh: (): Promise<AccountOpResult> => ipcRenderer.invoke(IPC.accountStartFresh),
   },
 };
 

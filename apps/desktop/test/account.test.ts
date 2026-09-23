@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { CreateProfileResponse } from '@claude-mons/shared';
 import {
+  authActionOnLostSession,
   buildAdoptedProfile,
   isValidEmailFormat,
   resetToAnonymousProfile,
@@ -121,6 +122,25 @@ describe('resolveConfirmedEmail', () => {
 
   it('treats a missing email as unconfirmed', () => {
     expect(resolveConfirmedEmail({ is_anonymous: false })).toBeNull();
+  });
+});
+
+describe('authActionOnLostSession', () => {
+  it('signs in anonymously only for a device that never had an account (fresh install)', () => {
+    expect(authActionOnLostSession({ userId: null, email: null })).toBe('anonymous');
+  });
+
+  it('enters the signed-out state for a device with a known server player', () => {
+    expect(authActionOnLostSession({ userId: 'uid-123', email: null })).toBe('signed-out');
+  });
+
+  it('enters the signed-out state for a device with a linked email', () => {
+    expect(authActionOnLostSession({ userId: null, email: 'trainer@example.com' })).toBe(
+      'signed-out',
+    );
+    expect(authActionOnLostSession({ userId: 'uid-123', email: 'trainer@example.com' })).toBe(
+      'signed-out',
+    );
   });
 });
 

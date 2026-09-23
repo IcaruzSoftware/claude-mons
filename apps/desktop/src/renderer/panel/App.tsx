@@ -2,6 +2,7 @@ import { signal } from '@preact/signals';
 import { useEffect } from 'preact/hooks';
 import { snapshot } from '../ui/useSnapshot.ts';
 import { BottomTabBar, type BottomTab } from '../ui/BottomTabBar.tsx';
+import { SignedOutBanner } from '../ui/SignedOutBanner.tsx';
 import { Onboarding } from './views/Onboarding.tsx';
 import { MonView } from './views/Mon.tsx';
 import { LeaderboardView } from './views/Leaderboard.tsx';
@@ -35,6 +36,7 @@ export function App() {
 
   return (
     <div class="app">
+      {s.account.signedOut && <SignedOutBanner s={s} />}
       <main class="view">
         {route.value === 'mon' && <MonView s={s} />}
         {route.value === 'leaderboard' && <LeaderboardView s={s} />}

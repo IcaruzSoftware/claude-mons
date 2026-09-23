@@ -2,8 +2,8 @@
 doc_type: architecture
 purpose: "Read this when you need to know how provisional local XP is reconciled against the server, or why a stage/hatch/evolve event fired (or didn't)."
 audience: agent
-last_verified: 2026-09-13
-last_verified_commit: 8a24ac9
+last_verified: 2026-09-23
+last_verified_commit: 274f3fe
 related_files:
   - apps/desktop/src/main/game/GameService.ts
   - apps/desktop/src/main/net/SyncQueue.ts
@@ -100,7 +100,10 @@ see `../../design/backend-rules.md` for the full idempotency and suspicion model
 On failure, `SyncQueue` backs off from 5 s and doubles up to a 5 minute ceiling
 (`BACKOFF_MIN_MS`/`BACKOFF_MAX_MS` in `apps/desktop/src/main/net/SyncQueue.ts`), resetting to the
 floor on the next success. A `NO_PROFILE` response clears the local profile so the next flush
-recreates it; any other 4xx (other than 429) drops the batch outright rather than retrying forever.
+recreates it **only for a device with no known account**; a device that already had a
+`profile.userId`/`email` instead enters the signed-out state (sync stops, no silent recreate) — see
+`account-linking.md#signed-out`. Any other 4xx (other than 429) drops the batch outright rather than
+retrying forever.
 Independent of failures, a flush also runs every 60 s, 5 s after a `Stop` event
 (`scheduleSoon`/`AFTER_STOP_MS`), and roughly every 5 minutes even with nothing pending, so server
 notifications still arrive.
@@ -129,7 +132,16 @@ fully-written new one, never a half-written one. `load()` reads `<userData>/stat
 back to the `.bak` copy, falling back to `defaultState()`; a file that fails to parse is copied
 aside as `<userData>/state.json.corrupt-<timestamp>.json` before falling back. `apps/desktop/src/main/persistence/state.ts:MIGRATIONS` is an append-only list
 run in order by schema version on load — never edit an existing entry, only add new ones at the end.
-`App.shutdown` awaits `JsonStore.flush()` so the debounced write is not lost on quit.
+
+`JsonStore.flushSync()` writes the whole state synchronously (its own `.tmp-sync` → rename, keeping a
+`.bak`), bypassing the debounce for state that must survive a crash/kill/OS-shutdown the very next
+moment. The `SessionStorage` adapter in `App.start` calls it on every auth-session write, and
+`App`'s `before-quit` handler calls it once: supabase-js rotates the refresh token on every refresh,
+and a rotated token lost to an un-flushed debounced write is what made the app present an
+already-invalidated token on the next launch, get rejected (refresh-token reuse detection), and
+silently sign in anonymously — see `account-linking.md#signed-out`. A monotonic write generation
+(`rev`/`writtenRev`) guarantees a slow async debounced write can never rename a stale snapshot back
+over a newer `flushSync()`. `App.shutdown` still awaits the async `JsonStore.flush()` too.
 
 ```mermaid
 sequenceDiagram

@@ -65,6 +65,7 @@ export const IPC = {
   accountSigninStart: 'account:signin-start',
   accountSigninVerify: 'account:signin-verify',
   accountSignout: 'account:signout',
+  accountStartFresh: 'account:start-fresh',
 
   // renderer(reminder) -> main (invoke)
   waterDone: 'water:done',
@@ -213,7 +214,12 @@ export interface UiSnapshot {
   /** `--dev-onboarding-step <n>` (dev builds only): open the wizard on step n for a capture/screenshot. */
   devOnboardingStep: number | null;
   profile: { nickname: string | null; nation: Nation | null; userId: string | null };
-  account: { email: string | null; anonymous: boolean };
+  /**
+   * `signedOut` is true when this device has a known account (see `authActionOnLostSession`) whose
+   * Supabase session was lost or rejected: sync stops and the panel shows the sign-in-again banner
+   * (`docs/architecture/flows/account-linking.md#signed-out`) instead of silently re-creating a mon.
+   */
+  account: { email: string | null; anonymous: boolean; signedOut: boolean };
   pet: { speciesId: string | null; stage: Stage; state: PetState };
   progress: LevelProgress & { serverXp: number | null; streakDays: number };
   hooks: {

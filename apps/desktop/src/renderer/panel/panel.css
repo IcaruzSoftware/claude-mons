@@ -398,6 +398,30 @@
   margin-top: 6px;
 }
 
+/* Signed-out banner (docs/architecture/flows/account-linking.md#signed-out): a known account lost
+   its session. Fixed at the top of the panel, tinted with --fire so it reads as needing action. */
+.signed-out-banner {
+  flex: none;
+  padding: var(--sp-3);
+  background: color-mix(in srgb, var(--fire) 18%, var(--bg-2));
+  border-bottom: 2px solid var(--fire);
+}
+.signed-out-msg {
+  font-family: var(--font);
+  font-weight: 700;
+  font-size: 11px;
+  color: var(--fire);
+  margin-bottom: 6px;
+}
+.signed-out-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+}
+.signed-out-confirm .hint {
+  margin-top: 6px;
+}
+
 /* ============================= Mon tab ============================= */
 .hero {
   display: flex;

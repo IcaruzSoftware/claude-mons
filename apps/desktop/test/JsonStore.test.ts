@@ -1,4 +1,4 @@
-import { promises as fs } from 'node:fs';
+import { promises as fs, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -74,5 +74,37 @@ describe('JsonStore', () => {
     for (let i = 0; i < 50; i++) store.update((st) => (st.name = `n${i}`));
     await new Promise((r) => setTimeout(r, 30));
     expect(JSON.parse(await fs.readFile(path, 'utf8')).name).toBe('n49');
+  });
+
+  it('flushSync persists immediately and synchronously, bypassing the debounce', async () => {
+    const store = make();
+    await store.load();
+    store.update((st) => (st.name = 'rotated-token'));
+    store.flushSync();
+    // Readable synchronously right after flushSync, without awaiting the debounce or any promise.
+    expect(JSON.parse(readFileSync(path, 'utf8')).name).toBe('rotated-token');
+  });
+
+  it('flushSync keeps a backup and leaves no temp files behind', async () => {
+    const store = make();
+    await store.load();
+    store.update((st) => (st.name = 'first'));
+    store.flushSync();
+    store.update((st) => (st.name = 'second'));
+    store.flushSync();
+    expect(JSON.parse(readFileSync(`${path}.bak`, 'utf8')).name).toBe('first');
+    expect(JSON.parse(readFileSync(path, 'utf8')).name).toBe('second');
+    await expect(fs.stat(`${path}.tmp-sync`)).rejects.toThrow();
+  });
+
+  it('an in-flight async write does not revert a value flushed synchronously afterwards', async () => {
+    const store = make(); // 5 ms debounce
+    await store.load();
+    store.update((st) => (st.name = 'stale'));
+    await new Promise((r) => setTimeout(r, 8)); // debounce fires: an async write is now in flight
+    store.update((st) => (st.name = 'fresh')); // e.g. a rotated auth session
+    store.flushSync();
+    await store.flush(); // let the in-flight async write settle
+    expect(JSON.parse(readFileSync(path, 'utf8')).name).toBe('fresh');
   });
 });
