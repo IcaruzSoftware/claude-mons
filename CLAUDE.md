@@ -56,7 +56,7 @@ claude-mons is a desktop-pet overlay (Electron) crossed with Pokémon: the pet e
 ## Doc rules
 
 - Every doc starts with the flat frontmatter described in [CONTRIBUTING.md](CONTRIBUTING.md); `last_verified_commit` is the real short SHA you read the code at.
-- One topic per file, 80–250 lines (the checker errors above 260; frozen `docs/history/*` excepted), tables for inventories, full repo-relative paths in backticks.
+- One topic per file, 80–250 lines (the checker errors above 260; frozen `docs/history/*` and the append-only `CHANGELOG.md` excepted), tables for inventories, full repo-relative paths in backticks.
 - A fact has one home. Numbers and formulas live in `docs/design`; everywhere else links to them.
 - Run `pnpm docs:check` after editing a doc, `pnpm docs:index` after adding or removing one; CI fails on stale paths or a stale index.
 - New decisions get the next ADR number in `docs/decisions`; runbooks end with an Acceptance section.

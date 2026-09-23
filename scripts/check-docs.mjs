@@ -541,9 +541,11 @@ function checkDoc(root, relPath, opts, ctx) {
 
   // Length (check 10). The 80-250 line target in CLAUDE.md is enforced with a small margin, so a
   // doc that grows past it has to be split rather than accumulating a warning nobody acts on.
-  // `docs/history` is frozen and therefore exempt: those files must never be edited.
+  // `docs/history` is frozen and therefore exempt: those files must never be edited. CHANGELOG.md
+  // is append-only by design (Keep a Changelog) and grows with every release.
   const nonBlankBodyLen = bodyLines.length;
-  if (nonBlankBodyLen > 260 && docType !== 'history') {
+  const lengthExempt = docType === 'history' || relPath === 'CHANGELOG.md';
+  if (nonBlankBodyLen > 260 && !lengthExempt) {
     addIssue(
       'error',
       `body is ${nonBlankBodyLen} lines, over the 260-line cap; split it into two docs`,

@@ -79,7 +79,7 @@ adr_status: accepted               # decision docs only
 7. Runbooks: numbered steps; each is a fenced shell command or bold UI action; end with `## Acceptance`.
 8. ADRs: sections `## Context`, `## Decision`, `## Consequences`, `## Status`; 40–80 lines.
 9. Present tense for current behavior; past tense only for ADR Context and CHANGELOG.
-10. Stay under the target length; the checker **fails** above 260 lines (frozen `docs/history/*` excepted), so split rather than trim to the line. Cut prose, not tables.
+10. Stay under the target length; the checker **fails** above 260 lines (frozen `docs/history/*` and the append-only `CHANGELOG.md` excepted), so split rather than trim to the line. Cut prose, not tables.
 11. `docs/history/*` are frozen – never edit them and do not cite them as current facts.
 12. Placeholders in paths use `<angle brackets>` (checker skips them, e.g. `` `<userData>/state.json` ``).
 
