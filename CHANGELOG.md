@@ -18,6 +18,17 @@ related_files:
 
 All notable changes to claude-mons are documented here. See [Keep a Changelog](https://keepachangelog.com/) for format details.
 
+## [Unreleased]
+
+### Fixed
+
+- **Linux menu launch on some X11 setups failed with `XGetWindowAttributes failed`.** The
+  `.desktop` entries built into the `.deb` and AppImage now pass `--ozone-platform=x11 --disable-gpu`
+  (`linux.executableArgs` in `apps/desktop/electron-builder.yml`), so the X11/software-rendering
+  choice from ADR 0017 is made on the launcher command line instead of only inside the main
+  process. Existing installs can patch their entry as described in
+  `docs/runbooks/verify-on-linux.md`. Contributed by TheManitu (#12).
+
 ## [0.2.2] - 2026-09-22
 
 ### Added
