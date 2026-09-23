@@ -2,8 +2,8 @@
 doc_type: reference
 purpose: "Check this for what is shipping next and open work items past v1."
 audience: both
-last_verified: 2026-09-13
-last_verified_commit: 8a24ac9
+last_verified: 2026-09-23
+last_verified_commit: 274f3fe
 related_files:
   - docs/design/progression.md
   - docs/design/talent-tree.md
@@ -60,10 +60,6 @@ actual open work, grouped by urgency.
 - **Rename the original 3 species moves.** Move slots 1–3 kept their pre-Phase-B
   `normal`/`typed`/`special` names (e.g. "Drip Tap"); slots 4–6 use the element-themed convention.
   Purely cosmetic, in `packages/shared/src/game/species.ts`.
-- **Custom SMTP for sign-in codes.** The default Supabase mailer can only deliver a confirmation
-  *link*, not the 6-digit code, so signing in on a second device still doesn't work end-to-end.
-  See [`docs/runbooks/auth-email-config.md`](runbooks/auth-email-config.md) for the Gmail
-  app-password recipe and the exact fields to configure.
 - **Multi-monitor drag verification.** Re-anchoring on drop and display changes is implemented
   (`apps/desktop/src/main/display.ts`) but has not been exercised live on real multi-monitor
   hardware — see step 7 of [`docs/runbooks/verify-on-linux.md`](runbooks/verify-on-linux.md).

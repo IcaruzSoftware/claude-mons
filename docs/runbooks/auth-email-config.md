@@ -2,8 +2,8 @@
 doc_type: runbook
 purpose: "Read this when you need to change the Supabase auth email config (templates, site_url, manual linking) for account linking, or when a player reports never receiving a sign-in code."
 audience: both
-last_verified: 2026-09-22
-last_verified_commit: 6d5bbcd
+last_verified: 2026-09-23
+last_verified_commit: 274f3fe
 related_files:
   - scripts/supabase-auth-config.mjs
   - apps/desktop/src/main/net/SupabaseClient.ts
@@ -19,9 +19,11 @@ Configures the Supabase project's auth config settings so email OTP account link
 (`docs/decisions/0016-email-otp-account-linking.md`) actually delivers a typed 6-digit code.
 Requires `SUPABASE_ACCESS_TOKEN` and `SUPABASE_PROJECT_REF` in `.env.local`.
 
-**As of today:** the project is still on the free tier with the default mailer, so linking an email
-still works through the link-click fallback below, but signing in on a second device is blocked until
-custom SMTP is configured. `mailer_otp_length` is already `6` — no change needed there.
+**As of 2026-09-23:** custom SMTP (Gmail) is configured and `node scripts/supabase-auth-config.mjs
+--apply` has succeeded — `mailer_templates_magic_link_content`, `mailer_templates_email_change_content`
+and `mailer_templates_confirmation_content` all contain `{{ .Token }}`. Sign-in and link emails carry
+the 6-digit code; the link-click fallback below still works but is no longer required.
+`mailer_otp_length` is already `6` — no change needed there.
 
 ## What it changes
 
@@ -59,23 +61,25 @@ node scripts/supabase-auth-config.mjs
 node scripts/supabase-auth-config.mjs --apply
 ```
 
-## The free-tier template limitation
+## What happens without custom SMTP (history)
 
-Verified live today (2026-09-22): the non-template keys apply normally. The three
-`mailer_templates_*`/`mailer_subjects_*` keys are rejected with an HTTP 400 whose body is:
+Verified live 2026-09-22, before custom SMTP was configured: the non-template keys applied normally,
+but the three `mailer_templates_*`/`mailer_subjects_*` keys were rejected with an HTTP 400 whose body
+was:
 
 ```json
 {"message":"Email template modification is not available for free tier projects using the default email provider. Please upgrade your plan or configure a custom SMTP provider."}
 ```
 
-The script detects this specific error and degrades to a warning rather than failing the whole run.
+The script detects this specific error and degrades to a warning rather than failing the whole run —
+this only matters again if custom SMTP is ever removed.
 
-Until custom SMTP is configured, the default mailer's built-in templates are used instead — they
-contain only a confirmation *link*, not the code, even though the same GoTrue call still generates
-and stores a real one under the hood (`verifyOtp` would work if the player somehow had the code).
-Practically: **players cannot see the 6-digit code in their email until this is fixed.**
+Without custom SMTP, the default mailer's built-in templates are used instead — they contain only a
+confirmation *link*, not the code, even though the same GoTrue call still generates and stores a real
+one under the hood (`verifyOtp` would work if the player somehow had the code). Practically: players
+could not see the 6-digit code in their email while this applied.
 
-**With the default mailer today:**
+**With the default mailer (no custom SMTP):**
 
 - **Linking an email** (Settings' Account section, anonymous → permanent) still works: clicking the
   confirmation link in the default mailer's built-in mail confirms the change server-side directly,
@@ -89,10 +93,11 @@ Practically: **players cannot see the 6-digit code in their email until this is 
   (Settings' "sign in instead", Onboarding's "Already have a mon? Sign in") show a one-line hint
   saying so instead of a working flow.
 
-**Fix:** configure custom SMTP (any provider — Resend, Postmark, SES, or a personal Gmail account for
-a solo project) in **Project Settings → Auth → SMTP Settings** in the Supabase dashboard, then re-run
-this script with `--apply`; the mailer default's rate limit (a few emails per hour) is also lifted
-once a real SMTP provider is set.
+**Fix (done 2026-09-23):** configure custom SMTP (any provider — Resend, Postmark, SES, or a personal
+Gmail account for a solo project) in **Project Settings → Auth → SMTP Settings** in the Supabase
+dashboard, then re-run this script with `--apply`; the mailer default's rate limit (a few emails per
+hour) is also lifted once a real SMTP provider is set. This project uses the Gmail recipe below, sender
+name "Claude-Mons".
 
 ### Gmail app-password recipe
 

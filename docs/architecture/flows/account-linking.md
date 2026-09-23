@@ -2,8 +2,8 @@
 doc_type: architecture
 purpose: "Read this when tracing what happens linking an email to the anonymous account, signing in with it on a second device, or signing out back to anonymous."
 audience: agent
-last_verified: 2026-09-13
-last_verified_commit: 8a24ac9
+last_verified: 2026-09-23
+last_verified_commit: 274f3fe
 related_files:
   - apps/desktop/src/main/net/SupabaseClient.ts
   - apps/desktop/src/main/net/account.ts
@@ -37,12 +37,12 @@ sets `LocalState.profile.email` locally; the server-side profile is untouched.
 
 ### Fallback: confirmation-link click instead of a typed code
 
-`linkEmail` always makes GoTrue generate a real code, but the project's free-tier default mailer can
-only send its *built-in* templates (`docs/runbooks/auth-email-config.md`), and those carry a
-confirmation **link**, not the code — so the code field in the widget above has nothing to receive
-until custom SMTP is configured. Clicking that link confirms the email change server-side for the
-existing (anonymous → now permanent) user directly, with no code involved at all, so linking still
-works today:
+Custom SMTP is configured as of 2026-09-23 (`docs/runbooks/auth-email-config.md`), so the link-email
+and sign-in emails carry the typed 6-digit code as the expected path. The link-click fallback below
+remains as a resilience path (e.g. if a player's mail client shows the link more prominently than the
+code, or if custom SMTP is ever removed): `linkEmail` always makes GoTrue generate a real code, and
+clicking the confirmation link in the email confirms the email change server-side for the existing
+(anonymous → now permanent) user directly, with no code involved at all:
 
 - `SupabaseClient.refreshLinkedEmail()` calls `auth.refreshSession()` (best-effort — failure is
   ignored) then `auth.getUser()`, which round-trips to the Auth server and so observes a confirmation
@@ -61,9 +61,9 @@ works today:
   UI completes itself as soon as the click lands, with no button press required. Both the button and
   the poll stop once `account.anonymous` comes back false.
 - Signing in on a second device has **no** equivalent fallback: `verifySignInCode` only ever accepts
-  a typed code, so that path still requires custom SMTP; `AccountEmailCode`'s `signinHint` prop shows
-  a one-line explanation next to both sign-in widgets (Settings' "sign in instead" and Onboarding's
-  "Already have a mon? Sign in") instead of a new flow.
+  a typed code. That now works end-to-end since custom SMTP delivers the code; `AccountEmailCode`'s
+  `signinHint` prop shows a one-line explanation next to both sign-in widgets (Settings' "sign in
+  instead" and Onboarding's "Already have a mon? Sign in") if it is ever unreachable again.
 
 ## Sign in on a new (or different) device
 

@@ -2,8 +2,8 @@
 doc_type: policy
 purpose: "Read this when you want to know what data claude-mons collects and where it goes."
 audience: both
-last_verified: 2026-09-13
-last_verified_commit: 8a24ac9
+last_verified: 2026-09-23
+last_verified_commit: 274f3fe
 related_files:
   - packages/hook-cli/README.md
   - packages/hook-cli/main.go
@@ -55,7 +55,9 @@ This is entirely optional and off by default. If you link one:
 
 - The email is stored by Supabase Auth (`auth.users`), not in claude-mons' own `players` table.
 - It is used only to send you a 6-digit sign-in code by email — never a password, never shown to
-  other players, never used for marketing or analytics.
+  other players, never used for marketing or analytics. The code is sent through the project's
+  configured SMTP provider (currently a Gmail account owned by the maintainer), not Supabase's own
+  mail infrastructure (`docs/runbooks/auth-email-config.md`).
 - Signing in with that email on a second device replaces that device's local mon after an explicit
   confirmation; the previous device's anonymous player row is not deleted, only orphaned (see
   `docs/runbooks/delete-a-player.md` to remove it).

@@ -2,8 +2,8 @@
 doc_type: decision
 purpose: "Read this when you need to know why claude-mons links an email to the anonymous account with a typed 6-digit code instead of a password, magic-link deep link, or OAuth provider."
 audience: both
-last_verified: 2026-09-09
-last_verified_commit: b0a0308
+last_verified: 2026-09-23
+last_verified_commit: 274f3fe
 related_files:
   - apps/desktop/src/main/net/SupabaseClient.ts
   - apps/desktop/src/main/net/account.ts
@@ -77,4 +77,5 @@ email-template limitation of the free-tier default mailer.
 - The project's free-tier default mailer cannot have its email templates edited via the Management
   API (`docs/runbooks/auth-email-config.md`), so the code is generated and verifiable server-side
   today, but is not yet visible in the actual email the player receives; custom SMTP is the documented
-  fix, tracked as a follow-up rather than blocking this change.
+  fix, tracked as a follow-up rather than blocking this change. Resolved 2026-09-23 by configuring
+  custom SMTP and applying the templates (`docs/runbooks/auth-email-config.md`).

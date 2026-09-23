@@ -22,6 +22,12 @@ All notable changes to claude-mons are documented here. See [Keep a Changelog](h
 
 ### Fixed
 
+- **Sign-in and link emails carried a link instead of the 6-digit code.** The project's free tier
+  with the default Supabase mailer rejects any edit to `mailer_templates_*` (an HTTP 400), so the
+  built-in templates — link only, no code — were used instead, blocking sign-in on a second device.
+  Fixed by configuring custom SMTP (Gmail) and re-running `scripts/supabase-auth-config.mjs --apply`,
+  which applied `{{ .Token }}` to all three mailer templates. See
+  `docs/runbooks/auth-email-config.md`.
 - **Linux menu launch on some X11 setups failed with `XGetWindowAttributes failed`.** The
   `.desktop` entries built into the `.deb` and AppImage now pass `--ozone-platform=x11 --disable-gpu`
   (`linux.executableArgs` in `apps/desktop/electron-builder.yml`), so the X11/software-rendering
