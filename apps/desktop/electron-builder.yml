@@ -54,6 +54,7 @@ nsis:
 
 linux:
   executableName: claude-mons
+  executableArgs: ['--ozone-platform=x11', '--disable-gpu']
   target:
     - target: AppImage
       arch: [x64]
