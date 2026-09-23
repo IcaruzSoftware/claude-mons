@@ -77,7 +77,7 @@ Dev flags (`--dev-nation`, `--dev-xp`, `--dev-battle`, `--capture`, `--simulate`
 
 ## Gotchas
 
-- Migrations live in `supabase/migrations` with 14-digit UTC timestamps; never edit an applied one, add a new file. `npx supabase db push` fails on the dev machine (wrong DB password), so migrations are applied through the Management API fallback in the deploy runbook.
+- Migrations live in `supabase/migrations` with 14-digit UTC timestamps; never edit an applied one, add a new file. Preferred deploy path is `gh workflow run supabase-deploy.yml --ref main` (needs the `SUPABASE_ACCESS_TOKEN`/`SUPABASE_DB_PASSWORD` repo secrets); `npx supabase db push` also works locally now; the Management API fallback in the deploy runbook remains for when neither authenticates.
 - The profile Edge Function is `create-profile`; older plans called it claim-nickname.
 - There is no constants file in `packages/shared`; constants live in the module that owns them.
 - The Supabase function bundler ignores import maps, so Edge Functions import supabase-js with an explicit npm specifier.
@@ -85,5 +85,5 @@ Dev flags (`--dev-nation`, `--dev-xp`, `--dev-battle`, `--capture`, `--simulate`
 - Windows Smart App Control blocks unsigned executables. A rebuilt hook binary can fail with "Application Control policy has blocked this file" on the dev machine; a signed build is the fix.
 - GDI screenshots cannot capture the composited Electron overlay; use `--capture`.
 - The Windows credential manager hangs git pushes from non-interactive shells; on the dev machine git uses the GitHub CLI as credential helper.
-- The database password in `.env.local` may not authenticate; [docs/runbooks/deploy-backend.md](docs/runbooks/deploy-backend.md) has the Management API fallback.
+- If the database password ever stops authenticating again, [docs/runbooks/deploy-backend.md](docs/runbooks/deploy-backend.md) has the Management API fallback.
 - Linux runs on the X11 backend (XWayland) with hardware acceleration off by default (ADR 0017); native Wayland is unsupported. Retest checklist: [docs/runbooks/verify-on-linux.md](docs/runbooks/verify-on-linux.md).

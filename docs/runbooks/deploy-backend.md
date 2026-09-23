@@ -2,8 +2,8 @@
 doc_type: runbook
 purpose: "Read this when deploying backend changes to Supabase."
 audience: both
-last_verified: 2026-09-13
-last_verified_commit: 8a24ac9
+last_verified: 2026-09-23
+last_verified_commit: 1d714d1
 related_files:
   - supabase/README.md
   - supabase/config.toml
@@ -25,6 +25,12 @@ Deploy database migrations and Edge Functions to the live Supabase project. Auth
 through `docs/runbooks/auth-email-config.md` instead — see the warning under step 3 for why
 `supabase config push` is never part of this flow. Requires `SUPABASE_ACCESS_TOKEN`,
 `SUPABASE_DB_PASSWORD`, and `SUPABASE_PROJECT_REF` in `.env.local`.
+
+The preferred way to deploy is the GitHub Actions workflow (manual dispatch): `gh workflow run
+supabase-deploy.yml --ref main`. It ran successfully end to end (link, `db push`, `functions
+deploy`) on 2026-09-23 — see [Alternative: GitHub workflow](#alternative-github-workflow). Running
+the CLI steps below locally is the second option and also works now that `SUPABASE_DB_PASSWORD` is
+correct. The Management API fallback further down is third, for when neither authenticates.
 
 ## Steps
 
@@ -96,10 +102,9 @@ Expect `{ "ok": true, "pruned": 0, "players": 1, "ts": 1234567890 }` (or similar
 ## Fallback: Manual migration via Management API
 
 If `npx supabase db push` fails with a password authentication error, apply the pending migration
-manually. As of this writing the `SUPABASE_DB_PASSWORD` in `.env.local` does not authenticate
-(tracked as a "Now" blocker in `docs/ROADMAP.md`); this fallback is the current workaround, not a
-historical footnote. Once the password is corrected, standard `db push` works again and this section
-can be skipped.
+manually. As of 2026-09-23 the `SUPABASE_DB_PASSWORD` in `.env.local` is correct and both the GitHub
+workflow and local `db push` authenticate; this fallback is only needed if that stops being true
+again.
 
 **Do not attempt this unless `db push` has failed.** Recovery requires the `SUPABASE_ACCESS_TOKEN`:
 
@@ -119,10 +124,12 @@ the migration version into `supabase_migrations.schema_migrations` so `db push` 
 
 ## Alternative: GitHub workflow
 
-Push a commit and manually run `.github/workflows/supabase-deploy.yml` from the **Actions** tab, with
-the `migrations` and/or `functions` `workflow_dispatch` inputs (both default `true`). This requires
-`SUPABASE_ACCESS_TOKEN`, `SUPABASE_DB_PASSWORD`, and `SUPABASE_PROJECT_REF` as repository secrets.
-The workflow runs `supabase db push` and `supabase functions deploy` only — it never runs
+Run `.github/workflows/supabase-deploy.yml` via manual dispatch, either `gh workflow run
+supabase-deploy.yml --ref main` or from the **Actions** tab, with the `migrations` and/or `functions`
+`workflow_dispatch` inputs (both default `true`). This requires `SUPABASE_ACCESS_TOKEN`,
+`SUPABASE_DB_PASSWORD`, and `SUPABASE_PROJECT_REF` as repository secrets — both secrets are now set,
+and this workflow has run successfully end to end (link, `db push`, `functions deploy`) on
+2026-09-23. The workflow runs `supabase db push` and `supabase functions deploy` only — it never runs
 `supabase config push`, consistent with the warning above.
 
 ## Acceptance
