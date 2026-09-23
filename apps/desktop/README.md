@@ -131,7 +131,7 @@ All channel names and payload types live in `src/common/ipc.ts`. See `apps/deskt
 
 | Top-level key | Contents |
 |---|---|
-| `schemaVersion` | Current = 4 |
+| `schemaVersion` | Current = 7 (`MIGRATIONS.length + 1`, see `docs/runbooks/reset-local-state.md`) |
 | `device` | `{ id, createdAt }` (random device UUID) |
 | `profile` | `{ userId, nickname, nation, email }` — `email` is null while the account is anonymous-only |
 | `pet` | `{ speciesId, seed }` (seed stable per install) |
