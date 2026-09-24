@@ -3,7 +3,7 @@ doc_type: runbook
 purpose: "Read this when you need to change the Supabase auth email config (templates, site_url, manual linking) for account linking, or when a player reports never receiving a sign-in code."
 audience: both
 last_verified: 2026-09-23
-last_verified_commit: 274f3fe
+last_verified_commit: c7f00a8
 related_files:
   - scripts/supabase-auth-config.mjs
   - apps/desktop/src/main/net/SupabaseClient.ts
@@ -37,9 +37,9 @@ values below, prints only the keys that will change, and (with `--apply`) `PATCH
 | `security_manual_linking_enabled` | `true` | Required for `updateUser({ email })` to succeed on an anonymous user — without it the call is rejected outright ([Supabase docs](https://supabase.com/docs/guides/auth/auth-identity-linking#manual-linking-beta)) |
 | `mailer_autoconfirm` | `false` | **Critical, found by reading GoTrue's source, not the docs:** it special-cases `is_anonymous && Autoconfirm` to silently auto-verify an anonymous user's first email with **no code sent at all**, which would make the whole "type in a code" UI a no-op for that call. Everyone else (non-anonymous, or anonymous with this off) always gets a real confirmation email. |
 | `mailer_secure_email_change_enabled` | `true` | Consistent with never letting a linked email be replaced without confirming a code (this app never exposes a "change email" UI beyond the initial link, so this mostly matters if that changes later) |
-| `mailer_templates_magic_link_content` | Adds `{{ .Token }}` prominently + a one-line claude-mons sentence, keeps the link | This is the template `signInWithOtp()` uses to deliver the sign-in code |
-| `mailer_templates_email_change_content` | Same | This is the template `updateUser({ email })` uses — including the anonymous-linking call, once the two settings above force it through the normal email-change path instead of auto-verifying |
-| `mailer_templates_confirmation_content` | Same | Not currently reached by any call this app makes (see below), kept in sync in case a future path signs up a non-anonymous user directly |
+| `mailer_templates_magic_link_content` | Code only: `{{ .Token }}` plus instructions to enter it in the desktop app | This is the template `signInWithOtp()` uses to deliver the sign-in code |
+| `mailer_templates_email_change_content` | Code plus confirmation-link fallback | This is the template `updateUser({ email })` uses — including the anonymous-linking call, once the two settings above force it through the normal email-change path instead of auto-verifying |
+| `mailer_templates_confirmation_content` | Code plus confirmation link | Not currently reached by any call this app makes (see below), kept in sync in case a future path signs up a non-anonymous user directly |
 
 ## Steps
 
@@ -60,6 +60,29 @@ node scripts/supabase-auth-config.mjs
 ```bash
 node scripts/supabase-auth-config.mjs --apply
 ```
+
+## Sign-in code rejected after clicking the email link
+
+The sign-in email must contain only the code, without `{{ .ConfirmationURL }}`. The old template
+invited the player to click "Sign in" before entering the code. Both redeem the same one-time token:
+a link click creates a browser session and consumes the code, so the subsequent in-app verification
+returns `otp_expired`. The desktop app has no redirect/deep-link handler to adopt that browser session.
+Supabase also documents that email scanners can consume confirmation links before the player opens
+an email: [Email prefetching](https://supabase.com/docs/guides/auth/auth-email-templates#email-prefetching).
+
+Reproduced against local GoTrue v2.196.0 with a captured SMTP inbox: a freshly delivered code succeeds
+when entered directly; opening its confirmation link first makes the same code fail with
+`otp_expired`. With the code-only template, the delivered code signs in the existing user; wrong and
+reused codes still fail. The email-change template keeps its link because the app supports that
+separate flow through `account:link-refresh`.
+
+**Rollout:** merging or packaging the app does not update hosted email templates. Run this script in
+dry-run mode, then with `--apply` using the project credentials, and verify the Magic Link template
+contains `{{ .Token }}` but no confirmation link. If a code was consumed from an older email, request
+a new one and enter it directly in the app. `pnpm test:scripts` guards the code-only template.
+
+**Rollback:** revert the commit and re-run the script with `--apply` to restore the earlier template;
+this also restores the link-consumption bug. No database migration or account changes are involved.
 
 ## What happens without custom SMTP (history)
 

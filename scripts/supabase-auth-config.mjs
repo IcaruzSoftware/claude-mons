@@ -14,7 +14,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SECRET_KEYS = new Set(['SUPABASE_ACCESS_TOKEN', 'SUPABASE_DB_PASSWORD']);
@@ -46,26 +46,19 @@ const env = { ...envFile, ...process.env }; // real environment (already sourced
 const ACCESS_TOKEN = env.SUPABASE_ACCESS_TOKEN;
 const PROJECT_REF = env.SUPABASE_PROJECT_REF;
 
-if (!ACCESS_TOKEN || !PROJECT_REF) {
-  console.error(
-    'supabase-auth-config: missing SUPABASE_ACCESS_TOKEN or SUPABASE_PROJECT_REF (.env.local or environment)',
-  );
-  process.exit(1);
-}
-
 const CONFIG_URL = `https://api.supabase.com/v1/projects/${PROJECT_REF}/config/auth`;
 
 const TOKEN_SENTENCE =
   'This code is for your claude-mons account — use it to link your mon so you can play it on another computer.';
 
 // The Magic Link template is what signInWithOtp() uses to deliver the sign-in code (see
-// docs/runbooks/auth-email-config.md). Keeps the original ConfirmationURL link as a fallback.
-const MAGIC_LINK_TEMPLATE = `<h2>Your claude-mons sign-in code</h2>
+// docs/runbooks/auth-email-config.md). A confirmation link consumes the same one-time token but
+// returns the session to the browser, which the desktop app cannot adopt. Offer only the code.
+export const MAGIC_LINK_TEMPLATE = `<h2>Your claude-mons sign-in code</h2>
 
-<p>${TOKEN_SENTENCE}</p>
+<p>Return to the claude-mons app and enter this 6-digit code to sign in.</p>
 <h1 style="font-size: 32px; letter-spacing: 4px;">{{ .Token }}</h1>
-<p>Or follow the link below to sign in. This link expires shortly and can only be used once.</p>
-<p><a href="{{ .ConfirmationURL }}">Sign in</a></p>`;
+<p>This code can only be used once. If you didn't request it, you can safely ignore this email.</p>`;
 
 // The Email Change template is what GoTrue sends for updateUser({ email }) — including linking an
 // anonymous user's first email, once security_manual_linking_enabled + mailer_autoconfirm=false
@@ -115,6 +108,12 @@ function summarize(key, value) {
 }
 
 async function main() {
+  if (!ACCESS_TOKEN || !PROJECT_REF) {
+    console.error(
+      'supabase-auth-config: missing SUPABASE_ACCESS_TOKEN or SUPABASE_PROJECT_REF (.env.local or environment)',
+    );
+    process.exit(1);
+  }
   const res = await fetch(CONFIG_URL, { headers: { Authorization: `Bearer ${ACCESS_TOKEN}` } });
   if (!res.ok) {
     console.error(`GET config/auth failed: ${res.status} ${res.statusText}`);
@@ -201,4 +200,6 @@ for (const k of Object.keys(DESIRED)) {
   if (SECRET_KEYS.has(k)) throw new Error(`refusing to manage secret key ${k}`);
 }
 
-await main();
+if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
+  await main();
+}
