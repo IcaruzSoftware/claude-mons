@@ -93,6 +93,12 @@ export class PetRenderer {
     return this.geometry.geometryVersion;
   }
 
+  /** Last drawn sprite hitbox (window-local) and the geometry it was drawn against, for the Linux
+   *  e2e harness (see docs/runbooks/linux-e2e.md); surfaced via `window.__monsProbe`. */
+  getProbe(): { hitbox: Hitbox; geometry: WindowGeometry } {
+    return { hitbox: this.lastHitbox, geometry: this.geometry };
+  }
+
   resize(): void {
     const dpr = window.devicePixelRatio || 1;
     const w = window.innerWidth;

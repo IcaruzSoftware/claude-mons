@@ -38,6 +38,11 @@ window.mons.onConfig((config: PetConfig) => {
   } else {
     loop.applyConfig(config);
   }
+  // Debug-only hook the Linux e2e harness reads over the DevTools Protocol to locate the sprite
+  // and confirm the model reacted to real X input (see docs/runbooks/linux-e2e.md).
+  if (config.debug) {
+    (window as unknown as { __monsProbe?: () => unknown }).__monsProbe = () => loop?.probe();
+  }
 });
 
 window.mons.onWindowMoved((g) => loop?.setGeometry(g));

@@ -74,6 +74,8 @@ export class PetWindow {
   private geometryVersion = 0;
   /** Last anchor passed to `enterFollow`/`followTo`/`enterBattle`; replayed by `reapplyBounds`. */
   private lastAnchor: { x: number; y: number };
+  /** Debug-only: last value passed to `setIgnoreMouse`, so transitions can be logged once. */
+  private lastIgnore: boolean | null = null;
 
   constructor(display: Display, anchor: { x: number; y: number }, opts: PetWindowOptions) {
     this.display = display;
@@ -285,6 +287,12 @@ export class PetWindow {
 
   setIgnoreMouse(ignore: boolean): void {
     if (this.win.isDestroyed()) return;
+    if (DEBUG && ignore !== this.lastIgnore) {
+      // The Linux input bug (docs/runbooks/linux-e2e.md) hinges on whether `setIgnoreMouseEvents`
+      // actually toggles the X input shape, so log each transition the main process commands.
+      this.lastIgnore = ignore;
+      console.info('[pet] setIgnoreMouse', ignore);
+    }
     if (ignore) this.win.setIgnoreMouseEvents(true);
     else this.win.setIgnoreMouseEvents(false);
   }

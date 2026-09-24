@@ -81,6 +81,8 @@ export class CursorTracker {
   private dragging = false;
   private timer: unknown = null;
   private currentHz = 0;
+  /** Debug-only: throttles the per-tick decision log to ~1/s (see `tick`). */
+  private lastDebugAt = -Infinity;
   private readonly opts: CursorTrackerOptions;
 
   constructor(
@@ -184,6 +186,17 @@ export class CursorTracker {
       const b = this.win.getBounds();
       const inWindow = pointInRect(c, b);
       const over = inWindow && this.isPointAccepted(c);
+      if (this.opts.debug && (over !== this.hovering || now - this.lastDebugAt >= 1000)) {
+        // Diagnostic for the Linux input bug (docs/runbooks/linux-e2e.md): the exact cursor sample
+        // and why each tick did or didn't open click-through. Logged on every decision change and
+        // otherwise ~once a second, so a failing run says whether the cursor point is wrong, the
+        // hitbox never matched, or acceptance worked but input still never reached the sprite.
+        this.lastDebugAt = now;
+        console.info(
+          '[pet] track',
+          JSON.stringify({ cursor: c, inWindow, hitboxAccepted: this.hitboxAccepted(), over }),
+        );
+      }
       // Re-assert unconditionally every tick, regardless of whether it changed: `hovering` is a
       // record of the last decision for the edge-triggered onHoverChange event below, never an
       // input to this decision. This is what makes a stuck-open state self-heal within one tick

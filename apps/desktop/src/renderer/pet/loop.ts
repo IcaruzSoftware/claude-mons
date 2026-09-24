@@ -105,6 +105,24 @@ export class PetLoop {
     return this.model;
   }
 
+  /** Snapshot for the Linux e2e harness (see docs/runbooks/linux-e2e.md): the sprite's screen-space
+   *  hitbox, the pet anchor and the current state, so the harness can aim the real X pointer at the
+   *  sprite and assert the model reacted. Screen-space = window origin (geometry.x/y, world DIPs)
+   *  plus the window-local hitbox. */
+  probe(): {
+    state: string;
+    pos: { x: number; y: number };
+    hitbox: Hitbox;
+    geometry: WindowGeometry;
+    spriteScreen: { x: number; y: number; w: number; h: number } | null;
+  } {
+    const { hitbox, geometry } = this.renderer.getProbe();
+    const spriteScreen = hitbox
+      ? { x: geometry.x + hitbox.x, y: geometry.y + hitbox.y, w: hitbox.w, h: hitbox.h }
+      : null;
+    return { state: this.model.state, pos: this.model.pos, hitbox, geometry, spriteScreen };
+  }
+
   private step(now: number): void {
     const stimuli = this.queue;
     this.queue = [];
