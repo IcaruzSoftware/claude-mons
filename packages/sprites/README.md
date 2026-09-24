@@ -2,8 +2,8 @@
 doc_type: reference
 purpose: "Read this when authoring sprite definitions (SpriteDef), understanding the grid format, or running the preview script."
 audience: agent
-last_verified: 2026-09-13
-last_verified_commit: 8a24ac9
+last_verified: 2026-09-24
+last_verified_commit: bf1f338
 related_files:
   - packages/sprites/src/types.ts
   - packages/sprites/src/palette.ts
@@ -94,6 +94,10 @@ Tests assert idle idle bbox bottom == anchor.y and horizontal centering ±2 px.
 | sweat | 6 | true | 3 |
 | question | 3 | true | 2 |
 | heart | 6 | true | 3 |
+
+The Ottlet line uses fixed chestnut fur and a cream muzzle/belly, with rounded ears, whiskers,
+curved tails and a teal fish with coral fins in every animation. Lowercase palette keys preserve
+these colors when Water tinting is applied; sizes, foot anchors and animation names stay unchanged.
 
 ## Authoring Helpers
 

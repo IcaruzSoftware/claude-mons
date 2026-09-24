@@ -1,26 +1,24 @@
 import type { SpriteDef } from '../types.ts';
 import { compose, frame, lean, recolor, shift, squashTop, withRows, type Layer } from '../util.ts';
 
-/**
- * Tidewhisker (Water, rare, adult): a tall otter standing on two feet, long whiskers fanning from
- * its snout, a curling tail at its left hip, cradling a big fish across its chest in both paws.
- * Tintable teal fur (P), pale belly (A), dark-blue outline/shade (D/S); the fish keeps its fixed
- * silver body (f) and orange tail (o). Dark eyes (k), a nose (n), pale whiskers (w). It sways when
- * idle and slams the fish down when it attacks.
- */
+/** Tidewhisker: chestnut fur, cream muzzle, rounded ears, whiskers and a teal fish.
+ * Fixed fur colors preserve the otter silhouette under Water tinting. */
 const PALETTE = {
-  D: '#0d2a4a', // outline (tintable dark)
-  P: '#2ec4b6', // fur (tintable primary)
-  S: '#1b4f8a', // fur shade (tintable secondary)
-  A: '#e8fbff', // belly / highlight (tintable accent)
-  f: '#c8d2dc', // fish body (silver)
-  o: '#ff8a3d', // fish tail (coral orange)
-  k: '#12232e', // eyes / fish eye
-  n: '#2a1c18', // nose
-  w: '#eef7ff', // whiskers
-  h: '#ffffff', // glints
-  g: '#9e9e9e', // laptop body
-  l: '#b3e5fc', // laptop screen
+  d: '#38272e', // fixed warm outline: fur must not be recolored by nation tinting
+  p: '#98624a', // chestnut fur
+  s: '#684737', // fur shadow
+  c: '#bf8663', // fur highlight
+  a: '#f0d4ad', // cream muzzle and belly
+  f: '#39a69c', // fish scales
+  q: '#18575a', // fish outline
+  v: '#bed6a4', // fish underside
+  o: '#ef9869', // fish fins
+  k: '#19282d', // eyes
+  n: '#26353b', // nose
+  w: '#fff0d4', // whiskers
+  h: '#ffffff', // eye glints
+  g: '#9e9e9e',
+  l: '#b3e5fc',
 };
 
 const SIZE = 48;
@@ -29,108 +27,105 @@ const BY = 8; // torso: 40 px tall, rows 8..47; feet on row 47
 
 // 24 x 40 standing otter. Face on rows 6..9 (whiskers baked in); legs split at row 32; feet row 39.
 const TORSO = [
-  '........DDDDDDDD........',
-  '.......DPPPPPPPPD.......',
-  '......DPPPPPPPPPPD......',
-  '.....DPPPPPPPPPPPPD.....',
-  '....DPPPPPPPPPPPPPPD....',
-  '....DPPPPPPPPPPPPPPD....',
-  '....DPPkhPAAAAPhkPPD....',
-  '....DPPPPAAAAAAPPPPD....',
-  '.wwwDPPPAAAnnAAAPPPDwww.',
-  '.wwwDPPPPAAAAAAPPPPDwww.',
-  '....DPPPPPPPPPPPPPPD....',
-  '......DPPPPPPPPPPD......',
-  '......DPPPPPPPPPPD......',
-  '....DPPPPPPPPPPPPPPD....',
-  '...DPPPPPPPPPPPPPPPPD...',
-  '..DPPPPAAAAAAAAAAPPPPD..',
-  '..DPPPAAAAAAAAAAAAPPPD..',
-  '..DPPAAAAAAAAAAAAAAPPD..',
-  '..DPPAAAAAAAAAAAAAAPPD..',
-  '..DPPAAAAAAAAAAAAAAPPD..',
-  '..DPPAAAAAAAAAAAAAAPPD..',
-  '..DPPAAAAAAAAAAAAAAPPD..',
-  '..DPPAAAAAAAAAAAAAAPPD..',
-  '..DPPPAAAAAAAAAAAAPPPD..',
-  '..DPPPPAAAAAAAAAAPPPPD..',
-  '..DPPPPPAAAAAAAAPPPPPD..',
-  '..DPPPPPPAAAAAAPPPPPPD..',
-  '..DPPPPPPPAAAAPPPPPPPD..',
-  '..DPPPPPPPPPPPPPPPPPPD..',
-  '..DSPPPPPPPPPPPPPPPPSD..',
-  '...DPPPPPPPPPPPPPPPPD...',
-  '...DPPPPPPPPPPPPPPPPD...',
-  '...DPPPPPD....DPPPPPD...',
-  '...DPPPPPD....DPPPPPD...',
-  '...DPPPPPD....DPPPPPD...',
-  '...DPPPPPD....DPPPPPD...',
-  '...DPPPPPD....DPPPPPD...',
-  '...DPPPPPD....DPPPPPD...',
-  '...DPPPPPPD..DPPPPPPD...',
-  '...DDDDDDDD..DDDDDDDD...',
+  '......dddddddddddd......',
+  '....dddppccccccppddd....',
+  '...ddppccccccccccppdd...',
+  '...dapppccccccccpppad...',
+  '...dappppppppppppppad...',
+  '...dppccppppppppccppd...',
+  '...dppppppppppppppppd...',
+  '...dppkhhpppppphhkppd...',
+  '..dppkkkpaaaaapkkkppd...',
+  '..dppaaaaannnaaaaappd...',
+  '...wwapaaaanhnaaapaww...',
+  '...wdpaaawaanawaaapdw...',
+  '..wwapaaaaanaaaaapaww...',
+  '...dppaaaaaaaaaaaappd...',
+  '...dsppaaaaaaaaaappsd...',
+  '...dssppppaaaappppssd...',
+  '...dssppppaaaappppssd...',
+  '...dssppaaaaaaaappssd...',
+  '...dsppaaaaaaaaaappsd...',
+  '...dppaaaaaaaaaaaappd...',
+  '...dppaaaaaaaaaaaappd...',
+  '...dppaaaaaaaaaaaappd...',
+  '...dppaaaaaaaaaaaappd...',
+  '...dppaaaaaaaaaaaappd...',
+  '...dppaaaaaaaaaaaappd...',
+  '...dppaaaaaaaaaaaappd...',
+  '...dsppaaaaaaaaaappsd...',
+  '...dsppaaaaaaaaaappsd...',
+  '...dspppaaaaaaaapppsd...',
+  '...dssppaaaaaaaappssd...',
+  '...dsspppaaaaaapppssd...',
+  '...dssppppaaaappppssd...',
+  '...dssppppppppppppssd...',
+  '...dssppppppppppppssd...',
+  '...dssppppppppppppssd...',
+  '...dsppppppddppppppsd...',
+  '...dspppppd..dpppppsd...',
+  '...dppppppd..dppppppd...',
+  '...dppppppd..dppppppd...',
+  '...dddddddd..dddddddd...',
 ];
 
 const FACE_SLEEP: Record<number, string> = {
-  6: '....DPPkkPAAAAPkkPPD....',
+  7: '...dppkkkppppppkkkppd...',
 };
 const FACE_HAPPY: Record<number, string> = {
-  6: '....DPPkkPAAAAPkkPPD....',
-  9: '.wwwDPPPPAAhhAAPPPPDwww.',
+  7: '...dppkkkppppppkkkppd...',
 };
 const FACE_HURT: Record<number, string> = {
-  6: '....DPPkkPAAAAPkkPPD....',
-  9: '.wwwDPPPPAAkkAAPPPPDwww.',
+  7: '...dppkkkppppppkkkppd...',
 };
 const FACE_ATTACK: Record<number, string> = {
-  6: '....DPPkkPAAAAPkkPPD....',
-  9: '.wwwDPPPPAAhhAAPPPPDwww.',
+  7: '...dppkkkppppppkkkppd...',
 };
 
 function body(...faces: Array<Record<number, string>>): string[] {
   return withRows(TORSO, Object.assign({}, ...faces));
 }
 
-// The big cradled fish: silver body, orange fan tail on the left, dark eye near the head.
+// Teal fish with a visible eye, pale belly and coral fins.
 const FISH = [
-  'oo...fffffff....',
-  'oooffffffffff...',
-  'ooffffffffffffk.',
-  'ooffffffffffffk.',
-  'oooffffffffff...',
-  'oo...fffffff....',
+  '...qqffoooqq......',
+  'qqffffffffffq...oo',
+  'qffhkffffffffq.ooo',
+  'qffkkffffffffqooo.',
+  '.qvvvvvvvvvvq..ooo',
+  '..qqqoooqqqq......',
 ];
 // A fur paw cradling an end of the fish.
-const PAW = ['.DD.', 'DPPD', 'DPPD', '.DD.'];
+const PAW = ['.dd.', 'dppd', 'dppd', '.dd.'];
 
 // Curling tail at the left hip.
 const TAIL = [
-  'DPPD....',
-  'DPPD....',
-  'DPPPD...',
-  '.DPPD...',
-  '.DPPPD..',
-  '..DPPD..',
-  '..DPPPD.',
-  '...DPPD.',
-  '...DPPPD',
-  '..DPPPD.',
-  '..DPPD..',
-  '.DDD....',
+  'dppd....',
+  'dppd....',
+  'dpppd...',
+  '.dppd...',
+  '.dpppd..',
+  '..dppd..',
+  '..dpppd.',
+  '...dppd.',
+  '...dpppd',
+  '..dpppd.',
+  '..dppd..',
+  '.ddd....',
 ];
 
 const LAPTOP = [
-  '.DDDDDDDDDDDD.',
-  '.DllllllllllD.',
-  '.DllllllllllD.',
-  '.DllllllllllD.',
-  '.DDDDDDDDDDDD.',
-  'DggggggggggggD',
-  'DDDDDDDDDDDDDD',
+  '.dddddddddddd.',
+  '.dlllllllllld.',
+  '.dlllllllllld.',
+  '.dlllllllllld.',
+  '.dddddddddddd.',
+  'dggggggggggggd',
+  'dddddddddddddd',
 ];
-const LAPTOP_TYPING = withRows(LAPTOP, { 5: 'DghgghgghgghgD' });
+const LAPTOP_TYPING = withRows(LAPTOP, { 5: 'dghgghgghgghgd' });
 
-const SPLASH = ['A...h...A', '.h.A.A.h.', '..A...A..'];
+const SPLASH = ['a...h...a', '.h.a.a.h.', '..a...a..'];
 
 interface Pose {
   torso?: string[];
@@ -143,7 +138,7 @@ interface Pose {
 }
 
 const FX = 13; // fish origin col
-const FY = 18; // fish origin row
+const FY = 25; // fish origin row
 
 function figure({
   torso = TORSO,
@@ -155,13 +150,13 @@ function figure({
   extra = [],
 }: Pose): string[] {
   const layers: Layer[] = [
-    { art: TAIL, x: 5 + dx, y: 33 + dy },
+    { art: TAIL, x: 11 + dx, y: 33 + dy },
     { art: torso, x: BX + dx, y: BY + dy },
   ];
   if (showFish) {
     layers.push({ art: FISH, x: FX + dx + fishDx, y: FY + dy + fishDy });
-    layers.push({ art: PAW, x: 11 + dx + fishDx, y: FY + 1 + dy + fishDy });
-    layers.push({ art: PAW, x: 26 + dx + fishDx, y: FY + 1 + dy + fishDy });
+    layers.push({ art: PAW, x: 11 + dx + fishDx, y: FY + 4 + dy + fishDy });
+    layers.push({ art: PAW, x: 25 + dx + fishDx, y: FY + 5 + dy + fishDy });
   }
   layers.push(...extra);
   return compose(SIZE, layers);
@@ -176,14 +171,14 @@ const walk = [
   shift(squashTop(figure({}), 34), 0, -1),
 ];
 
-const sleepFig = figure({ torso: body(FACE_SLEEP), showFish: false });
+const sleepFig = figure({ torso: body(FACE_SLEEP), showFish: true });
 const sleep = [squashTop(sleepFig, 30), squashTop(squashTop(sleepFig, 30), 33)];
 
 const laptop = (art: string[]): Layer => ({ art, x: 27, y: 40 });
 const work = [
-  figure({ showFish: false, extra: [laptop(LAPTOP)] }),
-  figure({ showFish: false, torso: squashTop(TORSO, 34), extra: [laptop(LAPTOP_TYPING)] }),
-  figure({ showFish: false, extra: [laptop(LAPTOP_TYPING)] }),
+  figure({ extra: [laptop(LAPTOP)] }),
+  figure({ torso: squashTop(TORSO, 34), extra: [laptop(LAPTOP_TYPING)] }),
+  figure({ extra: [laptop(LAPTOP_TYPING)] }),
 ];
 
 const happy = [
@@ -193,7 +188,7 @@ const happy = [
 ];
 
 const hurtRecoil = figure({ torso: body(FACE_HURT), dx: -3 });
-const hurt = [hurtRecoil, recolor(hurtRecoil, { P: 'h', S: 'h', A: 'h' })];
+const hurt = [hurtRecoil, recolor(hurtRecoil, { p: 'h', s: 'h', a: 'h', c: 'h' })];
 
 // Attack: hoist the fish up and back, then slam it down in front with a splash.
 const attack = [

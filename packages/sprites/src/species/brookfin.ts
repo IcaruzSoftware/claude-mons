@@ -1,96 +1,93 @@
 import type { SpriteDef } from '../types.ts';
 import { compose, frame, recolor, shift, squashTop, withRows, type Layer } from '../util.ts';
 
-/**
- * Brookfin (Water, rare, teen): a sleeker otter sitting upright with small ears and whiskers,
- * cradling a fish across its chest in both paws. Tintable teal fur (P), pale belly (A), dark-blue
- * outline/shade (D/S); the fish keeps its fixed silver body (f) and orange tail (o). Dark eyes (k),
- * a nose (n), pale whiskers (w). It sways when idle and swings the fish when it attacks.
- */
+/** Brookfin: chestnut fur, cream muzzle, rounded ears, whiskers and a teal fish.
+ * Fixed fur colors preserve the otter silhouette under Water tinting. */
 const PALETTE = {
-  D: '#0d2a4a', // outline (tintable dark)
-  P: '#2ec4b6', // fur (tintable primary)
-  S: '#1b4f8a', // fur shade (tintable secondary)
-  A: '#e8fbff', // belly / highlight (tintable accent)
-  f: '#c8d2dc', // fish body (silver)
-  o: '#ff8a3d', // fish tail (coral orange)
-  k: '#12232e', // eyes / fish eye
-  n: '#2a1c18', // nose
-  w: '#eef7ff', // whiskers
-  h: '#ffffff', // glints
-  g: '#9e9e9e', // laptop body
-  l: '#b3e5fc', // laptop screen
+  d: '#38272e', // fixed warm outline: fur must not be recolored by nation tinting
+  p: '#98624a', // chestnut fur
+  s: '#684737', // fur shadow
+  c: '#bf8663', // fur highlight
+  a: '#f0d4ad', // cream muzzle and belly
+  f: '#39a69c', // fish scales
+  q: '#18575a', // fish outline
+  v: '#bed6a4', // fish underside
+  o: '#ef9869', // fish fins
+  k: '#19282d', // eyes
+  n: '#26353b', // nose
+  w: '#fff0d4', // whiskers
+  h: '#ffffff', // eye glints
+  g: '#9e9e9e',
+  l: '#b3e5fc',
 };
 
 const SIZE = 32;
-const BX = 8; // torso: 16 px wide, cols 8..23
+const BX = 6; // torso: 20 px wide, cols 6..25
 const BY = 5; // torso: 27 px tall, rows 5..31; feet on row 31
 
 // 16 x 27 upright otter with ears. Face on rows 4..7; legs split at row 22; feet on row 26.
 const TORSO = [
-  '...DD......DD...',
-  '..DPPDDDDDDPPD..',
-  '..DPPPPPPPPPPD..',
-  '..DPPPPPPPPPPD..',
-  '..DPkhPPPPhkPD..',
-  '..DPPPAAAAPPPD..',
-  '.wDPPPAnnAPPPDw.',
-  '.wDPPPAAAAPPPDw.',
-  '....DPPPPPPD....',
-  '..DPPPPPPPPPPD..',
-  '.DPPPAAAAAAPPPD.',
-  '.DPPAAAAAAAAPPD.',
-  '.DPPAAAAAAAAPPD.',
-  '.DPPAAAAAAAAPPD.',
-  '.DPPAAAAAAAAPPD.',
-  '.DPPPAAAAAAPPPD.',
-  '.DPPPPAAAAPPPPD.',
-  '.DPPPPPAAPPPPPD.',
-  '.DPPPPPPPPPPPPD.',
-  '.DSPPPPPPPPPPSD.',
-  '..DPPPPPPPPPPD..',
-  '..DPPPPPPPPPPD..',
-  '..DPPD....DPPD..',
-  '..DPPD....DPPD..',
-  '..DPPD....DPPD..',
-  '..DPPD....DPPD..',
-  '..DDDD....DDDD..',
+  '.....dddddddddd.....',
+  '...ddpccccccccpdd...',
+  '...dappccccppppad...',
+  '..dppppppppppppppd..',
+  '..dppkhpppppphkppd..',
+  '..dppkkpaaapakkppd..',
+  '..wdpaaannnaaaapdw..',
+  '..wapaaaanhaaaapaw..',
+  '.wdppaaaanaaaappdw..',
+  '..dsppaaaaaaaappsd..',
+  '..dssppppaaaappssd..',
+  '..dspppppaaaapppsd..',
+  '.dpppaaaaaaaaapppd..',
+  '.dppaaaaaaaaaaappd..',
+  '.dppaaaaaaaaaaappd..',
+  '.dppaaaaaaaaaaappd..',
+  '.dppaaaaaaaaaaappd..',
+  '.dsppaaaaaaaaappsd..',
+  '.dsppaaaaaaaaappsd..',
+  '.dssppaaaaaaappssd..',
+  '.dssppaaaaaaappssd..',
+  '.dsspppaaaaapppssd..',
+  '..dssppppppppppssd..',
+  '..dssppppddppppssd..',
+  '..dpppppd..dpppppd..',
+  '..dpppppd..dpppppd..',
+  '..ddddddd..ddddddd..',
 ];
 
 const FACE_SLEEP: Record<number, string> = {
-  4: '..DPkkPPPPkkPD..',
+  4: '..dppkkppppppkkppd..',
 };
 const FACE_HAPPY: Record<number, string> = {
-  4: '..DPkkPPPPkkPD..',
-  7: '.wDPPPAhhAPPPDw.',
+  4: '..dppkkppppppkkppd..',
 };
 const FACE_HURT: Record<number, string> = {
-  4: '..DPkkPPPPkkPD..',
-  7: '.wDPPPAkkAPPPDw.',
+  4: '..dppkkppppppkkppd..',
 };
 const FACE_ATTACK: Record<number, string> = {
-  4: '..DPkkPPPPkkPD..',
-  7: '.wDPPPAhhAPPPDw.',
+  4: '..dppkkppppppkkppd..',
 };
 
 function body(...faces: Array<Record<number, string>>): string[] {
   return withRows(TORSO, Object.assign({}, ...faces));
 }
 
-// Fish cradled across the chest: silver body, orange fan tail on the left, dark eye near the head.
+// Teal fish with a visible eye, pale belly and coral fins.
 const FISH = [
-  'oo..ffff....',
-  '.o.ffffffk..',
-  '.o.ffffffk..',
-  'oo..ffff....',
+  '..qqffq.....',
+  'qffhffffq..o',
+  'qffkfffffqo.',
+  '.qvvvvvvq.oo',
+  '..qqooqq....',
 ];
 // A little fur paw that grips an end of the fish.
-const PAW = ['DPD', 'PPP', 'DPD'];
+const PAW = ['dpd', 'ppp', 'dpd'];
 
-const LAPTOP = ['.DDDDDDDD.', '.DllllllD.', '.DllllllD.', '.DDDDDDDD.', 'DggggggggD', 'DDDDDDDDDD'];
-const LAPTOP_TYPING = withRows(LAPTOP, { 4: 'DghgghgghD' });
+const LAPTOP = ['.dddddddd.', '.dlllllld.', '.dlllllld.', '.dddddddd.', 'dggggggggd', 'dddddddddd'];
+const LAPTOP_TYPING = withRows(LAPTOP, { 4: 'dghgghgghd' });
 
-const SPLASH = ['A..h..A', '.h.A.h.', '..A.A..'];
+const SPLASH = ['a..h..a', '.h.a.h.', '..a.a..'];
 
 interface Pose {
   torso?: string[];
@@ -114,11 +111,14 @@ function figure({
   dy = 0,
   extra = [],
 }: Pose): string[] {
-  const layers: Layer[] = [{ art: torso, x: BX + dx, y: BY + dy }];
+  const layers: Layer[] = [
+    { art: ['dd....', 'dpsd..', '.dppsd', '..dppd', '..ddd.'], x: 23 + dx, y: 26 + dy },
+    { art: torso, x: BX + dx, y: BY + dy },
+  ];
   if (showFish) {
     layers.push({ art: FISH, x: FX + dx + fishDx, y: FY + dy + fishDy });
-    layers.push({ art: PAW, x: 8 + dx + fishDx, y: FY + 1 + dy + fishDy });
-    layers.push({ art: PAW, x: 18 + dx + fishDx, y: FY + 1 + dy + fishDy });
+    layers.push({ art: PAW, x: 8 + dx + fishDx, y: FY + 3 + dy + fishDy });
+    layers.push({ art: PAW, x: 17 + dx + fishDx, y: FY + 3 + dy + fishDy });
   }
   layers.push(...extra);
   return compose(SIZE, layers);
@@ -138,9 +138,9 @@ const sleep = [squashTop(sleepFig, 22), squashTop(squashTop(sleepFig, 22), 24)];
 
 const laptop = (art: string[]): Layer => ({ art, x: 17, y: 25 });
 const work = [
-  figure({ showFish: false, extra: [laptop(LAPTOP)] }),
-  figure({ showFish: false, torso: squashTop(TORSO, 24), extra: [laptop(LAPTOP_TYPING)] }),
-  figure({ showFish: false, extra: [laptop(LAPTOP_TYPING)] }),
+  figure({ extra: [laptop(LAPTOP)] }),
+  figure({ torso: squashTop(TORSO, 24), extra: [laptop(LAPTOP_TYPING)] }),
+  figure({ extra: [laptop(LAPTOP_TYPING)] }),
 ];
 
 const happy = [
@@ -150,7 +150,7 @@ const happy = [
 ];
 
 const hurtRecoil = figure({ torso: body(FACE_HURT), dx: -2 });
-const hurt = [hurtRecoil, recolor(hurtRecoil, { P: 'h', S: 'h', A: 'h' })];
+const hurt = [hurtRecoil, recolor(hurtRecoil, { p: 'h', s: 'h', a: 'h', c: 'h' })];
 
 // Attack: wind the fish up and back, then swing it forward and down with a splash.
 const attack = [
