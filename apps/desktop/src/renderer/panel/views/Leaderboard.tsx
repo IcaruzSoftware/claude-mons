@@ -4,9 +4,7 @@ import type { LeaderboardPayload, UiSnapshot } from '../../../common/ipc.ts';
 import { SpriteView } from '../../ui/SpriteView.tsx';
 import { NationBadge } from '../../ui/NationBadge.tsx';
 import { TypeChip } from '../../ui/TypeChip.tsx';
-import { podiumOrder } from './leaderboardHelpers.ts';
-
-type Scope = 'alltime' | 'weekly';
+import { nationStanding, podiumOrder, sortNations, type Scope } from './leaderboardHelpers.ts';
 
 export function LeaderboardView({ s }: { s: UiSnapshot }) {
   const [data, setData] = useState<LeaderboardPayload | null>(null);
@@ -38,17 +36,19 @@ export function LeaderboardView({ s }: { s: UiSnapshot }) {
   const filtered = onlyMine && myNation ? rows.filter((r) => r.nation === myNation) : rows;
   const podiumRows = podiumOrder(filtered.slice(0, 3));
   const restRows = filtered.slice(3);
-  const nationRows = NATIONS.map(
-    (n) => data.nations.find((r) => r.nation === n) ?? emptyNation(n),
-  ).sort((a, b) => b.weekly_xp - a.weekly_xp || b.total_xp - a.total_xp);
+  const nationRows = sortNations(
+    NATIONS.map((n) => data.nations.find((r) => r.nation === n) ?? emptyNation(n)),
+    scope,
+  );
 
   return (
     <div>
       <div class="section">
-        <h3>Nation standings · this week</h3>
+        <h3>Nation standings · {scope === 'weekly' ? 'this week' : 'all time'}</h3>
         {nationRows.map((r) => {
-          const games = r.weekly_battles_won + r.weekly_battles_lost;
-          const winPct = games > 0 ? Math.round((r.weekly_battles_won / games) * 100) : 0;
+          const { xp, won, lost } = nationStanding(r, scope);
+          const games = won + lost;
+          const winPct = games > 0 ? Math.round((won / games) * 100) : 0;
           return (
             <div
               class={`banner-tile tint-${r.nation} ${r.nation === myNation ? 'mine' : ''}`}
@@ -57,7 +57,7 @@ export function LeaderboardView({ s }: { s: UiSnapshot }) {
               <NationBadge nation={r.nation} />
               <div class="mid">
                 <div class="nname">{NATION_INFO[r.nation].name}</div>
-                <div class="xpnum">{r.weekly_xp.toLocaleString()} XP</div>
+                <div class="xpnum">{xp.toLocaleString()} XP</div>
                 <div class="meta">
                   {r.hatched_members}/{r.members} trainers · avg Lv{' '}
                   {r.avg_level ? Math.round(r.avg_level) : '–'}

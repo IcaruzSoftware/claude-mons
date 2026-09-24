@@ -2,8 +2,8 @@
 doc_type: reference
 purpose: "Release notes and version history; check this when seeing claude-mons updates or deciding what version to expect features in."
 audience: both
-last_verified: 2026-09-13
-last_verified_commit: 44486b0
+last_verified: 2026-09-24
+last_verified_commit: 0c357ff
 related_files:
   - docs/history/v1-handoff-2026-09-04.md
   - docs/README.md
@@ -17,6 +17,21 @@ related_files:
 # Changelog
 
 All notable changes to claude-mons are documented here. See [Keep a Changelog](https://keepachangelog.com/) for format details.
+
+## [Unreleased]
+
+### Changed
+
+- The WEEK / ALL-TIME switch now also drives the nation standings. Previously the four nation tiles
+  at the top of the Leaderboard tab were always weekly while the switch only affected the trainer
+  list; the one switch now selects the XP and battle tallies shown in both sections.
+
+### Fixed
+
+- **The welcome screen's sign-in link was an unreadable browser-blue anchor** (1.92:1 contrast) and
+  is now the secondary button. Sign-in emails carry only the 6-digit code, because clicking the
+  email's link consumed the same one-time token and made the code fail with `otp_expired`. (#13,
+  contributed by TheManitu.)
 
 ## [0.2.3] - 2026-09-23
 
