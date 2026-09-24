@@ -11,6 +11,7 @@ export * from './battle/rng.ts';
 export * from './battle/effects.ts';
 export * from './battle/battle.ts';
 export * from './battle/matchup.ts';
+export * from './battle/matchmaking.ts';
 export * from './hooks/payload.ts';
 export * from './behavior/index.ts';
 export * from './input/shake.ts';

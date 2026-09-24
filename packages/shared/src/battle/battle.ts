@@ -80,12 +80,14 @@ export interface BattleAction {
   dodged: boolean;
   damage: number;
   crit: boolean;
-  effectiveness: 0.5 | 1 | 2;
+  effectiveness: number; // Includes multipliers in older stored battle logs.
   targetHpAfter: number;
   /** the effect this action applied/expressed, if any (docs/design/progression.md Move pool). */
   effect: EffectId | null;
   /** present when `effect === 'charge'`: whether this action telegraphed or released. */
   charge?: 'telegraph' | 'release';
+  /** Optional so pre-v5 logs remain readable. */
+  followThrough?: boolean;
 }
 
 export interface BattleTurn {
@@ -105,6 +107,9 @@ export interface BattleResult {
 
 export const MAX_TURNS = 10;
 
+/** Once per battle: a landed setup opener empowers a different hit while its debuff lasts. */
+export const FOLLOW_THROUGH_MULT = 1.2;
+
 /**
  * Bumped whenever a formula or RNG-call-order change in `simulateBattle` would make a fresh replay
  * of an old log diverge (docs/design/progression.md "Any change to simulateBattle's RNG call
@@ -117,7 +122,7 @@ export const MAX_TURNS = 10;
  * Phoenix Reborn/Second Breath KO interceptions -- none of which add or remove an `rng()` call by
  * themselves, but the golden log's *values* change because the formula does).
  */
-export const BATTLE_PROTOCOL_VERSION = 4;
+export const BATTLE_PROTOCOL_VERSION = 5;
 
 const levelScale = (l: number): number => (l + 49) / 50;
 
@@ -330,6 +335,7 @@ export function simulateBattle(a: MonSnapshot, b: MonSnapshot, seed: string): Ba
   // Reset every turn, set true in `act()` whenever a direct hit connects; copied into
   // `tookDamageLastTurn` at the end of the turn for Air's Eye of the Storm capstone to read next.
   const tookDamageThisTurn: Record<Side, boolean> = { a: false, b: false };
+  const openingSetup: Record<Side, EffectId | null> = { a: null, b: null };
 
   /**
    * Loadout policy (docs/design/progression.md Loadout policy): turn 1 always the opener (slot 1);
@@ -370,12 +376,13 @@ export function simulateBattle(a: MonSnapshot, b: MonSnapshot, seed: string): Ba
     foe: Side,
     move: Move,
     charge: 'telegraph' | 'release' | null,
+    turnNum: number,
   ): BattleAction => {
     const M = mons[me];
     const nationEff = effectiveness(M.nation, mons[foe].nation);
     const meStats = liveStats(me);
     const foeStats = liveStats(foe);
-    const moveEff: 0.5 | 1 | 2 = move.type === 'neutral' ? 1 : nationEff;
+    const moveEff = move.type === 'neutral' ? 1 : nationEff;
     const upgrade = moveUpgradeFor(me, move);
 
     if (charge === 'telegraph') {
@@ -459,11 +466,23 @@ export function simulateBattle(a: MonSnapshot, b: MonSnapshot, seed: string): Ba
         : 2
       : 1;
 
+    const setup = openingSetup[me];
+    const followThrough =
+      move.id !== loadoutMoves[me][0].id &&
+      (move.effect === 'priority' ||
+        move.effect === 'true_hit' ||
+        move.effect === 'crit_up' ||
+        move.effect === 'charge') &&
+      ((setup === 'def_down' && foeState.defDownTurns > 0) ||
+        (setup === 'burn' && foeState.burnTurns > 0));
+    if (followThrough) openingSetup[me] = null;
+
     const raw =
       ((power * meStats.atk) / defTerm) *
       scale *
       0.25 *
       moveEff *
+      (followThrough ? FOLLOW_THROUGH_MULT : 1) *
       critMultiplier *
       variance *
       (counters[me] ? STANCE_COUNTER_DEALT_MULT : 1) *
@@ -542,6 +561,9 @@ export function simulateBattle(a: MonSnapshot, b: MonSnapshot, seed: string): Ba
       const heal = Math.floor(damage * DRAIN_FRACTION * (upgrade ? upgrade.effectMult : 1));
       hp[me] = Math.min(M.stats.hp, hp[me] + heal);
     }
+    if (turnNum === 1 && (move.effect === 'def_down' || move.effect === 'burn')) {
+      openingSetup[me] = move.effect;
+    }
     if (move.effect === 'def_down') applyDefDown(me, foe, upgrade);
     if (crit && hasPassive(me, 'aftershock') && move.effect !== 'def_down') {
       applyDefDown(me, foe, undefined);
@@ -575,6 +597,7 @@ export function simulateBattle(a: MonSnapshot, b: MonSnapshot, seed: string): Ba
       effectiveness: moveEff,
       targetHpAfter: hp[foe],
       effect: move.effect,
+      ...(followThrough ? { followThrough: true } : {}),
       ...(charge ? { charge } : {}),
     };
   };
@@ -621,10 +644,10 @@ export function simulateBattle(a: MonSnapshot, b: MonSnapshot, seed: string): Ba
     const firstPick = first === 'a' ? pickA : pickB;
     const secondPick = second === 'a' ? pickA : pickB;
 
-    const actions = [act(first, second, firstPick.move, firstPick.charge)];
+    const actions = [act(first, second, firstPick.move, firstPick.charge, t)];
     if (firstPick.charge === 'telegraph') fx[first].chargePending = firstPick.move;
     if (hp[second] > 0) {
-      actions.push(act(second, first, secondPick.move, secondPick.charge));
+      actions.push(act(second, first, secondPick.move, secondPick.charge, t));
       if (secondPick.charge === 'telegraph') fx[second].chargePending = secondPick.move;
     }
 
@@ -672,6 +695,16 @@ export function simulateBattle(a: MonSnapshot, b: MonSnapshot, seed: string): Ba
         checkThresholdPassives(side);
       }
       if (state.defDownTurns > 0) state.defDownTurns--;
+    }
+    // A later reapplication must not revive an unused opening combo.
+    for (const side of ['a', 'b'] as const) {
+      const target = fx[side === 'a' ? 'b' : 'a'];
+      if (
+        (openingSetup[side] === 'burn' && target.burnTurns === 0) ||
+        (openingSetup[side] === 'def_down' && target.defDownTurns === 0)
+      ) {
+        openingSetup[side] = null;
+      }
     }
     fx.a.tookDamageLastTurn = tookDamageThisTurn.a;
     fx.b.tookDamageLastTurn = tookDamageThisTurn.b;
@@ -721,10 +754,10 @@ export function challengerReward(input: {
   myLevel: number;
   oppLevel: number;
 }): number {
-  if (input.isBot) return input.won ? 20 : 5;
   if (!input.won) return 10;
   const diff = Math.max(-3, Math.min(3, input.oppLevel - input.myLevel));
-  return 30 + 5 * diff;
+  if (input.isBot) return 20 + 15 * Math.max(0, diff);
+  return 30 + (diff > 0 ? 15 : 5) * diff;
 }
 
 /** XP credited to the snapshot owner who was challenged. */

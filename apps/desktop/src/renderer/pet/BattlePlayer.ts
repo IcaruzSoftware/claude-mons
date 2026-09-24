@@ -178,14 +178,15 @@ export class BattlePlayer {
     } else {
       let text = `-${action.damage}`;
       if (action.crit) text += ' crit!';
+      if (action.followThrough) text += ' combo!';
       const color =
-        action.effectiveness === 2
+        action.effectiveness > 1
           ? '#ffd740'
-          : action.effectiveness === 0.5
+          : action.effectiveness < 1
             ? '#9aa0ad'
             : '#ff5252';
       this.view.popups.push({ side: target, text, color, bornAt: now });
-      if (action.effectiveness === 2)
+      if (action.effectiveness > 1)
         this.view.popups.push({
           side: target,
           text: 'super effective',

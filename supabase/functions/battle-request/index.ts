@@ -1,5 +1,5 @@
 // POST {} -> BattleRequestResponse (DESIGN.md §5.7, §6.2).
-// claim_battle_slot -> pick an opponent from another nation (widening level windows) or a Wild Mon
+// claim_battle_slot -> pick an opponent from another nation (bounded level windows) or a Wild Mon
 // -> deterministic simulateBattle(seed = battle id) -> settle_battle.
 import type { BattleRequestResponse, BattleRewardKind } from '../_shared/game/api.ts';
 import {
@@ -11,6 +11,7 @@ import {
   snapshotFor,
   type MonSnapshot,
 } from '../_shared/game/battle/battle.ts';
+import { MATCHMAKING_WINDOWS, wildEncounterLevel } from '../_shared/game/battle/matchmaking.ts';
 import { stageForLevel } from '../_shared/game/game/levels.ts';
 import { otherNations } from '../_shared/game/game/nations.ts';
 import type { MonLoadout } from '../_shared/game/game/progression.ts';
@@ -44,20 +45,6 @@ interface SettleResult {
   opponent_xp_paid: number;
   challenger_xp_paid: number;
 }
-
-/**
- * Three widening passes relative to the challenger's own level (docs/design/progression.md
- * Matchmaking and streaks), asymmetric per the design's `[-2,+1]` / `[-4,+2]` / any. `null` means no
- * bound on that side.
- */
-const LEVEL_WINDOWS: Array<{ min: number | null; max: number | null }> = [
-  { min: -2, max: 1 },
-  { min: -4, max: 2 },
-  { min: null, max: null },
-];
-
-/** 10 % of Wild Mon encounters roll as elite: +3 levels, double challenger XP on a win. */
-const ELITE_CHANCE = 0.1;
 
 serve(async (req) => {
   if (req.method !== 'POST') return error('BAD_REQUEST', 'POST only', 405);
@@ -107,8 +94,7 @@ serve(async (req) => {
   const battleId = crypto.randomUUID();
   const result = simulateBattle(me, opp, battleId);
   const won = result.winner === 'a';
-  let xp = challengerReward({ won, isBot, myLevel: me.level, oppLevel: opp.level });
-  if (isElite && won) xp *= 2; // battle-request/index.ts's own rule: elite wild mons pay double
+  const xp = challengerReward({ won, isBot, myLevel: me.level, oppLevel: opp.level });
   const oppXp = isBot ? 0 : defenderReward(!won);
   const kind: BattleRewardKind = isBot ? (won ? 'bot_win' : 'bot_loss') : won ? 'win' : 'loss';
 
@@ -144,9 +130,8 @@ serve(async (req) => {
 });
 
 /**
- * Other-nation opponent with widening, asymmetric level windows (see LEVEL_WINDOWS). First pass
- * prefers players not fought in the last 24 h; if that yields nobody at any window, the recency
- * clause is dropped.
+ * Prefer weaker opponents, then peers, then challenges up to +3 levels. Within each
+ * band prefer players not fought in the last 24 h, then relax only the recency filter.
  */
 async function findOpponent(
   db: ServiceClient,
@@ -154,13 +139,13 @@ async function findOpponent(
   nation: Nation,
   level: number,
 ): Promise<MonSnapshot | null> {
-  for (const excludeRecent of [true, false]) {
-    for (const window of LEVEL_WINDOWS) {
+  for (const window of MATCHMAKING_WINDOWS) {
+    for (const excludeRecent of [true, false]) {
       const rows = await rpc<OpponentRow[]>(db, 'pick_opponent', {
         p_player: uid,
         p_nation: nation,
-        p_min_level: window.min === null ? null : level + window.min,
-        p_max_level: window.max === null ? null : level + window.max,
+        p_min_level: level + window.min,
+        p_max_level: level + window.max,
         p_exclude_recent: excludeRecent,
       });
       const row = rows?.[0];
@@ -181,18 +166,15 @@ async function findOpponent(
 }
 
 /**
- * Fallback bot: a random species from a random other nation at `level + rng(-3, +1)` (clamped >= 2).
- * 10 % of encounters instead roll elite: fixed +3 levels, flagged so the caller can double the
- * challenger's win XP and show it in the battle banner/history.
+ * Shared wild encounter distribution, including offline play. Rewards depend on the
+ * actual level difference; the elite flag labels the encounter, without a second XP multiplier.
  */
 function wildMon(myNation: Nation, level: number): { snapshot: MonSnapshot; isElite: boolean } {
   const nations = otherNations(myNation);
   const nation = nations[randomInt(nations.length)]!;
   const pool = speciesForNation(nation);
   const species = pool[randomInt(pool.length)]!;
-  const isElite = randomUnit() < ELITE_CHANCE;
-  const delta = isElite ? 3 : randomInt(5) - 3; // rng(-3, +1) inclusive
-  const wildLevel = Math.max(2, level + delta);
+  const { level: wildLevel, isElite } = wildEncounterLevel(level, randomUnit());
   const stage = stageForLevel(wildLevel) as Exclude<Stage, 'egg'>;
   return {
     snapshot: snapshotFor({

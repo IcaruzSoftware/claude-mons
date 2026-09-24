@@ -2,8 +2,8 @@
 doc_type: design
 purpose: "Read this when adding/changing a nation, species, hatch rarity, stage threshold, or sprite id, and need every place that must stay in sync."
 audience: agent
-last_verified: 2026-09-22
-last_verified_commit: 6d5bbcd
+last_verified: 2026-09-24
+last_verified_commit: bf1f338
 related_files:
   - packages/shared/src/game/nations.ts
   - packages/shared/src/game/species.ts
@@ -35,8 +35,8 @@ Each nation's egg sprite and per-species sprites are tinted from this same palet
 
 | Matchup | Multiplier |
 |---|---|
-| Attacker's cycle target (attacker beats defender) | 2× |
-| Attacker's cycle predecessor (defender beats attacker) | 0.5× |
+| Attacker's cycle target (attacker beats defender) | 1.2× |
+| Attacker's cycle predecessor (defender beats attacker) | 0.9× |
 | Any other pairing | 1× |
 
 Each nation beats exactly one other and is resisted by exactly one other; the fourth nation is neutral both ways.
@@ -48,14 +48,14 @@ Nine species, defined in `packages/shared/src/game/species.ts` and mirrored in `
 | Nation | Id | Rarity | Baby → Teen → Adult | HP/ATK/DEF/SPD |
 |---|---|---|---|---|
 | Water | dripple | common | Dripple → Pipefin → Torrentide | 85/45/50/30 |
-| Water | bubblit | rare | Bubblit → Cachecoral → Deepseaquel | 80/50/55/30 |
+| Water | bubblit | rare | Bubblit → Cachecoral → Deepseaquel | 76/50/53/36 |
 | Water | ottlet | rare | Ottlet → Brookfin → Tidewhisker | 75/60/40/40 |
-| Fire | sparkit | common | Sparkit → Blazebit → Infernode | 70/60/40/40 |
+| Fire | sparkit | common | Sparkit → Blazebit → Infernode | 70/60/42/38 |
 | Fire | cinderpup | rare | Cinderpup → Hotfixhound → Overclockwolf | 75/60/40/40 |
 | Earth | pebblet | common | Pebblet → Boulderbyte → Monolithor | 90/45/55/20 |
-| Earth | mossling | rare | Mossling → Rootling → Terraformer | 85/50/55/25 |
-| Air | puffle | common | Puffle → Gustling → Nimbyte | 65/50/40/55 |
-| Air | wispit | rare | Wispit → Zephyrix → Stratosphinx | 70/50/40/55 |
+| Earth | mossling | rare | Mossling → Rootling → Terraformer | 91/46/55/23 |
+| Air | puffle | common | Puffle → Gustling → Nimbyte | 61/52/48/49 |
+| Air | wispit | rare | Wispit → Zephyrix → Stratosphinx | 70/48/42/55 |
 
 Each species also carries a 6-move pool (`Species.movePool`, unlocked progressively from level 2 to
 level 20) used by battle; the full per-species move table (power, type, effect, unlock level) lives
