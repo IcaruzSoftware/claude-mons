@@ -2,8 +2,8 @@
 doc_type: design
 purpose: "Read this when changing moves, stances, talents, matchmaking windows, streaks or evolution stat multipliers, or building the loadout editor."
 audience: agent
-last_verified: 2026-09-24
-last_verified_commit: bf1f338
+last_verified: 2026-09-25
+last_verified_commit: 1c03a6e
 related_files:
   - packages/shared/src/battle/battle.ts
   - packages/shared/src/battle/effects.ts
@@ -130,7 +130,9 @@ This supersedes `docs/design/battle.md`'s `special`-at-≤50%-own-HP rule once P
 
 Combat remains passive. Arrange a Burn or DEF-down move in slot 1 before battle. While that
 landed opening effect is active, the first different landed Priority, True-hit, Crit-up or Charge
-release gets -1.2 direct damage, once per side per battle. Dodges and charge telegraphs do not
+release gets 1.2x direct damage, once per side per battle. Against a higher-level foe,
+add 0.5 per higher level (gap capped at 3): 1.7x / 2.2x / 2.7x for this one hit.
+The underdog bonus makes a prepared challenge winnable without boosting equal-level combos. Dodges and charge telegraphs do not
 consume it; expiry discards it. Healing and further status moves cannot trigger it. Existing
 slot selection and combat timing are unchanged; no clicks or timing inputs are added.
 
@@ -164,17 +166,20 @@ just the pointer so this doc stays under its length budget.
 
 `packages/shared/src/game/levels.ts:statAtLevel` gains a per-stage multiplier on top of its existing linear level scaling: Baby ×1.00, Teen ×1.03, Adult ×1.06, keyed off `stageForLevel(level)` (same file). This changes the stat curve `docs/design/battle.md` describes without changing its `(level + 49) / 50` shape; the balance test must be re-verified against the new curve (see Balance targets).
 
-The stage multipliers remain unchanged. Protocol 5 deliberately targets a 60-75% win rate for
+The stage multipliers remain unchanged. Protocol 6 deliberately targets a 90-97% win rate for
 the higher-level default at the evolution boundaries (9/11 and 24/26): easier encounters should
-usually be wins. The lower-level target is now 25-40%, superseding the former 38-48% target.
+usually be wins. The unprepared lower-level target is 3-10%; prepared +3 challenges still win 30-60%
+in the opening-combo matrix. A bounded experience multiplier keeps level differences relevant
+late in the game (see battle.md Damage formula).
 All equal-level species, archetype, stance and talent balance bounds remain unchanged.
 
 ## Matchmaking and streaks
 
-Real opponents are searched in level bands `[-3, -1]`, `[0, 0]`, then `[+1, +3]`, stopping at the
+Real opponents are searched in level bands `[-3, -2]`, `[-1, -1]`, `[0, 0]`, then `[+1, +3]`, stopping at the
 first candidate. Within each band, recent opponents are excluded first, then allowed. Both sides
 are protected by a SQL absolute-gap limit of three. Wild encounters (online and offline) are 90%
-one to three levels weaker, equally distributed, and 10% elite at +3; levels clamp to [2, 50].
+weaker (-3: 60%, -2: 25%, -1: 5%) and 10% elite, split equally across +1/+2/+3;
+levels clamp to [2, 50]. Clearer level gaps make ordinary battles more forgiving.
 At the hatch floor, weaker enemies may therefore be equal. Elite is a label, not an extra XP multiplier;
 win rewards use the actual level difference, and all challenger losses pay the same amount
 (`docs/design/battle.md` Rewards). No real-player pool can guarantee weaker candidates exist.

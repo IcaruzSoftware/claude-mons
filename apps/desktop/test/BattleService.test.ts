@@ -42,7 +42,7 @@ describe('BattleService (offline / wild mon)', () => {
     if (!r.ok) return;
     expect(r.play.isBot).toBe(true);
     expect(r.play.me.level).toBe(7);
-    expect(r.play.opponent.level).toBe(5);
+    expect(r.play.opponent.level).toBe(4);
     expect(r.play.opponent.nation).not.toBe('fire');
     expect(r.play.opponent.playerId).toBeNull();
     expect(r.play.result.turns.length).toBeGreaterThan(0);
