@@ -1,10 +1,11 @@
-// claude-mons-hook forwards Claude Code hook events to the running claude-mons desktop app.
+// claude-mons-hook forwards Claude Code (or OpenAI Codex CLI) hook events to the running
+// claude-mons desktop app.
 //
-// It is invoked by Claude Code on every hook event (including every tool call), so it must be
-// tiny and fast. It reads the hook JSON from stdin, keeps only a whitelist of metadata fields
-// (never prompt text, tool input/output or transcript paths), and POSTs the envelope to the
-// app's localhost endpoint. If the app is not running, the envelope is appended to a spool file
-// that the app drains on its next start, so no XP is lost.
+// It is invoked by Claude Code or Codex on every hook event (including every tool call), so it
+// must be tiny and fast. It reads the hook JSON from stdin, keeps only a whitelist of metadata
+// fields (never prompt text, tool input/output or transcript paths), and POSTs the envelope to
+// the app's localhost endpoint. If the app is not running, the envelope is appended to a spool
+// file that the app drains on its next start, so no XP is lost.
 //
 // Usage: claude-mons-hook --home <appDataDir> --event <HookEventName>
 //

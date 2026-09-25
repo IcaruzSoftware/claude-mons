@@ -84,4 +84,41 @@ describe('rawHookToEnvelope', () => {
     expect(Object.hasOwn(env ?? {}, 'session_id')).toBe(false);
     expect(Object.hasOwn(env ?? {}, 'project')).toBe(false);
   });
+
+  it('maps Codex PermissionRequest to Notification and drops Codex-only secrets', () => {
+    const env = rawHookToEnvelope(
+      {
+        hook_event_name: 'PermissionRequest',
+        session_id: 's',
+        tool_name: 'Bash',
+        cwd: '/p',
+        tool_input: { command: 'x' },
+        prompt: 'secret',
+        model: 'gpt-5',
+        turn_id: 't',
+        permission_mode: 'default',
+        last_assistant_message: 'secret',
+        transcript_path: '/t',
+      },
+      1,
+      randomId,
+    );
+    expect(env).toMatchObject({ event: 'Notification', session_id: 's', tool_name: 'Bash' });
+    const json = JSON.stringify(env);
+    for (const leak of ['secret', 'gpt-5', 'turn_id', 'permission_mode', '/t']) {
+      expect(json).not.toContain(leak);
+    }
+  });
+
+  it('passes Codex Interrupt through', () => {
+    expect(rawHookToEnvelope({ hook_event_name: 'Interrupt', session_id: 's' }, 1, randomId)?.event).toBe(
+      'Interrupt',
+    );
+  });
+
+  it('still ignores Codex events we do not use', () => {
+    for (const e of ['SubagentStart', 'SubagentStop', 'PreCompact', 'PostCompact']) {
+      expect(rawHookToEnvelope({ hook_event_name: e }, 1, randomId)).toBeNull();
+    }
+  });
 });

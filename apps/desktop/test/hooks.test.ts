@@ -3,7 +3,7 @@ import { promises as fs } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import type { HookEnvelope } from '@claude-mons/shared';
+import { parseHookEnvelope, type HookEnvelope } from '@claude-mons/shared';
 import { ActivityTracker } from '../src/main/hooks/ActivityTracker.ts';
 import { ENDPOINT_FILE, HookServer } from '../src/main/hooks/HookServer.ts';
 import { SPOOL_FILE, SpoolDrainer } from '../src/main/hooks/SpoolDrainer.ts';
@@ -17,6 +17,13 @@ function env(partial: Partial<HookEnvelope> & { event: HookEnvelope['event'] }):
     ...partial,
   };
 }
+
+describe('parseHookEnvelope', () => {
+  it('accepts the Codex Interrupt event', () => {
+    const parsed = parseHookEnvelope({ v: 1, id: 'x', ts: 1, event: 'Interrupt', spooled: false });
+    expect(parsed?.event).toBe('Interrupt');
+  });
+});
 
 describe('HookServer', () => {
   let home: string;
@@ -274,5 +281,14 @@ describe('ActivityTracker', () => {
       midTurnSessions: 1,
       lastEventAt: 5,
     });
+  });
+
+  it('Interrupt ends the turn without a stop stimulus', () => {
+    const t = new ActivityTracker();
+    t.ingest(env({ event: 'UserPromptSubmit', session_id: 's' }), 0);
+    t.ingest(env({ event: 'PreToolUse', session_id: 's', tool_use_id: 'a' }), 1);
+    const out = t.ingest(env({ event: 'Interrupt', session_id: 's' }), 2);
+    expect(out.map((s) => s.type)).toEqual(['activity:update']);
+    expect(t.snapshot(2)).toMatchObject({ inFlightTools: 0, midTurnSessions: 0 });
   });
 });

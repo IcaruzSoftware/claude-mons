@@ -2,7 +2,12 @@ import { useEffect, useState } from 'preact/hooks';
 import { NATIONS, NATION_INFO, speciesForNation, type Nation } from '@claude-mons/shared';
 import { AccountEmailCode } from '../../ui/AccountEmailCode.tsx';
 import { SpriteView } from '../../ui/SpriteView.tsx';
-import { HOOK_STATUS_LABEL, hookStatusDotClass, isHookConnected } from '../../ui/hookStatus.ts';
+import {
+  HOOK_STATUS_LABEL,
+  hookStatusDotClass,
+  hookStatusLabel,
+  isHookConnected,
+} from '../../ui/hookStatus.ts';
 import type { UiSnapshot } from '../../../common/ipc.ts';
 import { accountCopy } from '../accountCopy.ts';
 import {
@@ -20,13 +25,13 @@ import {
 export const onboardingCopy = {
   welcome: {
     title: 'Welcome to claude-mons',
-    lead: 'A desktop pet that trains while you work with Claude Code. Its egg starts out neutral — the nation you pick gives it its color.',
+    lead: 'A desktop pet that trains while you work with Claude Code or Codex. Its egg starts out neutral — the nation you pick gives it its color.',
   },
   what: {
     title: 'What is claude-mons?',
     bullets: [
       'Your mon lives on your taskbar edge, walking, sitting and sleeping while you work.',
-      'It earns XP from your real Claude Code activity — prompts, tool calls, finished turns. No prompt text ever leaves your machine.',
+      'It earns XP from your real Claude Code or Codex activity — prompts, tool calls, finished turns. No prompt text ever leaves your machine.',
       'It hatches, levels up and evolves: Egg → Baby → Teen → Adult.',
     ],
   },
@@ -38,7 +43,7 @@ export const onboardingCopy = {
       ['Right-click', 'Menu'],
       ['Drag', 'Move it'],
       ['Shake it', "Battle another nation's mon"],
-      ['Settings → Connect Claude Code', 'One click, then start a new Claude Code session'],
+      ['Settings → Connect Claude Code / Codex', 'One click each, then start a new session'],
       ['Leaderboard tab', 'Shows trainers and nations'],
     ] as Array<[string, string]>,
   },
@@ -51,6 +56,10 @@ export const onboardingCopy = {
     success: 'Connected. Start a new Claude Code session to begin training.',
     hint: "Didn't fully connect. You can finish this any time in Settings.",
     note: 'This can be changed any time in Settings.',
+    codexCta: 'Connect Codex',
+    codexLead:
+      'Codex found too: connecting it writes ~/.codex/hooks.json and enables hooks in config.toml.',
+    codexSuccess: 'Connected. Run /hooks in Codex to trust the hooks, then start a new session.',
   },
   nation: {
     title: 'Choose your nation',
@@ -151,23 +160,42 @@ function ConnectStep({ hooks, advance }: { hooks: UiSnapshot['hooks']; advance: 
   const connected = isHookConnected(hooks.status);
   const disabled = hooks.status === 'unreadable' || hooks.status === 'no-binary';
 
+  const codex = hooks.codex;
+  const [codexBusy, setCodexBusy] = useState(false);
+  const [codexAttempted, setCodexAttempted] = useState(false);
+  const codexConnected = codex.detected && isHookConnected(codex.status);
+  const codexDisabled = !codex.detected || codex.status === 'unreadable' || codex.status === 'no-binary';
+
   const connect = async () => {
     if (busy || disabled) return;
     setBusy(true);
     try {
-      await window.monsUi.toggleHooks();
+      await window.monsUi.toggleHooks('claude');
     } finally {
       setBusy(false);
       setAttempted(true);
     }
   };
 
+  const connectCodex = async () => {
+    if (codexBusy || codexDisabled) return;
+    setCodexBusy(true);
+    try {
+      await window.monsUi.toggleHooks('codex');
+    } finally {
+      setCodexBusy(false);
+      setCodexAttempted(true);
+    }
+  };
+
   const showResult = attempted || disabled;
+  const showCodexResult = codexAttempted;
 
   return (
     <div class="onboard-step">
       <h1>{onboardingCopy.connect.title}</h1>
       <p class="lead">{onboardingCopy.connect.lead}</p>
+      {codex.detected && <p class="lead">{onboardingCopy.connect.codexLead}</p>}
       <div class="connect-actions">
         <button
           type="button"
@@ -177,6 +205,15 @@ function ConnectStep({ hooks, advance }: { hooks: UiSnapshot['hooks']; advance: 
         >
           {busy ? onboardingCopy.connect.connecting : onboardingCopy.connect.cta}
         </button>
+        {codex.detected && (
+          <button
+            type="button"
+            disabled={codexBusy || codexDisabled}
+            onClick={() => void connectCodex()}
+          >
+            {codexBusy ? onboardingCopy.connect.connecting : onboardingCopy.connect.codexCta}
+          </button>
+        )}
         <button type="button" onClick={advance}>
           {onboardingCopy.connect.skip}
         </button>
@@ -186,6 +223,13 @@ function ConnectStep({ hooks, advance }: { hooks: UiSnapshot['hooks']; advance: 
           <span class={`status-dot ${hookStatusDotClass(hooks.status)}`} />
           {connected ? onboardingCopy.connect.success : HOOK_STATUS_LABEL[hooks.status]}
           {!connected && <div class="hint">{onboardingCopy.connect.hint}</div>}
+        </div>
+      )}
+      {showCodexResult && (
+        <div class="connect-result">
+          <span class={`status-dot ${codex.detected ? hookStatusDotClass(codex.status) : ''}`} />
+          {codexConnected ? onboardingCopy.connect.codexSuccess : hookStatusLabel(codex.status, 'codex')}
+          {!codexConnected && <div class="hint">{onboardingCopy.connect.hint}</div>}
         </div>
       )}
       <p class="hint">{onboardingCopy.connect.note}</p>

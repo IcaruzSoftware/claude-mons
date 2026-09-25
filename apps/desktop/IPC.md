@@ -2,8 +2,8 @@
 doc_type: reference
 purpose: "Look up IPC channel names and payload types for renderer-to-main and main-to-renderer communication."
 audience: agent
-last_verified: 2026-09-13
-last_verified_commit: 44486b0
+last_verified: 2026-09-25
+last_verified_commit: 2ccd329
 related_files:
   - apps/desktop/src/common/ipc.ts
   - apps/desktop/README.md
@@ -50,8 +50,9 @@ Handled by `App.registerUiIpc`.
 |---|---|---|---|
 | `ui:get-snapshot` | — | `UiSnapshot` | Fetch current state for rendering |
 | `ui:choose-nation` | `string` (validated by `isNation`) | `UiSnapshot` | Choose starting nation; idempotent |
-| `ui:toggle-hooks` | — | `UiSnapshot` | Enable/disable hook installation, in the effective mode |
+| `ui:toggle-hooks` | `HookAgent` (`'claude' \| 'codex'`, defaults to `'claude'` when omitted) | `UiSnapshot` | Enable/disable hook installation for the given agent, in the effective mode |
 | `ui:set-hook-mode` | `'auto' \| 'binary' \| 'script'` | `UiSnapshot` | Set the hook mode preference; reinstalls in place if already connected |
+| `ui:ack-codex-trust` | — | `UiSnapshot` | Clears `hooks.codex.needsTrust` (Settings' "Done" button, after the player re-runs `/hooks` in Codex) |
 | `ui:set-sprite-scale` | `2 \| 3 \| 4` | `UiSnapshot` | Change sprite scale |
 | `ui:open-external` | `string` (allow-listed https://github.com/… or https://claude-mons.dev/…) | void | Open URL in browser |
 | `ui:quit` | — | void | Quit the app |
@@ -93,9 +94,9 @@ Handled by `App.registerUiIpc`.
 - **StimulusMessage:** = shared Stimulus (union type from @claude-mons/shared).
 - **BattlePlayMessage:** id, result (BattleResult, whose `turns[].actions[]` now carry `moveId`/`effect`/`charge` per docs/design/progression.md Move pool and effects), me/opponent (MonSnapshot, now carrying `loadout.stance`/`loadout.moves`), reward XP, isBot, isElite (10% elite Wild Mon encounter), winStreak (challenger's streak after this battle).
 - **BattleSummary:** id, at (timestamp), won, xp, isBot, isElite, winStreak, turns, reason, me (speciesId, stage, level), opponent (nickname, speciesId, stage, level, nation, `loadout: MonLoadout` — the opponent's stance/moves/tree at battle time, `{}` for history recorded before this field existed; docs/design/progression.md Phase D: recent-opponent intel). The Battles tab's "Recent opponents" cards rebuild a `MonSnapshot`-shaped object from `opponent` and pass it to the shared pure `explainMatchup` (`packages/shared/src/battle/matchup.ts`) against the player's current loadout.
-- **UiSnapshot:** version, isDev, `devOnboardingStep` (dev builds only: open the onboarding wizard on step n for a capture, from `--dev-onboarding-step <n>`), profile (nickname, nation, userId), account (email, anonymous, signedOut — the last true when a known account lost its session, driving the sign-in-again banner), pet (speciesId, stage, state), progress (localXp, serverXp, streakDays), hooks (status, mode, effectiveMode, probe), settings (scale, autostart), online (connected, lastSyncAt, lastError, configured), update status, notifications, battles (history, cooldownUntil, remainingToday, winStreak, loadout, unlockedMoveIds, treePoints, sharedPassivePoints, lastRespecAt), water (enabled, intervalMin, todayCount, nextDueAt).
+- **UiSnapshot:** version, isDev, `devOnboardingStep` (dev builds only: open the onboarding wizard on step n for a capture, from `--dev-onboarding-step <n>`), profile (nickname, nation, userId), account (email, anonymous, signedOut — the last true when a known account lost its session, driving the sign-in-again banner), pet (speciesId, stage, state), progress (localXp, serverXp, streakDays), hooks (status, mode, effectiveMode, probe, codex), settings (scale, autostart), online (connected, lastSyncAt, lastError, configured), update status, notifications, battles (history, cooldownUntil, remainingToday, winStreak, loadout, unlockedMoveIds, treePoints, sharedPassivePoints, lastRespecAt), water (enabled, intervalMin, todayCount, nextDueAt).
 - **SetLoadoutPayload:** `{ stance?: Stance, moves?: string[], tree?: Record<string, number>, respec?: boolean }` — same shape the `set-loadout` Edge Function accepts (`packages/shared/src/api.ts:SetLoadoutRequest`); `tree`/`respec` are docs/design/talent-tree.md.
 - **AccountOpResult:** `{ok: boolean, error: string | null}`; `error` is a short user-facing string (see `apps/desktop/src/main/net/SupabaseClient.ts`'s `describeAuthError`). See `docs/architecture/flows/account-linking.md`.
 - **`water:done`/`water:snooze` are bridged as `window.monsUi.water.done()`/`window.monsUi.water.snooze()`** (a nested object on the shared `uiApi`, alongside the flat `setWaterEnabled`/`setWaterInterval` methods), used only by `src/renderer/reminder/main.tsx`.
-- **hooks.status:** `'installed-binary' | 'installed-script' | 'partial' | 'not-installed' | 'unreadable' | 'no-binary'`. **hooks.mode:** the configured preference (`'auto' | 'binary' | 'script'`). **hooks.effectiveMode:** what `'auto'` resolved to (`'binary' | 'script'`). **hooks.probe:** last `probeBinary()` result (`'ok' | 'blocked' | 'missing' | null`).
+- **hooks.status:** `'installed-binary' | 'installed-script' | 'partial' | 'not-installed' | 'unreadable' | 'no-binary'`. **hooks.mode:** the configured preference (`'auto' | 'binary' | 'script'`). **hooks.effectiveMode:** what `'auto'` resolved to (`'binary' | 'script'`). **hooks.probe:** last `probeBinary()` result (`'ok' | 'blocked' | 'missing' | null`). These four describe Claude Code only (the shared install mode); Codex has its own independent hook install, tracked separately in **hooks.codex**: `{status: HookStatusValue, detected: boolean, feature: 'ok' | 'unsupported' | null, needsTrust: boolean}` — `status` is the same enum as above for Codex's own `~/.codex/hooks.json`, `detected` is whether `~/.codex` (or `$CODEX_HOME`) exists at all (the panel/tray only offer to connect Codex when it does), `feature` is the last result of the app enabling `[features] hooks = true` in Codex's `~/.codex/config.toml` (`null` before any attempt, `'unsupported'` when that file's `[features]` table has a form the app refuses to edit automatically), and `needsTrust` is an in-memory-only flag set when an automatic reinstall rewrote Codex's installed command line (mode switch or script-mode port rotation — `src/main/hooks/mode.ts:needsReinstall`), which invalidates Codex's own `/hooks` trust hash; cleared by `ui:ack-codex-trust` or by the player connecting/disconnecting Codex themselves. **HookAgent** (`'claude' | 'codex'`) is the `ui:toggle-hooks` payload type, defined once in `src/common/ipc.ts` and re-exported by `src/main/hooks/agents.ts`.
 - **LeaderboardPayload:** nations rows, alltime rows, weekly rows, myRank, fetchedAt, error.

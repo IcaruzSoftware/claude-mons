@@ -3,6 +3,12 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
+  CLAUDE_AGENT,
+  CODEX_AGENT,
+  codexConfigPath,
+  codexHooksPath,
+} from '../src/main/hooks/agents.ts';
+import {
   HookInstaller,
   buildOurHooks,
   claudeSettingsPath,
@@ -14,6 +20,7 @@ import {
   type HookTarget,
   type Settings,
 } from '../src/main/hooks/HookInstaller.ts';
+import { RAW_EVENT_ALIASES } from '../src/main/hooks/rawHook.ts';
 
 const BIN = 'C:\\Users\\me\\AppData\\Roaming\\claude-mons\\bin\\claude-mons-hook.exe';
 const HOME = 'C:\\Users\\me\\AppData\\Roaming\\claude-mons';
@@ -133,6 +140,68 @@ describe('merge / remove (pure)', () => {
   });
 });
 
+describe('codex agent', () => {
+  const ours = buildOurHooks(BINARY_TARGET, CODEX_AGENT);
+
+  it('installs the Codex event set with Codex timeouts', () => {
+    expect(Object.keys(ours).sort()).toEqual(
+      [
+        'Interrupt',
+        'PermissionRequest',
+        'PostToolUse',
+        'PreToolUse',
+        'SessionEnd',
+        'SessionStart',
+        'Stop',
+        'UserPromptSubmit',
+      ].sort(),
+    );
+    expect(ours.Interrupt?.[0]?.hooks[0]?.timeout).toBe(3);
+    expect(ours.SessionEnd?.[0]?.hooks[0]?.timeout).toBe(3);
+    expect(ours.Stop?.[0]?.hooks[0]?.timeout).toBe(5);
+  });
+
+  it('maps PermissionRequest to --event Notification in binary mode', () => {
+    expect(ours.PermissionRequest?.[0]?.hooks[0]?.command).toMatch(/--event Notification$/);
+  });
+
+  it('preserves foreign codex hooks', () => {
+    const herdr: Settings = {
+      hooks: {
+        SessionStart: [
+          {
+            hooks: [
+              { command: "bash '/h/.codex/herdr-agent-state.sh' session", timeout: 10, type: 'command' },
+            ],
+          },
+        ],
+      },
+    };
+    const merged = mergeOurHooks(herdr, ours);
+    expect(removeOurHooks(merged)).toEqual(herdr);
+    expect(statusOf(merged, CODEX_AGENT)).toBe('installed-binary');
+    expect(statusOf(merged, CLAUDE_AGENT)).toBe('partial'); // Claude needs Notification key
+  });
+
+  it('honors CODEX_HOME', () => {
+    expect(codexHooksPath({ CODEX_HOME: '/tmp/cx' }, '/home/x')).toBe(join('/tmp/cx', 'hooks.json'));
+    expect(codexConfigPath({}, '/home/x')).toBe(join('/home/x', '.codex', 'config.toml'));
+  });
+
+  it('keeps binary-mode and script-mode Notification aliasing in sync', () => {
+    for (const e of CODEX_AGENT.events) {
+      if (e.name !== e.as) {
+        expect(RAW_EVENT_ALIASES[e.name]).toBe(e.as);
+      }
+    }
+  });
+});
+
+it('claude spec installs exactly the seven Claude events', () => {
+  expect(Object.keys(buildOurHooks(BINARY_TARGET)).sort()).not.toContain('Interrupt');
+  expect(Object.keys(buildOurHooks(BINARY_TARGET))).toHaveLength(7);
+});
+
 describe('HookInstaller (filesystem)', () => {
   let dir: string;
   let settingsPath: string;
@@ -200,5 +269,59 @@ describe('HookInstaller (filesystem)', () => {
     expect(await inst.status()).toBe('unreadable');
     await expect(inst.install()).rejects.toThrow(/Cannot parse/);
     expect(await fs.readFile(settingsPath, 'utf8')).toBe('{ not json');
+  });
+
+  it('reinstalling Codex script-mode hooks with a new port rewrites the command and keeps a foreign hook', async () => {
+    const foreign: Settings = {
+      hooks: {
+        SessionStart: [
+          {
+            hooks: [
+              { command: "bash '/h/.codex/herdr-agent-state.sh' session", timeout: 10, type: 'command' },
+            ],
+          },
+        ],
+      },
+    };
+    await fs.writeFile(settingsPath, JSON.stringify(foreign));
+
+    const oldEndpoint = { port: 51733, token: 'a'.repeat(64) };
+    const first = new HookInstaller({
+      settingsPath,
+      target: { mode: 'script', endpoint: oldEndpoint },
+      spec: CODEX_AGENT,
+    });
+    expect(await first.install()).toBe('installed-script');
+
+    const newEndpoint = { port: 51799, token: 'a'.repeat(64) };
+    const second = new HookInstaller({
+      settingsPath,
+      target: { mode: 'script', endpoint: newEndpoint },
+      spec: CODEX_AGENT,
+    });
+    expect(await second.install()).toBe('installed-script');
+
+    const written = JSON.parse(await fs.readFile(settingsPath, 'utf8'));
+    const stopCommand = written.hooks.Stop[0].hooks[0].command as string;
+    expect(stopCommand).toContain(`:${newEndpoint.port}/hook`);
+    expect(stopCommand).not.toContain(`:${oldEndpoint.port}/hook`);
+    expect(written.hooks.Stop).toHaveLength(1); // old-port command replaced, not appended
+    const sessionStartCommands = written.hooks.SessionStart.flatMap(
+      (g: { hooks: { command: string }[] }) => g.hooks.map((h) => h.command),
+    );
+    expect(sessionStartCommands).toContain("bash '/h/.codex/herdr-agent-state.sh' session");
+  });
+
+  it('runs beforeInstall once before writing', async () => {
+    let calls = 0;
+    const beforeInstall = async () => {
+      calls++;
+      await expect(fs.readFile(settingsPath, 'utf8')).rejects.toThrow();
+    };
+    const inst = new HookInstaller({ settingsPath, target: BINARY_TARGET, beforeInstall });
+    expect(await inst.install()).toBe('installed-binary');
+    expect(calls).toBe(1);
+    const written = JSON.parse(await fs.readFile(settingsPath, 'utf8'));
+    expect(written.hooks.Stop[0].hooks[0].command).toContain('claude-mons-hook');
   });
 });

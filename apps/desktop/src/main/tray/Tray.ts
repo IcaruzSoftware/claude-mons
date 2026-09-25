@@ -1,5 +1,7 @@
 import { Menu, Tray, app, type MenuItemConstructorOptions } from 'electron';
 import type { Stage } from '@claude-mons/shared';
+import type { HookAgent } from '../../common/ipc.ts';
+import { CLAUDE_AGENT, CODEX_AGENT, codexDetected } from '../hooks/agents.ts';
 import type { HookStatus } from '../hooks/HookInstaller.ts';
 import { iconFromSprite } from './icons.ts';
 
@@ -15,13 +17,35 @@ export interface TrayActions {
   /** False until a nation is chosen; gates whether the full pet menu or "Finish setup" shows. */
   hasNation(): boolean;
   openPanel(): void;
-  hookStatus(): HookStatus;
-  toggleHooks(): void;
+  hookStatus(agent: HookAgent): HookStatus;
+  toggleHooks(agent: HookAgent): void;
+  /** True while an automatic reinstall changed Codex's command line and it needs re-trusting via `/hooks`. */
+  codexNeedsTrust(): boolean;
   /** Mirrors `settings.waterReminder.enabled`. */
   waterReminderEnabled(): boolean;
   toggleWaterReminder(): void;
   progressLine(): string;
   quit(): void;
+}
+
+/**
+ * Tray/context-menu text for one agent's hook item, parametrized by its display label so Claude
+ * Code and Codex share the same phrasing. Pure -- `App.ts` has no unit-test harness of its own, so
+ * this is extracted and unit-tested directly in `apps/desktop/test/Tray.test.ts` instead.
+ */
+export function hookMenuLabel(label: string, status: HookStatus): string {
+  switch (status) {
+    case 'installed-binary':
+      return `● ${label} connected (click to disconnect)`;
+    case 'installed-script':
+      return `● ${label} connected via script mode (click to disconnect)`;
+    case 'partial':
+      return `◐ ${label} partially connected (click to repair)`;
+    case 'unreadable':
+      return `○ Cannot read ${label} settings`;
+    default:
+      return `○ Connect ${label}`;
+  }
 }
 
 /** System tray icon + menu. The same menu is used for right-clicks on the pet. */
@@ -84,26 +108,33 @@ export class AppTray {
       ];
     }
     const scale = this.actions.getSpriteScale();
-    const status = this.actions.hookStatus();
-    const hookLabel =
-      status === 'installed-binary'
-        ? '● Claude Code connected (click to disconnect)'
-        : status === 'installed-script'
-          ? '● Claude Code connected via script mode (click to disconnect)'
-          : status === 'partial'
-            ? '◐ Claude Code partially connected (click to repair)'
-            : status === 'unreadable'
-              ? '○ Cannot read Claude settings.json'
-              : '○ Connect Claude Code';
+    const status = this.actions.hookStatus('claude');
+    const hookLabel = hookMenuLabel(CLAUDE_AGENT.label, status);
+    // The Codex menu item only appears once a Codex install is actually detected on this machine
+    // (`codexHome()`'s directory exists) -- most users won't have one, and there's nothing to
+    // connect to otherwise.
+    const codexStatus = codexDetected() ? this.actions.hookStatus('codex') : null;
+    const codexTrustSuffix = this.actions.codexNeedsTrust() ? ' (run /hooks again)' : '';
+    const codexItems: MenuItemConstructorOptions[] =
+      codexStatus
+        ? [
+            {
+              label: hookMenuLabel(CODEX_AGENT.label, codexStatus) + codexTrustSuffix,
+              click: () => this.actions.toggleHooks('codex'),
+              enabled: codexStatus !== 'unreadable',
+            },
+          ]
+        : [];
     return [
       { label: this.actions.progressLine(), enabled: false },
       { type: 'separator' },
       { label: 'Open claude-mons', click: () => this.actions.openPanel() },
       {
         label: hookLabel,
-        click: () => this.actions.toggleHooks(),
+        click: () => this.actions.toggleHooks('claude'),
         enabled: status !== 'unreadable',
       },
+      ...codexItems,
       { type: 'separator' },
       {
         label: this.actions.isPetVisible() ? 'Hide pet' : 'Show pet',

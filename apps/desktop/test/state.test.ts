@@ -11,7 +11,7 @@ describe('MIGRATIONS', () => {
   });
 
   it('addOpponentLoadoutSummary (v6 -> v7) backfills opponent.loadout with {} on old history entries', () => {
-    const addOpponentLoadoutSummary = MIGRATIONS[MIGRATIONS.length - 1]!;
+    const addOpponentLoadoutSummary = MIGRATIONS[MIGRATIONS.length - 2]!;
     const before = {
       schemaVersion: 6,
       battles: {
@@ -37,9 +37,26 @@ describe('MIGRATIONS', () => {
   });
 
   it('addOpponentLoadoutSummary tolerates a missing/empty history array', () => {
-    const addOpponentLoadoutSummary = MIGRATIONS[MIGRATIONS.length - 1]!;
+    const addOpponentLoadoutSummary = MIGRATIONS[MIGRATIONS.length - 2]!;
     expect(() => addOpponentLoadoutSummary({ schemaVersion: 6 })).not.toThrow();
     expect(() => addOpponentLoadoutSummary({ schemaVersion: 6, battles: {} })).not.toThrow();
+  });
+
+  it('addCodexHooks (v7 -> v8) adds hooks.codexInstalledAt: null and keeps installedAt', () => {
+    const addCodexHooks = MIGRATIONS[MIGRATIONS.length - 1]!;
+    const before = {
+      schemaVersion: 7,
+      hooks: { installedAt: 12345, port: 51733, token: 'abc', mode: 'auto' },
+    };
+    const after = addCodexHooks(before) as typeof before & {
+      hooks: { codexInstalledAt: unknown };
+    };
+    expect(after.hooks.codexInstalledAt).toBeNull();
+    expect(after.hooks.installedAt).toBe(12345);
+  });
+
+  it('defaultState().hooks.codexInstalledAt is null', () => {
+    expect(defaultState().hooks.codexInstalledAt).toBeNull();
   });
 });
 

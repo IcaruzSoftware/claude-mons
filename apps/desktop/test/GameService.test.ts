@@ -125,6 +125,23 @@ describe('GameService', () => {
     expect(sources.filter((s) => s === 'bonus')).toHaveLength(1);
   });
 
+  it('grants no XP for Interrupt', () => {
+    const a = access();
+    let clock = Date.UTC(2026, 8, 4, 12, 0, 0);
+    const game = new GameService(a, {
+      localGame: true,
+      rollSpecies: () => 'sparkit',
+      now: () => clock,
+    });
+    game.ingest(ev('UserPromptSubmit'));
+    const xpBefore = a.state.progress.localXp;
+    const pendingLengthBefore = a.state.ledger.pending.length;
+    clock += 1000;
+    game.ingest(ev('Interrupt'));
+    expect(a.state.progress.localXp).toBe(xpBefore);
+    expect(a.state.ledger.pending).toHaveLength(pendingLengthBefore);
+  });
+
   it('spooled events are credited at their original time', () => {
     const a = access();
     const now = Date.UTC(2026, 8, 4, 12, 0, 0);

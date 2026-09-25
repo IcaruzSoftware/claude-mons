@@ -13,6 +13,7 @@ import {
   type BattlePlayMessage,
   type Hitbox,
   type HitboxMessage,
+  type HookAgent,
   type PetConfig,
   type PointerMessage,
   type StateMessage,
@@ -58,7 +59,12 @@ export interface PetHostCallbacks {
   onClick: () => void;
   onPanel: () => void;
   onBattleRequest: () => void;
-  hooks: { status: () => HookStatus; toggle: () => void };
+  hooks: {
+    status: (agent: HookAgent) => HookStatus;
+    toggle: (agent: HookAgent) => void;
+    /** Whether Codex's installed command line changed under it and needs re-trusting via `/hooks`. */
+    codexNeedsTrust: () => boolean;
+  };
   water: { enabled: () => boolean; toggle: () => void };
   progressLine: () => string;
 }
@@ -147,8 +153,9 @@ export class PetHost {
       battleNow: () => this.callbacks.onBattleRequest(),
       hasNation: () => this.state.nation !== null,
       openPanel: () => this.callbacks.onPanel(),
-      hookStatus: () => this.callbacks.hooks.status(),
-      toggleHooks: () => this.callbacks.hooks.toggle(),
+      hookStatus: (agent) => this.callbacks.hooks.status(agent),
+      toggleHooks: (agent) => this.callbacks.hooks.toggle(agent),
+      codexNeedsTrust: () => this.callbacks.hooks.codexNeedsTrust(),
       waterReminderEnabled: () => this.callbacks.water.enabled(),
       toggleWaterReminder: () => this.callbacks.water.toggle(),
       progressLine: () => this.callbacks.progressLine(),

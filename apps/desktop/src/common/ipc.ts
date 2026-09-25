@@ -45,6 +45,7 @@ export const IPC = {
   uiChooseNation: 'ui:choose-nation',
   uiToggleHooks: 'ui:toggle-hooks',
   uiSetHookMode: 'ui:set-hook-mode',
+  uiAckCodexTrust: 'ui:ack-codex-trust',
   uiSetSpriteScale: 'ui:set-sprite-scale',
   uiOpenExternal: 'ui:open-external',
   uiQuit: 'ui:quit',
@@ -221,6 +222,12 @@ export type HookStatusValue =
 export type HookModeValue = 'auto' | 'binary' | 'script';
 export type HookProbeValue = 'ok' | 'blocked' | 'missing' | null;
 
+/**
+ * Coding agent whose hooks we can install (single source of truth; `apps/desktop/src/main/hooks/
+ * agents.ts` imports and re-exports this instead of declaring its own literal union).
+ */
+export type HookAgent = 'claude' | 'codex';
+
 /** Everything the panel and hover card need to render. Pushed on every change. */
 export interface UiSnapshot {
   version: string;
@@ -244,6 +251,28 @@ export interface UiSnapshot {
     effectiveMode: 'binary' | 'script';
     /** last `probeBinary()` result, or null before the first probe (e.g. no binary bundled) */
     probe: HookProbeValue;
+    /**
+     * Codex's own hook install status, tracked alongside Claude's above. `detected` is whether
+     * Codex's config directory (`codexHome()`) exists on disk at all -- the panel/tray only offer
+     * to connect Codex when it does. `feature` is the last `ensureCodexHooksFeature()` result (the
+     * app enables `[features] hooks = true` in Codex's `config.toml` itself): `'unsupported'` means
+     * that file's `[features]` table has a form the app refuses to edit automatically, `null` means
+     * no install/reinstall has attempted it yet.
+     *
+     * `needsTrust` is set (in memory only, never persisted) whenever an automatic reinstall
+     * actually rewrote the installed Codex command line (a binary/script mode switch, or a
+     * script-mode port rotation -- see `apps/desktop/src/main/hooks/mode.ts:needsReinstall`). Codex
+     * trusts its hooks by a hash of the command line, so a rewritten command silently stops running
+     * until the player re-runs `/hooks` in Codex; this flag drives the Settings hint and the tray
+     * label suffix that tell them so. Cleared by `ui:ack-codex-trust` or by the player
+     * connecting/disconnecting Codex themselves.
+     */
+    codex: {
+      status: HookStatusValue;
+      detected: boolean;
+      feature: 'ok' | 'unsupported' | null;
+      needsTrust: boolean;
+    };
   };
   settings: { spriteScale: number; autostart: boolean };
   water: {

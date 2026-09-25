@@ -1,13 +1,14 @@
 import { promises as fs } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { HOOK_EVENTS, type HookEventName } from '@claude-mons/shared';
+import type { HookEventName } from '@claude-mons/shared';
+import { CLAUDE_AGENT, type HookAgentSpec } from './agents.ts';
+import { backupFile } from './backup.ts';
 
 /** Marker that identifies binary-mode hook commands we own inside the user's settings. */
 export const HOOK_MARKER = 'claude-mons-hook';
 /** Marker that identifies script-mode (curl) hook commands we own. Header has no space before ':'. */
 export const SCRIPT_HOOK_MARKER = 'X-Claude-Mons-Token:';
-const BACKUPS_TO_KEEP = 5;
 
 export type HookMode = 'binary' | 'script';
 export type HookStatus =
@@ -72,17 +73,17 @@ export function scriptCommand(
   );
 }
 
-/** Builds the hooks we add for all supported events, pointed at the given target. */
-export function buildOurHooks(target: HookTarget): HooksSection {
+/** Builds the hooks we add for all of the agent's events, pointed at the given target. */
+export function buildOurHooks(target: HookTarget, spec: HookAgentSpec = CLAUDE_AGENT): HooksSection {
   const section: HooksSection = {};
-  for (const event of HOOK_EVENTS) {
+  for (const e of spec.events) {
     const command =
       target.mode === 'binary'
-        ? hookCommand(target.binaryPath, target.homeDir, event)
+        ? hookCommand(target.binaryPath, target.homeDir, e.as)
         : scriptCommand(target.endpoint);
-    const group: HookGroup = { hooks: [{ type: 'command', command, timeout: 5 }] };
-    if (event === 'PreToolUse' || event === 'PostToolUse') group.matcher = '*';
-    section[event] = [group];
+    const group: HookGroup = { hooks: [{ type: 'command', command, timeout: e.timeout }] };
+    if (e.matcher) group.matcher = e.matcher;
+    section[e.name] = [group];
   }
   return section;
 }
@@ -136,14 +137,14 @@ export function mergeOurHooks(settings: Settings, ours: HooksSection): Settings 
   return { ...cleaned, hooks };
 }
 
-/** Reports how many of our events are present, and in which mode. Pure. */
-export function statusOf(settings: Settings): HookStatus {
+/** Reports how many of the agent's events are present, and in which mode. Pure. */
+export function statusOf(settings: Settings, spec: HookAgentSpec = CLAUDE_AGENT): HookStatus {
   const hooks = settings.hooks;
   if (!hooks || typeof hooks !== 'object') return 'not-installed';
   let present = 0;
   const modes = new Set<HookMode>();
-  for (const event of HOOK_EVENTS) {
-    const groups = hooks[event];
+  for (const e of spec.events) {
+    const groups = hooks[e.name];
     if (!Array.isArray(groups)) continue;
     let foundForEvent = false;
     for (const g of groups) {
@@ -160,33 +161,40 @@ export function statusOf(settings: Settings): HookStatus {
     if (foundForEvent) present++;
   }
   if (present === 0) return 'not-installed';
-  if (present < HOOK_EVENTS.length || modes.size > 1) return 'partial';
+  if (present < spec.events.length || modes.size > 1) return 'partial';
   return modes.has('script') ? 'installed-script' : 'installed-binary';
 }
 
 export interface HookInstallerOptions {
   settingsPath: string;
   target: HookTarget;
+  spec?: HookAgentSpec;
+  beforeInstall?: () => Promise<void>;
 }
 
 /**
- * Edits Claude Code's settings.json to add/remove our hooks. Always backs up first, never
- * touches other people's hooks, aborts (without writing) on invalid JSON.
+ * Edits Claude Code's settings.json or Codex's hooks.json to add/remove our hooks. Always backs
+ * up first, never touches other people's hooks, aborts (without writing) on invalid JSON.
  */
 export class HookInstaller {
-  constructor(private readonly opts: HookInstallerOptions) {}
+  private readonly spec: HookAgentSpec;
+
+  constructor(private readonly opts: HookInstallerOptions) {
+    this.spec = opts.spec ?? CLAUDE_AGENT;
+  }
 
   async status(): Promise<HookStatus> {
     const settings = await this.read();
     if (settings === 'unreadable') return 'unreadable';
-    return statusOf(settings ?? {});
+    return statusOf(settings ?? {}, this.spec);
   }
 
   async install(): Promise<HookStatus> {
     const current = await this.read();
     if (current === 'unreadable')
       throw new Error(`Cannot parse ${this.opts.settingsPath}; not modifying it.`);
-    const next = mergeOurHooks(current ?? {}, buildOurHooks(this.opts.target));
+    const next = mergeOurHooks(current ?? {}, buildOurHooks(this.opts.target, this.spec));
+    await this.opts.beforeInstall?.();
     await this.write(next, current !== null);
     return this.status();
   }
@@ -221,27 +229,9 @@ export class HookInstaller {
   private async write(settings: Settings, backup: boolean): Promise<void> {
     const path = this.opts.settingsPath;
     await fs.mkdir(dirname(path), { recursive: true });
-    if (backup) await this.backup();
+    if (backup) await backupFile(path);
     const tmp = `${path}.claude-mons.tmp`;
     await fs.writeFile(tmp, `${JSON.stringify(settings, null, 2)}\n`, 'utf8');
     await fs.rename(tmp, path);
-  }
-
-  private async backup(): Promise<void> {
-    const path = this.opts.settingsPath;
-    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
-    const dest = `${path}.claude-mons-backup-${stamp}`;
-    try {
-      await fs.copyFile(path, dest);
-    } catch {
-      return;
-    }
-    // keep only the newest N backups
-    const dir = dirname(path);
-    const prefix = `${path.slice(dir.length + 1)}.claude-mons-backup-`;
-    const entries = (await fs.readdir(dir)).filter((f) => f.startsWith(prefix)).sort();
-    for (const old of entries.slice(0, Math.max(0, entries.length - BACKUPS_TO_KEEP))) {
-      await fs.rm(join(dir, old), { force: true }).catch(() => {});
-    }
   }
 }

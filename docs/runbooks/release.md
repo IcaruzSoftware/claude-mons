@@ -2,8 +2,8 @@
 doc_type: runbook
 purpose: "Create a new release of claude-mons with signed Windows binaries."
 audience: both
-last_verified: 2026-09-13
-last_verified_commit: 8a24ac9
+last_verified: 2026-09-25
+last_verified_commit: 2ccd329
 related_files:
   - .github/workflows/release.yml
   - scripts/signpath-sign.ps1
@@ -13,6 +13,9 @@ related_files:
   - apps/desktop/scripts/after-pack.mjs
   - apps/desktop/package.json
   - docs/runbooks/apt-repository.md
+  - docs/runbooks/deploy-backend.md
+  - docs/decisions/0021-codex-hook-integration.md
+  - packages/shared/src/game/xp.ts
 ---
 
 # Release
@@ -22,6 +25,17 @@ Use this runbook when shipping a new version. The workflow builds and signs Wind
 ## Prerequisites
 
 SignPath code signing requires one-time setup by a project owner; see the "Setup SignPath" section at the end. Without those secrets, releases build and publish unsigned Windows binaries. The release process itself is the same.
+
+## Backend-first ordering for XP-classification changes
+
+If this release changes how the client classifies hook events into XP categories (e.g.
+`packages/shared/src/game/xp.ts`'s `classifyTool`, as ADR 0021 did for Codex's `apply_patch`/
+`update_plan`), redeploy the `ingest-xp` Edge Function ([docs/runbooks/deploy-backend.md](deploy-backend.md))
+**before** publishing the client release, not after. The server is the authority a reconciliation
+corrects local XP against: if the client ships first, it starts sending events the *old* server still
+classifies as `read` (weight 0), and the next reconciliation corrects the client's provisional
+`mutate`/`meta` XP back down until the server catches up. Deploying the backend first costs nothing —
+`ingest-xp` only gains a new classification, it never loses one existing clients rely on.
 
 ## app-update.yml (electron-updater's manifest)
 

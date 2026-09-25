@@ -1,7 +1,12 @@
 import { createHash } from 'node:crypto';
-import { isHookEventName, type HookEnvelope } from '@claude-mons/shared';
+import { isHookEventName, type HookEnvelope, type HookEventName } from '@claude-mons/shared';
 
 const DEBUG = process.env.CLAUDE_MONS_DEBUG === '1';
+
+/** Agent-specific event names that map onto one of ours (Codex has no Notification event). */
+export const RAW_EVENT_ALIASES: Readonly<Record<string, HookEventName>> = {
+  PermissionRequest: 'Notification',
+};
 
 /**
  * Converts the raw Claude Code hook JSON (as posted to `/hook` by the script-mode curl command)
@@ -22,7 +27,8 @@ export function rawHookToEnvelope(
     return typeof v === 'string' && v.length > 0 ? v : undefined;
   };
 
-  const eventName = str('hook_event_name');
+  const rawName = str('hook_event_name');
+  const eventName = rawName !== undefined ? (RAW_EVENT_ALIASES[rawName] ?? rawName) : undefined;
   if (!isHookEventName(eventName)) {
     if (DEBUG) console.info(`rawHookToEnvelope: unknown event ${JSON.stringify(eventName)}`);
     return null;

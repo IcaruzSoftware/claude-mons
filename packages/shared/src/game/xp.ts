@@ -41,7 +41,7 @@ export const BONUS = {
   streakGapDays: 3,
 } as const;
 
-const MUTATE = new Set(['Edit', 'MultiEdit', 'Write', 'NotebookEdit']);
+const MUTATE = new Set(['Edit', 'MultiEdit', 'Write', 'NotebookEdit', 'apply_patch']);
 const RUN = new Set(['Bash', 'Task', 'PowerShell', 'Agent', 'Workflow']);
 const META = new Set([
   'TodoWrite',
@@ -52,6 +52,7 @@ const META = new Set([
   'ToolSearch',
   'ListAgents',
   'ScheduleWakeup',
+  'update_plan',
 ]);
 
 export function classifyTool(name: string | undefined): ToolClass {

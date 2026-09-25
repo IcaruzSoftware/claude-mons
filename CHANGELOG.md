@@ -3,13 +3,14 @@ doc_type: reference
 purpose: "Release notes and version history; check this when seeing claude-mons updates or deciding what version to expect features in."
 audience: both
 last_verified: 2026-09-25
-last_verified_commit: 76a7435
+last_verified_commit: 08cd894
 related_files:
   - docs/history/v1-handoff-2026-09-04.md
   - docs/README.md
   - docs/decisions/0016-email-otp-account-linking.md
   - docs/decisions/0017-force-x11-backend-on-linux.md
   - docs/decisions/0018-compact-window-and-fail-closed-click-through.md
+  - docs/decisions/0021-codex-hook-integration.md
   - docs/runbooks/auth-email-config.md
   - docs/design/talent-tree.md
 ---
@@ -17,6 +18,20 @@ related_files:
 # Changelog
 
 All notable changes to claude-mons are documented here. See [Keep a Changelog](https://keepachangelog.com/) for format details.
+
+## [Unreleased]
+
+### Added
+
+- **Codex CLI support.** claude-mons now trains from OpenAI Codex CLI sessions alongside Claude
+  Code: Settings and the onboarding wizard gain a second "Connect Codex" step (shown only when
+  Codex is detected on the machine) that installs hooks into `~/.codex/hooks.json` and turns on
+  Codex's `[features] hooks` flag in `~/.codex/config.toml`, backing the file up first. Codex's
+  `apply_patch` and `update_plan` tools are classified the same as Claude Code's `Edit` and
+  `TodoWrite`; a Codex `Interrupt` ends the pet's thinking/working animation without a success
+  animation and earns no XP, matching Claude Code's silent user interrupt. See
+  [ADR 0021](docs/decisions/0021-codex-hook-integration.md). Requires redeploying the `ingest-xp`
+  Edge Function, since the shared tool classifier it copies changed.
 
 ## [0.2.4] - 2026-09-25
 

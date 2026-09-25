@@ -2,8 +2,8 @@
 doc_type: design
 purpose: "Read this when you need the exact XP numbers, caps, or streak/bonus rules for the pet's activity economy."
 audience: agent
-last_verified: 2026-09-13
-last_verified_commit: 8a24ac9
+last_verified: 2026-09-25
+last_verified_commit: e6a5912
 related_files:
   - packages/shared/src/game/xp.ts
   - packages/shared/test/xp.test.ts
@@ -28,10 +28,10 @@ related_files:
 
 | Class | `TOOL_XP` | Tools |
 |---|---|---|
-| `mutate` | 2 | `Edit`, `MultiEdit`, `Write`, `NotebookEdit` |
+| `mutate` | 2 | `Edit`, `MultiEdit`, `Write`, `NotebookEdit`, `apply_patch` (Codex) |
 | `run` | 1 | `Bash`, `Task`, `PowerShell`, `Agent`, `Workflow`, and any name starting with `mcp__` |
 | `read` | 1 | everything else, including an unknown/undefined name (the default) |
-| `meta` | 0 | `TodoWrite`, `TodoRead`, `AskUserQuestion`, `ExitPlanMode`, `EnterPlanMode`, `ToolSearch`, `ListAgents`, `ScheduleWakeup` |
+| `meta` | 0 | `TodoWrite`, `TodoRead`, `AskUserQuestion`, `ExitPlanMode`, `EnterPlanMode`, `ToolSearch`, `ListAgents`, `ScheduleWakeup`, `update_plan` (Codex) |
 
 ## Caps
 

@@ -1,9 +1,9 @@
 ---
 doc_type: architecture
-purpose: "Read this when tracing how a Claude Code hook event turns into pet animation and player XP, or debugging why an animation or an XP credit didn't happen."
+purpose: "Read this when tracing how a Claude Code or Codex hook event turns into pet animation and player XP, or debugging why an animation or an XP credit didn't happen."
 audience: agent
-last_verified: 2026-09-13
-last_verified_commit: 8a24ac9
+last_verified: 2026-09-25
+last_verified_commit: 08cd894
 related_files:
   - packages/hook-cli/main.go
   - apps/desktop/src/main/hooks/HookServer.ts
@@ -11,19 +11,23 @@ related_files:
   - apps/desktop/src/main/hooks/mode.ts
   - apps/desktop/src/main/hooks/SpoolDrainer.ts
   - apps/desktop/src/main/hooks/ActivityTracker.ts
+  - apps/desktop/src/main/hooks/agents.ts
   - apps/desktop/src/main/App.ts
   - apps/desktop/src/main/game/GameService.ts
   - apps/desktop/src/main/net/SyncQueue.ts
   - supabase/functions/ingest-xp/index.ts
   - supabase/functions/_shared/pipeline.ts
   - docs/decisions/0014-curl-script-mode-hook-fallback.md
+  - docs/decisions/0021-codex-hook-integration.md
 ---
 
 # Hook event to XP flow
 
-One Claude Code hook event has two independent destinations: it moves the pet on screen (animation-only,
-local, immediate) and it may credit XP that eventually reaches the server (provisional locally, confirmed
-async). Both start at the same envelope; this doc follows both paths end to end.
+One Claude Code or Codex hook event has two independent destinations: it moves the pet on screen
+(animation-only, local, immediate) and it may credit XP that eventually reaches the server
+(provisional locally, confirmed async). Both start at the same envelope; this doc follows both
+paths end to end. Codex specifics (its own agent spec, event aliases, `~/.codex/config.toml` handling) live
+in [ADR 0021](../../decisions/0021-codex-hook-integration.md) and are only summarized here.
 
 ## Sequence
 
@@ -85,13 +89,21 @@ sequenceDiagram
    `binary`/`script`); `auto` only picks binary mode when the probe reported `'ok'`. See
    [ADR 0014](../../decisions/0014-curl-script-mode-hook-fallback.md) for why this fallback exists
    and why it has no spool.
-1. **Binary mode:** Claude Code invokes the bundled hook binary. `packages/hook-cli/main.go:main`
+1. **Binary mode:** Claude Code or Codex invokes the bundled hook binary. `packages/hook-cli/main.go:main`
    reads stdin (capped at 64 KiB), and `packages/hook-cli/main.go:buildEnvelope` keeps only the
-   metadata whitelist (never prompt text, tool input/output, or transcript paths).
-   **Script mode:** Claude Code instead invokes a `curl`/`curl.exe` command line (no third-party
+   metadata whitelist (never prompt text, tool input/output, or transcript paths) — the same
+   whitelist applies whichever agent invoked it, so Codex's extra fields (`prompt`, `tool_input`,
+   `tool_response`, `transcript_path`, `model`, `permission_mode`, `turn_id`,
+   `last_assistant_message`) are dropped the same way. The command line already carries the target
+   `HookEventName` via `--event` (`apps/desktop/src/main/hooks/agents.ts`'s `AgentEvent.as`), so the
+   binary itself needs no per-agent event-name logic.
+   **Script mode:** either agent instead invokes a `curl`/`curl.exe` command line (no third-party
    binary) that POSTs the raw hook JSON straight from stdin; see
    `apps/desktop/src/main/hooks/HookInstaller.ts:scriptCommand` for the exact flags and why it needs
-   no quotes, pipes, or redirections.
+   no quotes, pipes, or redirections. Here the raw JSON does carry the agent's own event name, so
+   `rawHookToEnvelope` aliases Codex's `PermissionRequest` to our `Notification` via
+   `apps/desktop/src/main/hooks/rawHook.ts:RAW_EVENT_ALIASES` (Codex's `Interrupt` already matches
+   our own event name and needs no alias).
 2. `packages/hook-cli/main.go:deliver` reads `<home>/hook-endpoint.json` and POSTs the envelope to
    `http://127.0.0.1:<port>/event` with the bearer token from that file (binary mode only; the
    script command instead carries its own stable `X-Claude-Mons-Token` header and posts to
@@ -198,8 +210,13 @@ applied at the ingest boundary live in [backend-rules.md](../../design/backend-r
   renderer (when not spooled) — this is the animation path, and it never reaches `GameService` or the
   network.
 - `GameService.ingest` only reacts to three event names: `UserPromptSubmit`, `PostToolUse`, `Stop`. All
-  other hook events (`SessionStart`, `PreToolUse`, `Notification`, `SessionEnd`) are animation-only and
-  carry no XP.
+  other hook events (`SessionStart`, `PreToolUse`, `Notification`, `SessionEnd`, `Interrupt`) are
+  animation-only and carry no XP.
+- `Interrupt` (Codex only, fired when the user interrupts a turn) is the one event
+  `ActivityTracker.ingest` handles without emitting a stimulus of its own: it clears the mid-turn
+  and in-flight state so the pet stops thinking/working, but plays no success animation — Claude
+  Code fires nothing at all on a user interrupt, so both agents end up equally uncelebrated. See
+  [ADR 0021](../../decisions/0021-codex-hook-integration.md).
 - A spooled envelope (`env.spooled === true`) is the mirror image: `App.onHookEvent` skips
   `PetHost.stimulate` for it entirely, but still calls `GameService.ingest` unconditionally — a backlog
   drain is XP-relevant but never animates.

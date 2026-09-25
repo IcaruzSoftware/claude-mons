@@ -9,6 +9,7 @@ export type HookEventName =
   | 'PostToolUse'
   | 'Notification'
   | 'Stop'
+  | 'Interrupt' // Codex only: the user interrupted a turn. Animation-only, never XP.
   | 'SessionEnd';
 
 export const HOOK_EVENTS: readonly HookEventName[] = [
@@ -18,6 +19,7 @@ export const HOOK_EVENTS: readonly HookEventName[] = [
   'PostToolUse',
   'Notification',
   'Stop',
+  'Interrupt',
   'SessionEnd',
 ] as const;
 
