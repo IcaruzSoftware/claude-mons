@@ -2,13 +2,14 @@
 doc_type: architecture
 purpose: "Read this when changing click-through/hit-testing, pointer handling, the drag lifecycle, the shake detector or hover-card timing."
 audience: agent
-last_verified: 2026-09-13
-last_verified_commit: 44486b0
+last_verified: 2026-09-25
+last_verified_commit: 11cdc14
 related_files:
   - apps/desktop/src/main/input/CursorTracker.ts
   - apps/desktop/src/main/PetHost.ts
   - apps/desktop/src/main/windows/PetWindow.ts
   - apps/desktop/src/main/windows/HoverCardWindow.ts
+  - apps/desktop/src/main/display.ts
   - apps/desktop/src/common/ipc.ts
   - apps/desktop/src/renderer/pet/loop.ts
   - packages/shared/src/input/shake.ts
@@ -16,6 +17,7 @@ related_files:
   - apps/desktop/test/CursorTracker.test.ts
   - docs/architecture/overlay-window.md
   - docs/decisions/0018-compact-window-and-fail-closed-click-through.md
+  - docs/decisions/0020-linux-shape-based-input.md
 ---
 
 # Input and gestures
@@ -27,9 +29,13 @@ pet's state machine (idle/walk/dragged/falling/battle_*) see `docs/design/behavi
 
 ## Fail-closed click-through
 
-The renderer reports its opaque sprite bounding box; the main process polls the OS cursor and
-decides whether the window should ignore mouse events. Nothing relies on Electron's `forward`
-click-through mode, so behavior is identical on Windows and Linux. The design is fail-closed at
+On Windows and macOS the renderer reports its opaque sprite bounding box; the main process polls the
+OS cursor and decides whether the window should ignore mouse events. Nothing relies on Electron's
+`forward` click-through mode. Linux cannot poll the cursor — under XWayland the OS reports the
+pointer only while it is already over the pet, a deadlock against fail-closed click-through — so it
+uses a different mechanism with the same guarantee; see
+[Linux: shape-based input](#linux-shape-based-input) below and
+[ADR 0020](../decisions/0020-linux-shape-based-input.md). The design is fail-closed at
 every layer (see [ADR 0018](../decisions/0018-compact-window-and-fail-closed-click-through.md) for
 the bug this replaced: a stuck-open click-through state on the old full-width strip window let any
 click along the bottom of the screen reach the pet):
@@ -120,6 +126,29 @@ Unit-tested in `apps/desktop/test/CursorTracker.test.ts`: hover on/off, re-asser
 geometry version discarded, a stale hitbox report discarded, `forceIgnore`, an exception during a
 tick forcing click-through closed, drag streaming with hover suppressed, `isPointAccepted` (fresh/
 stale cursor, stale version), and poll-rate switching.
+
+## Linux: shape-based input
+
+`CursorTracker` does not run on Linux. Cursor polling deadlocks there: under XWayland the compositor
+reports the pointer to an X client only while it is over one of that client's surfaces, so
+`screen.getCursorScreenPoint()` is frozen at the screen centre until the cursor is already on the pet
+— which the input-transparent window prevents. The fix is Linux-only; Windows and macOS keep the
+poller above. See [ADR 0020](../decisions/0020-linux-shape-based-input.md).
+
+- **The window's input region is its X11 SHAPE.** `PetWindow.applyShape` calls `win.setShape` with
+  the rects from the pure `apps/desktop/src/main/display.ts:linuxShapeRects`: in `follow` mode the
+  renderer-reported drawn content (sprite tile ∪ FX, inflated by `SHAPE_INFLATE`), and the whole
+  window in `battle`/`motion` mode so the HUD and a fast fall are never clipped. Events outside the
+  shape fall through to the window below, so click-through still fails closed; the shape is a 1×1 rect
+  until the first report, and `setShape` is guarded (it needs the X11 SHAPE extension).
+  `setIgnoreMouseEvents` is a no-op on Linux, so the window stays input-active.
+- **Pointer state comes from the renderer, not the OS cursor.** `PetRenderer` streams throttled
+  `move`/`leave` pointer events (window-local); `PetHost.onPointerLinux` derives hover and drag from
+  them and hit-tests `down`/`contextmenu` against the reported hitbox. `move`/`leave` return before
+  the reducer's `input:any` stimulation so the ~60 Hz stream cannot flood it.
+- **Types:** `PetConfig.linux` and `HitboxMessage.shape` (`apps/desktop/src/common/ipc.ts`);
+  `linuxShapeRects` is unit-tested in `apps/desktop/test/display.test.ts`. The whole Linux path is
+  gated end-to-end by the e2e harness ([docs/runbooks/linux-e2e.md](../runbooks/linux-e2e.md)).
 
 ## Pointer handling
 

@@ -39,6 +39,12 @@ All notable changes to claude-mons are documented here. See [Keep a Changelog](h
   profile nation disagreed.** The main-process `set-loadout` gate (and the talent-point counters)
   now derive the tree's nation from the mon's species, the same single source of truth the loadout
   editor and the server already use, instead of the profile nation.
+- **On Linux the pet rendered but ignored every hover, click, drag and right-click.** Under
+  Wayland/XWayland the OS reports the cursor only while it is already over the pet, so the cursor
+  poller could never unlock the input-transparent overlay — a deadlock. Linux now drives input from
+  the window's drawn shape (X11 SHAPE) and the renderer's own pointer events instead of polling the
+  cursor; Windows and macOS are unchanged. A new automated Linux e2e harness exercises both X11 and
+  XWayland to keep it fixed.
 
 ## [0.2.3] - 2026-09-23
 

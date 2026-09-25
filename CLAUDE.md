@@ -26,6 +26,7 @@ claude-mons is a desktop-pet overlay (Electron) crossed with Pokémon: the pet e
 | touch the pet state machine or animations | [docs/design/behavior-engine.md](docs/design/behavior-engine.md), [packages/sprites/README.md](packages/sprites/README.md) |
 | touch the overlay window, its bounds, displays or Linux quirks | [docs/architecture/overlay-window.md](docs/architecture/overlay-window.md) |
 | touch click-through, pointer handling, drag, shake or the hover card | [docs/architecture/input-and-gestures.md](docs/architecture/input-and-gestures.md) |
+| touch Linux pointer input, the window shape model or the Linux e2e harness | [docs/decisions/0020-linux-shape-based-input.md](docs/decisions/0020-linux-shape-based-input.md), [docs/architecture/input-and-gestures.md](docs/architecture/input-and-gestures.md), [docs/runbooks/linux-e2e.md](docs/runbooks/linux-e2e.md) |
 | change panel, onboarding, hover-card or reminder styling or layout | [docs/design/ui-style.md](docs/design/ui-style.md), [docs/design/ui-panels.md](docs/design/ui-panels.md) |
 | ship any change under `apps/desktop/src/renderer` | [docs/runbooks/verify-a-ui-change.md](docs/runbooks/verify-a-ui-change.md) — run the app before you call it done |
 | touch hook ingestion (Go binary, endpoint, spool, installer) | [packages/hook-cli/README.md](packages/hook-cli/README.md), [docs/architecture/flows/hook-to-xp.md](docs/architecture/flows/hook-to-xp.md) |
