@@ -65,11 +65,12 @@ start_x11() {
 
 start_wayland_xwayland() {
   # Headless Wayland compositor (sway/wlroots) + XWayland, so the app (which forces ozone x11) runs
-  # under XWayland exactly as it does on the owner's GNOME/Wayland session. We use sway because its
-  # IPC (`swaymsg seat <name> cursor …`) injects pointer input through the compositor itself, so
-  # events travel compositor -> XWayland -> app. xdotool/XTEST cannot do this under XWayland: XTEST
-  # pointer injection only reaches the compositor when it speaks libei/EIS, which headless weston does
-  # not, so the pointer never moved and the leg tested nothing (see docs/runbooks/linux-e2e.md).
+  # under XWayland exactly as it does on the owner's GNOME/Wayland session. We use sway because a
+  # virtual-pointer client (wlr-virtual-pointer) can attach a real pointer device to its seat and
+  # inject input through the compositor, so events travel compositor -> XWayland -> app. xdotool/XTEST
+  # cannot do this under XWayland: XTEST pointer injection only reaches the compositor when it speaks
+  # libei/EIS, which headless weston does not, so the pointer never moved and the leg tested nothing
+  # (see docs/runbooks/linux-e2e.md).
   export XDG_RUNTIME_DIR="$(mktemp -d /tmp/xdg.XXXXXX)"
   chmod 700 "$XDG_RUNTIME_DIR"
   if ! command -v Xwayland >/dev/null 2>&1; then
@@ -132,10 +133,16 @@ EOF
     log "sway IPC not responding on $SWAYSOCK"; return 1
   fi
 
-  # The Wayland socket (for logging / any native client); swaymsg itself uses SWAYSOCK.
+  # The Wayland socket the virtual-pointer client connects to; swaymsg itself uses SWAYSOCK.
   local wl
   wl="$(ls -t "$XDG_RUNTIME_DIR"/wayland-* 2>/dev/null | grep -v '\.lock$' | head -1)"
   [ -n "$wl" ] && export WAYLAND_DISPLAY="$(basename "$wl")"
+
+  # Give the seat a pointer device before XWayland comes up, so sway advertises pointer capability and
+  # assigns the seat to XWayland (without it: "no seat assigned to xwayland" and no X client gets input).
+  if ! start_virtual_pointer; then
+    log "virtual-pointer client failed; the wayland seat would have no pointer"; return 1
+  fi
 
   # XWayland starts lazily but reserves its display socket up front; discover_xwayland_display's
   # xdpyinfo probe both finds and warms it. That nested X server is what the app (ozone x11) connects
@@ -147,6 +154,33 @@ EOF
   export DISPLAY="$d"
   log "sway up: SWAYSOCK=$SWAYSOCK WAYLAND_DISPLAY=${WAYLAND_DISPLAY:-?} XWayland DISPLAY=$DISPLAY"
   swaymsg -t get_seats >"$ART/sway-seats-initial.json" 2>&1 || true
+  return 0
+}
+
+build_vpointer() {
+  # Compile the virtual-pointer client from vendored protocol XML (wlr-virtual-pointer is not packaged).
+  local dir="$ROOT/scripts/linux-e2e"
+  local hdr="$ART/wlr-virtual-pointer-unstable-v1-client-protocol.h"
+  local code="$ART/wlr-virtual-pointer-unstable-v1-protocol.c"
+  wayland-scanner client-header "$dir/wlr-virtual-pointer-unstable-v1.xml" "$hdr" || return 1
+  wayland-scanner private-code  "$dir/wlr-virtual-pointer-unstable-v1.xml" "$code" || return 1
+  cc -O2 -I"$ART" -o "$ART/vpointer" "$dir/vpointer.c" "$code" \
+    $(pkg-config --cflags --libs wayland-client) || return 1
+  return 0
+}
+
+start_virtual_pointer() {
+  if ! build_vpointer; then log "could not build $ART/vpointer"; return 1; fi
+  VP_FIFO="$ART/vp.fifo"; rm -f "$VP_FIFO"; mkfifo "$VP_FIFO" || return 1
+  # stdin is the FIFO opened read-write, so the client blocks for the next command and never sees EOF
+  # between the probe's line-at-a-time writes.
+  "$ART/vpointer" <>"$VP_FIFO" >"$ART/vpointer.log" 2>&1 &
+  track $!
+  export VP_FIFO
+  if ! wait_for 15 bash -c "grep -q 'vpointer: ready' '$ART/vpointer.log'"; then
+    log "virtual-pointer client did not report ready"; return 1
+  fi
+  log "virtual pointer ready (fifo=$VP_FIFO)"
   return 0
 }
 

@@ -36,36 +36,26 @@ const swaymsg = (...args) => sh('swaymsg', args);
 
 // --- pointer input backend -------------------------------------------------------------------
 // The bug under test lives below Chromium, so we drive OS pointer input, not CDP synthetic events.
-// x11: xdotool warps the X pointer via XTEST. wayland-xwayland: swaymsg injects through the Wayland
-// compositor (`seat <name> cursor set|press|release`), which forwards to XWayland and then the app —
-// XTEST cannot do this under XWayland, so xdotool would move nothing (see docs/runbooks/linux-e2e.md).
-// Buttons are named 'left'/'right'; each backend maps them to its own numbering.
-
-function swaySeatName() {
-  try {
-    const seats = JSON.parse(swaymsg('-t', 'get_seats'));
-    const named = seats.find((s) => s.name && s.name !== '*');
-    if (named?.name) return named.name;
-  } catch { /* fall through */ }
-  return 'seat0';
-}
+// x11: xdotool warps the X pointer via XTEST. wayland-xwayland: a persistent virtual-pointer client
+// (scripts/linux-e2e/vpointer.c, started by run.sh) holds a real pointer device on sway's seat and
+// takes commands over a FIFO; sway forwards its motion/buttons to XWayland and then the app, exactly
+// as on a real Wayland session. XTEST cannot do this under XWayland, so xdotool would move nothing
+// (see docs/runbooks/linux-e2e.md). Buttons are named 'left'/'right'; each backend maps its own way.
 
 function makeInput(mode) {
   if (mode === 'wayland-xwayland') {
-    const seat = swaySeatName();
-    const btn = (b) => (b === 'right' ? 'button3' : 'button1');
-    const cursor = (...a) => swaymsg('seat', seat, 'cursor', ...a);
+    const fifo = process.env.VP_FIFO;
+    const send = (cmd) => { try { appendFileSync(fifo, cmd + '\n'); } catch { /* daemon gone */ } };
+    const btn = (b) => (b === 'right' ? 'right' : 'left');
     return {
-      seat,
-      move: (x, y) => cursor('set', String(x), String(y)),
-      down: (b) => cursor('press', btn(b)),
-      up: (b) => cursor('release', btn(b)),
-      click: (b) => { cursor('press', btn(b)); cursor('release', btn(b)); },
+      move: (x, y) => send(`move ${Math.round(x)} ${Math.round(y)}`),
+      down: (b) => send(`down ${btn(b)}`),
+      up: (b) => send(`up ${btn(b)}`),
+      click: (b) => send(`click ${btn(b)}`),
     };
   }
   const btn = (b) => (b === 'right' ? '3' : '1');
   return {
-    seat: null,
     move: (x, y) => xdotool('mousemove', String(x), String(y)),
     down: (b) => xdotool('mousedown', btn(b)),
     up: (b) => xdotool('mouseup', btn(b)),
@@ -258,7 +248,7 @@ async function main() {
     const target = { x: 500, y: 500 };
     input.move(target.x, target.y);
     await sleep(800);
-    const diag = { backend: MODE === 'wayland-xwayland' ? 'swaymsg' : 'xdotool', target,
+    const diag = { backend: MODE === 'wayland-xwayland' ? 'vpointer' : 'xdotool', target,
       xServerPointer: getMouseLoc(), appPolledCursor: latestAppCursor() };
     if (MODE === 'wayland-xwayland') { try { diag.swaySeats = JSON.parse(swaymsg('-t', 'get_seats')); } catch { diag.swaySeats = null; } }
     writeFileSync(join(ART, 'cursor-diagnostic.json'), JSON.stringify(diag, null, 2));

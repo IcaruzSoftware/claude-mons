@@ -3,8 +3,8 @@ name: Linux e2e
 # Verifies the pet overlay's OS-level input on Linux — hover, left-click, drag, click-through and
 # right-click — by driving real pointer input against the running app under two display environments:
 # the x11 leg warps the X pointer with xdotool (XTEST); the wayland-xwayland leg injects through the
-# Wayland compositor with `swaymsg seat <name> cursor …`, so events travel compositor -> XWayland ->
-# app as on a real Wayland session. See docs/runbooks/linux-e2e.md. This is the automated stand-in for
+# Wayland compositor with a virtual-pointer client (wlr-virtual-pointer), so events travel compositor
+# -> XWayland -> app as on a real Wayland session. See docs/runbooks/linux-e2e.md. The stand-in for
 # "we have been guessing on Linux for weeks": it reproduces (and gates against) the input bug on
 # GitHub runners.
 
@@ -56,7 +56,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             xvfb xwayland x11-utils x11-xserver-utils xdotool wmctrl imagemagick \
-            openbox picom dbus-x11 sway \
+            openbox picom dbus-x11 sway libwayland-dev libwayland-bin pkg-config gcc \
             libgtk-3-0t64 libnotify4 libnss3 libxss1 libxtst6 xdg-utils \
             libatspi2.0-0t64 libuuid1 libsecret-1-0 libasound2t64 libgbm1
           echo "Xwayland: $(command -v Xwayland || echo MISSING)"
