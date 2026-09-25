@@ -9,6 +9,7 @@ import {
   type AccountOpResult,
   type BattlePlayMessage,
   type HitboxMessage,
+  type HookAgent,
   type LeaderboardPayload,
   type PetConfig,
   type PointerMessage,
@@ -60,7 +61,8 @@ const uiApi = {
   onSnapshot: (cb: (s: UiSnapshot) => void) => on<UiSnapshot>(IPC.uiSnapshot, cb),
   chooseNation: (nation: string): Promise<UiSnapshot> =>
     ipcRenderer.invoke(IPC.uiChooseNation, nation),
-  toggleHooks: (): Promise<UiSnapshot> => ipcRenderer.invoke(IPC.uiToggleHooks),
+  toggleHooks: (agent: HookAgent = 'claude'): Promise<UiSnapshot> =>
+    ipcRenderer.invoke(IPC.uiToggleHooks, agent),
   setHookMode: (mode: 'auto' | 'binary' | 'script'): Promise<UiSnapshot> =>
     ipcRenderer.invoke(IPC.uiSetHookMode, mode),
   setSpriteScale: (scale: number): Promise<UiSnapshot> =>

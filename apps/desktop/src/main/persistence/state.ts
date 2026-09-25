@@ -63,6 +63,9 @@ export interface LocalState {
   hooks: {
     /** set after a successful install so we can re-verify on start */
     installedAt: number | null;
+    /** same as `installedAt`, but for the Codex `hooks.json` install (`CODEX_AGENT` in
+     * `apps/desktop/src/main/hooks/agents.ts`) */
+    codexInstalledAt: number | null;
     /** preferred bind port for HookServer; persists across restarts so script-mode commands stay valid */
     port: number;
     /** 64 hex chars; stable header token for the raw POST /hook endpoint (script mode) */
@@ -146,6 +149,7 @@ export function defaultState(): LocalState {
     },
     hooks: {
       installedAt: null,
+      codexInstalledAt: null,
       port: DEFAULT_HOOK_PORT,
       token: randomBytes(32).toString('hex'),
       mode: 'auto',
@@ -222,6 +226,12 @@ function addOpponentLoadoutSummary(state: Record<string, unknown>): Record<strin
   return { ...state, battles: { ...battles, history: migratedHistory } };
 }
 
+/** v7 -> v8: remembers whether Codex hooks were installed. */
+function addCodexHooks(state: Record<string, unknown>): Record<string, unknown> {
+  const hooks = (state.hooks as Record<string, unknown> | undefined) ?? {};
+  return { ...state, hooks: { ...hooks, codexInstalledAt: null } };
+}
+
 /** migrations[i] upgrades version i+1 -> i+2. Add new ones at the end; never edit old ones. */
 export const MIGRATIONS: readonly Migration[] = [
   addHookEndpoint,
@@ -230,4 +240,5 @@ export const MIGRATIONS: readonly Migration[] = [
   addProgressionPhaseA,
   addTalentTree,
   addOpponentLoadoutSummary,
+  addCodexHooks,
 ];

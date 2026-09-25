@@ -221,6 +221,12 @@ export type HookStatusValue =
 export type HookModeValue = 'auto' | 'binary' | 'script';
 export type HookProbeValue = 'ok' | 'blocked' | 'missing' | null;
 
+/**
+ * Coding agent whose hooks we can install (single source of truth; `apps/desktop/src/main/hooks/
+ * agents.ts` imports and re-exports this instead of declaring its own literal union).
+ */
+export type HookAgent = 'claude' | 'codex';
+
 /** Everything the panel and hover card need to render. Pushed on every change. */
 export interface UiSnapshot {
   version: string;
@@ -244,6 +250,15 @@ export interface UiSnapshot {
     effectiveMode: 'binary' | 'script';
     /** last `probeBinary()` result, or null before the first probe (e.g. no binary bundled) */
     probe: HookProbeValue;
+    /**
+     * Codex's own hook install status, tracked alongside Claude's above. `detected` is whether
+     * Codex's config directory (`codexHome()`) exists on disk at all -- the panel/tray only offer
+     * to connect Codex when it does. `feature` is the last `ensureCodexHooksFeature()` result (the
+     * app enables `[features] hooks = true` in Codex's `config.toml` itself): `'unsupported'` means
+     * that file's `[features]` table has a form the app refuses to edit automatically, `null` means
+     * no install/reinstall has attempted it yet.
+     */
+    codex: { status: HookStatusValue; detected: boolean; feature: 'ok' | 'unsupported' | null };
   };
   settings: { spriteScale: number; autostart: boolean };
   water: {

@@ -1,9 +1,10 @@
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import type { HookEventName } from '@claude-mons/shared';
+import type { HookAgent } from '../../common/ipc.ts';
 
-/** Coding agent whose hooks we can install. */
-export type HookAgent = 'claude' | 'codex';
+/** Re-exported for convenience; `HookAgent` itself is defined once in `../../common/ipc.ts`. */
+export type { HookAgent };
 
 /**
  * One event a `HookAgentSpec` installs a hook for: `name` is the key the agent's own
