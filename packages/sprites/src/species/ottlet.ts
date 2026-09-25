@@ -1,23 +1,24 @@
 import type { SpriteDef } from '../types.ts';
 import { compose, frame, recolor, shift, squashTop, withRows, type Layer } from '../util.ts';
 
-/**
- * Ottlet (Water, rare, baby): a round otter pup sitting on its haunches, clutching a small fish
- * across its belly with both paws. Tintable teal fur (P) with a big pale belly (A), dark-blue
- * outline/shade (D/S), fixed silver fish body (f) with an orange tail (o), dark eyes (k), a nose (n)
- * and pale whiskers (w). It breathes when idle and swings the fish when it attacks.
- */
+/** Ottlet: chestnut fur, cream muzzle, rounded ears, whiskers and a teal fish.
+ * Fixed fur colors preserve the otter silhouette under Water tinting. */
 const PALETTE = {
-  D: '#0d2a4a', // outline (tintable dark)
-  P: '#2ec4b6', // fur (tintable primary)
-  S: '#1b4f8a', // fur shade (tintable secondary)
-  A: '#e8fbff', // belly / highlight (tintable accent)
-  f: '#c8d2dc', // fish body (silver)
-  o: '#ff8a3d', // fish tail (coral orange)
-  k: '#12232e', // eyes / fish eye
-  n: '#2a1c18', // nose
-  w: '#eef7ff', // whiskers
-  h: '#ffffff', // glints
+  d: '#38272e', // fixed warm outline: fur must not be recolored by nation tinting
+  p: '#98624a', // chestnut fur
+  s: '#684737', // fur shadow
+  c: '#bf8663', // fur highlight
+  a: '#f0d4ad', // cream muzzle and belly
+  f: '#39a69c', // fish scales
+  q: '#18575a', // fish outline
+  v: '#bed6a4', // fish underside
+  o: '#ef9869', // fish fins
+  k: '#19282d', // eyes
+  n: '#26353b', // nose
+  w: '#fff0d4', // whiskers
+  h: '#ffffff', // eye glints
+  g: '#9e9e9e',
+  l: '#b3e5fc',
 };
 
 const SIZE = 32;
@@ -26,64 +27,62 @@ const BY = 10; // body: 22 px tall, rows 10..31; feet on row 31
 
 // 20 x 22 pup. Face lives on rows 6..8; feet on rows 20..21.
 const BODY = [
-  '....DD........DD....',
-  '...DPPDDDDDDDDPPD...',
-  '..DPPPPPPPPPPPPPPD..',
-  '..DPPPPPPPPPPPPPPD..',
-  '..DPPPPPPPPPPPPPPD..',
-  '..DPPPPPPPPPPPPPPD..',
-  '..DPPkhPPAAPPhkPPD..',
-  '.wDPPPPAAnnAAPPPPDw.',
-  '.wDPPPPAAAAAAPPPPDw.',
-  '.DPPPPPPPPPPPPPPPPD.',
-  '.DPPPPAAAAAAAAPPPPD.',
-  '.DPPPAAAAAAAAAAPPPD.',
-  '.DPPAAAAAAAAAAAAPPD.',
-  '.DPPAAAAAAAAAAAAPPD.',
-  '.DPPAAAAAAAAAAAAPPD.',
-  '.DPPPAAAAAAAAAAPPPD.',
-  '.DPPPPAAAAAAAAPPPPD.',
-  '.DPPPPPAAAAAAPPPPPD.',
-  '.DSPPPPPPPPPPPPPPSD.',
-  '..DSPPPPPPPPPPPPSD..',
-  '...DPPPD....DPPPD...',
-  '...DDDDD....DDDDD...',
+  '.....dddddddddd.....',
+  '....ddppccccppdd....',
+  '...dappppppppppad...',
+  '..dppccccppccccppd..',
+  '..dppppppppppppppd..',
+  '..dppkhpppppphkppd..',
+  '..dppkkpaaapakkppd..',
+  '.wdppaaannnaaappdw..',
+  '..wapaaanhnaaapaw...',
+  '.wdppaaaanaaaappdw..',
+  '..dsppaaaaaaaappsd..',
+  '..dsppppaaaappppsd..',
+  '..dsppaaaaaaaappsd..',
+  '..dppaaaaaaaaaappd..',
+  '..dppaaaaaaaaaappd..',
+  '..dppaaaaaaaaaappd..',
+  '..dsppaaaaaaaappsd..',
+  '..dssppaaaaaappssd..',
+  '..dssppppppppppssd..',
+  '..dsppppddddppppsd..',
+  '..dppppd....dppppd..',
+  '..dddddd....dddddd..',
 ];
 
 const FACE_SLEEP: Record<number, string> = {
-  6: '..DPPkkPPAAPPkkPPD..',
+  5: '..dppkkppppppkkppd..',
 };
 const FACE_HAPPY: Record<number, string> = {
-  6: '..DPkkPPPAAPPPkkPD..',
-  8: '.wDPPPPAAhhAAPPPPDw.',
+  5: '..dppkkppppppkkppd..',
 };
 const FACE_HURT: Record<number, string> = {
-  6: '..DPPkkPPAAPPkkPPD..',
-  8: '.wDPPPPAAkkAAPPPPDw.',
+  5: '..dppkkppppppkkppd..',
 };
 const FACE_ATTACK: Record<number, string> = {
-  6: '..DPPkkPPAAPPkkPPD..',
-  8: '.wDPPPPAAhhAAPPPPDw.',
+  5: '..dppkkppppppkkppd..',
 };
 
 function body(...faces: Array<Record<number, string>>): string[] {
   return withRows(BODY, Object.assign({}, ...faces));
 }
 
-// Fish held across the belly: silver body, orange fan tail on the left, dark eye near the head.
+// Teal fish with a visible eye, pale belly and coral fins.
 const FISH = [
-  'oo..ffff....',
-  '.o.ffffffk..',
-  '.o.ffffffk..',
-  'oo..ffff....',
+  '..qqffq.....',
+  'qffhffffq..o',
+  'qffkfffffqo.',
+  '.qvvvvvvq.oo',
+  '..qqooqq....',
 ];
 // A little fur paw that clutches an end of the fish.
-const PAW = ['DPD', 'PPP', 'DPD'];
+const PAW = ['dpd', 'ppp', 'dpd'];
 
-const LAPTOP = ['.DDDDDDDD.', '.DllllllD.', '.DllllllD.', '.DDDDDDDD.', 'DggggggggD', 'DDDDDDDDDD'];
-const LAPTOP_TYPING = withRows(LAPTOP, { 4: 'DghgghgghD' });
+const LAPTOP = ['.dddddddd.', '.dlllllld.', '.dlllllld.', '.dddddddd.', 'dggggggggd', 'dddddddddd'];
+const LAPTOP_TYPING = withRows(LAPTOP, { 4: 'dghgghgghd' });
 
-const SPLASH = ['A..h..A', '.h.A.h.', '..A.A..'];
+const SPLASH = ['a..h..a', '.h.a.h.', '..a.a..'];
 
 interface Pose {
   torso?: string[];
@@ -107,11 +106,14 @@ function figure({
   dy = 0,
   extra = [],
 }: Pose): string[] {
-  const layers: Layer[] = [{ art: torso, x: BX + dx, y: BY + dy }];
+  const layers: Layer[] = [
+    { art: ['dd....', 'dpsd..', '.dppsd', '..dppd', '..ddd.'], x: 23 + dx, y: 26 + dy },
+    { art: torso, x: BX + dx, y: BY + dy },
+  ];
   if (showFish) {
     layers.push({ art: FISH, x: FX + dx + fishDx, y: FY + dy + fishDy });
-    layers.push({ art: PAW, x: 8 + dx + fishDx, y: FY + 1 + dy + fishDy });
-    layers.push({ art: PAW, x: 18 + dx + fishDx, y: FY + 1 + dy + fishDy });
+    layers.push({ art: PAW, x: 8 + dx + fishDx, y: FY + 3 + dy + fishDy });
+    layers.push({ art: PAW, x: 17 + dx + fishDx, y: FY + 3 + dy + fishDy });
   }
   layers.push(...extra);
   return compose(SIZE, layers);
@@ -131,9 +133,9 @@ const sleep = [squashTop(sleepFig, 20), squashTop(squashTop(sleepFig, 20), 22)];
 
 const laptop = (art: string[]): Layer => ({ art, x: 17, y: 25 });
 const work = [
-  figure({ showFish: false, extra: [laptop(LAPTOP)] }),
-  figure({ showFish: false, torso: squashTop(BODY, 26), extra: [laptop(LAPTOP_TYPING)] }),
-  figure({ showFish: false, extra: [laptop(LAPTOP_TYPING)] }),
+  figure({ extra: [laptop(LAPTOP)] }),
+  figure({ torso: squashTop(BODY, 26), extra: [laptop(LAPTOP_TYPING)] }),
+  figure({ extra: [laptop(LAPTOP_TYPING)] }),
 ];
 
 const happy = [
@@ -143,7 +145,7 @@ const happy = [
 ];
 
 const hurtRecoil = figure({ torso: body(FACE_HURT), dx: -2 });
-const hurt = [hurtRecoil, recolor(hurtRecoil, { P: 'h', S: 'h', A: 'h' })];
+const hurt = [hurtRecoil, recolor(hurtRecoil, { p: 'h', s: 'h', a: 'h', c: 'h' })];
 
 // Attack: wind the fish up and back, then swing it forward and down with a splash.
 const attack = [
