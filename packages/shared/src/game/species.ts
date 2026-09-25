@@ -82,7 +82,7 @@ export const SPECIES: Record<string, Species> = {
     nation: 'water',
     rarity: 'rare',
     names: { baby: 'Bubblit', teen: 'Cachecoral', adult: 'Deepseaquel' },
-    baseStats: { hp: 80, atk: 50, def: 55, spd: 30 },
+    baseStats: { hp: 76, atk: 50, def: 53, spd: 36 },
     movePool: pool([
       ['Bubble Pop', 45, 'neutral', 'priority'],
       ['Cache Wave', 40, 'nation', 'drain'],
@@ -114,7 +114,7 @@ export const SPECIES: Record<string, Species> = {
     nation: 'fire',
     rarity: 'common',
     names: { baby: 'Sparkit', teen: 'Blazebit', adult: 'Infernode' },
-    baseStats: { hp: 70, atk: 60, def: 40, spd: 40 },
+    baseStats: { hp: 70, atk: 60, def: 42, spd: 38 },
     movePool: pool([
       ['Spark Nip', 45, 'neutral', 'priority'],
       ['Hot Reload', 40, 'nation', 'crit_up'],
@@ -129,7 +129,7 @@ export const SPECIES: Record<string, Species> = {
     id: 'cinderpup',
     nation: 'fire',
     rarity: 'rare',
-    names: { baby: 'Cinderpup', teen: 'Hotfixhound', adult: 'Overclockwolf' },
+    names: { baby: 'Cinderpup', teen: 'Emberfox', adult: 'Twinflare' },
     baseStats: { hp: 75, atk: 60, def: 40, spd: 40 },
     movePool: pool([
       ['Ember Bite', 45, 'neutral', 'priority'],
@@ -162,7 +162,7 @@ export const SPECIES: Record<string, Species> = {
     nation: 'earth',
     rarity: 'rare',
     names: { baby: 'Mossling', teen: 'Rootling', adult: 'Terraformer' },
-    baseStats: { hp: 85, atk: 50, def: 55, spd: 25 },
+    baseStats: { hp: 91, atk: 46, def: 55, spd: 23 },
     movePool: pool([
       ['Moss Pat', 45, 'neutral', 'priority'],
       ['Root Bind', 40, 'nation', 'def_down'],
@@ -178,7 +178,7 @@ export const SPECIES: Record<string, Species> = {
     nation: 'air',
     rarity: 'common',
     names: { baby: 'Puffle', teen: 'Gustling', adult: 'Nimbyte' },
-    baseStats: { hp: 65, atk: 50, def: 40, spd: 55 },
+    baseStats: { hp: 61, atk: 52, def: 48, spd: 49 },
     movePool: pool([
       ['Puff', 45, 'neutral', 'priority'],
       ['Gust Draft', 40, 'nation', 'crit_up'],
@@ -194,7 +194,7 @@ export const SPECIES: Record<string, Species> = {
     nation: 'air',
     rarity: 'rare',
     names: { baby: 'Wispit', teen: 'Zephyrix', adult: 'Stratosphinx' },
-    baseStats: { hp: 70, atk: 50, def: 40, spd: 55 },
+    baseStats: { hp: 70, atk: 48, def: 42, spd: 55 },
     movePool: pool([
       ['Wisp Flick', 45, 'neutral', 'priority'],
       ['Zephyr Cut', 40, 'nation', 'crit_up'],

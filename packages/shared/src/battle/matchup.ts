@@ -166,8 +166,8 @@ export function explainMatchup(me: MonSnapshot, opp: MonSnapshot): MatchupExplan
   const oppAtk = effectiveness(opp.nation, me.nation);
 
   let nationLine: string;
-  if (meAtk === 2) nationLine = `${meName} hits ${oppName} hard.`;
-  else if (oppAtk === 2) nationLine = `${oppName} hits ${meName} hard -- brace for it.`;
+  if (meAtk > 1) nationLine = `${meName} hits ${oppName} hard.`;
+  else if (oppAtk > 1) nationLine = `${oppName} hits ${meName} hard -- brace for it.`;
   else nationLine = `${meName} and ${oppName} trade evenly.`;
 
   const meStance = me.loadout?.stance ?? DEFAULT_STANCE;
@@ -210,9 +210,9 @@ export function explainMatchup(me: MonSnapshot, opp: MonSnapshot): MatchupExplan
     suggestion = `Burn beats ${shieldLabel}'s single-hit shield.`;
   } else if (oppStance === 'gale') {
     suggestion = `A true-hit opener ignores their ${stanceName(oppStance)} dodge.`;
-  } else if (oppAtk === 2) {
+  } else if (oppAtk > 1) {
     suggestion = `Avoid trading nation-type hits -- ${oppName} hits back hard.`;
-  } else if (meAtk === 2) {
+  } else if (meAtk > 1) {
     suggestion = `Lean on nation-type moves -- ${meName} hits ${oppName} hard.`;
   } else {
     suggestion = 'No clear edge either way -- play it by the numbers.';

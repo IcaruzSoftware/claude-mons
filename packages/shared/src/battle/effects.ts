@@ -25,18 +25,11 @@ export function isEffectId(value: unknown): value is EffectId {
 
 // --- magnitudes (docs/design/progression.md Move pool and effects) ----------------------------
 
-/**
- * `crit_up`: +20 percentage points to this move's crit chance, uncapped by the normal 30% crit
- * ceiling up to `CRIT_UP_MAX` (tuned by simulation on 2026-09-13, see docs/design/progression.md
- * Move pool and effects: against the shared 30% ceiling, a flat +20pp bonus was very often fully
- * wasted -- most matchups' base crit chance already sits well above 10%, so the bonus just hit the
- * same cap the base roll would have anyway, making crit_up nearly worthless next to a sustained
- * effect like `def_down`. Giving it its own, higher ceiling is what makes it a comparable pick).
- */
-export const CRIT_UP_BONUS = 0.2;
-export const CRIT_UP_MAX = 0.5;
+/** `crit_up`: +30pp, capped at 60%; tuned with reduced burn/drain for protocol 5. */
+export const CRIT_UP_BONUS = 0.3;
+export const CRIT_UP_MAX = 0.6;
 /** `drain`: heals the user this fraction of the damage dealt. */
-export const DRAIN_FRACTION = 0.5;
+export const DRAIN_FRACTION = 0.35;
 /** `shield_first`: reduces the first hit taken by this fraction. */
 export const SHIELD_FIRST_REDUCTION = 0.5;
 /**
@@ -53,7 +46,7 @@ export const DEF_DOWN_MULT = 0.88;
 /** `def_down` duration in turns; reapplying refreshes rather than stacking. */
 export const DEF_DOWN_TURNS = 3;
 /** `burn`: end-of-turn damage as a fraction of the burned mon's max HP. */
-export const BURN_FRACTION = 0.08;
+export const BURN_FRACTION = 0.03;
 /** `burn` duration in turns; a second application while active is ignored (no stacking). */
 export const BURN_TURNS = 3;
 /** `charge`: the release turn's power multiplier. */

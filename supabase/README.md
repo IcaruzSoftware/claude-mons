@@ -2,8 +2,8 @@
 doc_type: reference
 purpose: "Read this when deploying the backend, debugging database issues, or contributing to Edge Functions."
 audience: agent
-last_verified: 2026-09-22
-last_verified_commit: 6d5bbcd
+last_verified: 2026-09-24
+last_verified_commit: 0c357ff
 related_files:
   - supabase/migrations/20260904000000_init.sql
   - supabase/migrations/20260913020000_progression_phase_a.sql
@@ -59,6 +59,7 @@ Applied in filename-timestamp order by `npx supabase db push` / `npx supabase db
 | `supabase/migrations/20260913030000_progression_tuning.sql` | Retunes `recompute_mon`'s evolution-stage multiplier from 1.15/1.30 to 1.03/1.06 — the balance harness found the wider gap won stage-boundary matchups only ~27-28% of the time for the low-level side |
 | `supabase/migrations/20260913040000_progression_phase_b.sql` | Docs-only: updates the `mons.loadout` column comment now that `moves` is settable via `set-loadout` (Phase B); deliberately no schema change and no backfill — a mon with no stored `moves` battles with `defaultLoadoutMoveIds(species, level)`, recomputed fresh every battle |
 | `supabase/migrations/20260913050000_nations_exclude_orphan_battles.sql` | Redefines `leaderboard_nations` so nation battle-win/loss tallies only count battles whose `challenger_id` still exists (a deleted account's snapshot previously kept inflating that nation's tally) and only credit the defender side when `opponent_id` is a real player (Wild Mons have `opponent_id` null) |
+| `supabase/migrations/20260924052834_nations_alltime_battles.sql` | Appends all-time `battles_won`/`battles_lost` columns to `leaderboard_nations` (same orphan-battle and defender-side rules as the weekly tallies, without the week filter); the weekly CTE and every previously exposed column are unchanged |
 
 ## Trust model
 
@@ -96,7 +97,7 @@ Applied in filename-timestamp order by `npx supabase db push` / `npx supabase db
 
 - `leaderboard_alltime` (security_invoker): ranks players by total_xp, excludes eggs and suspicion ≥10
 - `leaderboard_weekly` (owned by postgres): ranks by this UTC week's work+bonus+battle XP
-- `leaderboard_nations` (owned by postgres): aggregates members, XP, level, and weekly battles per nation, excluding suspicion ≥10 players from every aggregated column (not just `total_xp`); weekly battle-win/loss tallies only count battles whose challenger still exists and only credit the defender side for real players (see `supabase/migrations/20260913050000_nations_exclude_orphan_battles.sql` in Migrations)
+- `leaderboard_nations` (owned by postgres): aggregates members, XP, level, and both weekly and all-time battles per nation, excluding suspicion ≥10 players from every aggregated column (not just `total_xp`); battle-win/loss tallies (weekly `weekly_battles_won`/`weekly_battles_lost` and all-time `battles_won`/`battles_lost`) only count battles whose challenger still exists and only credit the defender side for real players (see `supabase/migrations/20260913050000_nations_exclude_orphan_battles.sql` and `supabase/migrations/20260924052834_nations_alltime_battles.sql` in Migrations)
 
 ## RLS policies
 

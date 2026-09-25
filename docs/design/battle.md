@@ -2,8 +2,8 @@
 doc_type: design
 purpose: "Read this when changing battle math, matchmaking, rewards, or the battle log shape."
 audience: agent
-last_verified: 2026-09-13
-last_verified_commit: 8a24ac9
+last_verified: 2026-09-24
+last_verified_commit: bf1f338
 related_files:
   - packages/shared/src/battle/battle.ts
   - packages/shared/src/battle/effects.ts
@@ -66,7 +66,7 @@ For a turn where mon `M` acts on mon `F`, in `packages/shared/src/battle/battle.
 
 ```
 scale   = (avgLevel + 49) / 50            // avgLevel = (a.level + b.level) / 2, same curve as statAtLevel
-raw     = (power * M.atk / F.def) * scale / 4 * effectiveness * (crit ? 2 : 1) * variance
+raw     = (power * M.atk / F.def) * scale / 4 * effectiveness * followThrough * (crit ? 2 : 1) * variance
 damage  = max(1, floor(raw))
 variance = 0.7 + rng() * 0.6              // uniform in [0.7, 1.3)
 ```
@@ -75,8 +75,11 @@ variance = 0.7 + rng() * 0.6              // uniform in [0.7, 1.3)
   a fixed per-kind table — every species has its own 6-move pool (`packages/shared/src/game/
   species.ts:Move`) as of Phase B (`BATTLE_PROTOCOL_VERSION` 3). A `charge` move's release turn
   multiplies `power` by `CHARGE_MULTIPLIER` (2.2), see progression.md.
-- **Effectiveness**: a `type: 'nation'` move uses `effectiveness(M.nation, F.nation)` (0.5, 1, or 2 —
+- **Effectiveness**: a `type: 'nation'` move uses `effectiveness(M.nation, F.nation)` (0.9, 1, or 1.2 —
   see `packages/shared/src/game/nations.ts:effectiveness`); `type: 'neutral'` always uses `1`.
+- **Follow-through**: one automatic opening combo per side; its multiplier and eligibility live
+  in `docs/design/progression.md`. Optional `followThrough` marks the boosted action in protocol 5;
+  historical logs remain stored and are never recomputed.
 - **Crit**: chance `clamp(0.08 + (M.spd - F.spd) / 250, 0.03, 0.30)`; a crit doubles `raw` before
   flooring. A move with the `crit_up` effect adds a further bonus, capped by its own higher ceiling
   rather than the 0.30 above (docs/design/progression.md Move pool and effects has the tuned
@@ -128,7 +131,7 @@ Fields only — see `packages/shared/src/battle/battle.ts` for exact types.
 | `maxHp` | `Record<Side, number>` | |
 
 `BattleAction`: `{ actor, move, moveId, dodged, damage, crit, effectiveness, targetHpAfter, effect,
-charge? }` — one per mon that acted that turn (the second actor's entry is omitted if the first
+charge?, followThrough? }` — one per mon that acted that turn (the second actor's entry is omitted if the first
 action already reduced it to 0 HP), plus a synthetic entry (`moveId: null`, `move: 'Burn'`,
 `effect: 'burn'`) appended at the end of a turn for each side with an active burn tick. `effect` is
 the effect the chosen move carries (`null` if none applied that action); `charge` is present only
@@ -158,8 +161,8 @@ and effects.
 |---|---|---|
 | Win vs. player | `30 + 5 * clamp(oppLevel - myLevel, -3, 3)` (15–45) | 3 |
 | Loss vs. player | 10 | 8 |
-| Win vs. Wild Mon (bot) | 20 (doubled if the wild mon rolled elite, see Matchmaking) | — (bots never pay) |
-| Loss vs. Wild Mon (bot) | 5 | — |
+| Win vs. Wild Mon (bot) | 20 plus 15 per higher level (20-65, difference capped at 3) | — (bots never pay) |
+| Loss vs. Wild Mon (bot) | 10 | — |
 
 `isBot` is true whenever the opponent is a Wild Mon (see Matchmaking); bot battles never credit an opponent,
 since there is no real player behind the snapshot.
@@ -200,21 +203,12 @@ nations only** (`p.nation <> p_nation`) and further excludes: eggs, mons with no
 inactive > 30 days, `suspicion >= 10`, the requester themselves, and the requester's
 `last_opponent_id`.
 
-`findOpponent` widens the search in two nested passes:
-
-1. Outer loop: `p_exclude_recent = true` first (skip anyone the challenger fought via this challenger's own
-   `battles` rows in the last 24 h), then `false`.
-2. Inner loop: `LEVEL_WINDOWS` — three asymmetric passes relative to the challenger's own level,
-   `[-2, +1]`, then `[-4, +2]`, then any level (`p_min_level`/`p_max_level` both `null`) — stopping at
-   the first pass that returns a row. `pick_opponent` also returns the opponent's `loadout` so their
-   stance carries into the battle snapshot.
-
-If every combination returns nothing, `findOpponent` returns `null` and `battle-request` falls back to a
-**Wild Mon** (`wildMon()`): a random species from a random other nation, at
-`level = max(2, challenger.level + rng(-3, +1))`, `nickname = "Wild <BabyName>"`, `playerId: null`.
-10 % of these roll **elite** instead (fixed `+3` levels, `isElite: true` in the response, doubles the
-challenger's win XP). A Wild Mon opponent sets `isBot = true`, which is what routes rewards to the
-bot-only rows in the Rewards table above.
+`findOpponent` searches the shared `MATCHMAKING_WINDOWS` in order: weaker, equal, stronger.
+Within each band it first excludes recent opponents, then relaxes recency. The SQL RPC also
+independently enforces an absolute level gap of at most three, including for older callers.
+The new guard and stat mirror live in `supabase/migrations/20260924120000_fair_matchmaking.sql`.
+If no player qualifies, `wildEncounterLevel` supplies the same bounded distribution used offline.
+Exact bands, probabilities and passive combo rules live in `docs/design/progression.md`.
 
 `simulateBattle` is called with `seed = battleId = crypto.randomUUID()`, generated fresh per request; the
 challenger is always side `a`.
@@ -244,7 +238,7 @@ two of the three counter pairings at 80–97 % and the third anywhere from ~37�
 by simulation-tuned constants, not by loosening these test bounds — the tuned magnitudes, the
 stance-mapping change that fixed the structural stance asymmetry, and the "tuned by simulation on
 2026-09-13" notes live in `docs/design/progression.md` (Evolution multipliers and Stances). The
-current, passing targets are **38–48 %** for the boundary matchups' low side and **55–62 %** (all
+current, passing targets are **25–40 %** for the boundary matchups' low side and **55–62 %** (all
 three pairings within 5 points of each other) for the stance triangle.
 
 ## History

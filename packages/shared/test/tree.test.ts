@@ -150,6 +150,40 @@ describe('validateTree', () => {
     });
     expect(over).toMatchObject({ ok: false, code: 'TREE_OVER_BUDGET' });
   });
+
+  // Regression guard: the validator must accept a real, legal allocation for EVERY nation's own
+  // tree, not just water/fire. A legal allocation is built the way the loadout editor builds one --
+  // walking each branch tier by tier so prereqs are always satisfied -- and spent right up to the
+  // level's budget. This locks in that no nation's node ids/branches drift out of what the shared
+  // validator accepts (see docs/design/talent-tree.md).
+  it('accepts a legal budget-filling allocation for every nation, spanning all 3 branches', () => {
+    const level = 30;
+    const budget = pointsAvailable(level);
+    for (const nation of NATIONS) {
+      const nodes = nationNodes(nation);
+      const branches: string[] = [];
+      for (const n of nodes) if (!branches.includes(n.branch)) branches.push(n.branch);
+      const ranks: Record<string, number> = {};
+      let remaining = budget;
+      // Round-robin tier 1..6 across the 3 branches so prereqs hold and all branches get spend.
+      for (let tier = 1; tier <= 6 && remaining > 0; tier++) {
+        for (const branch of branches) {
+          const node = nodes.find((n) => n.branch === branch && n.tier === tier);
+          if (!node) continue;
+          while ((ranks[node.id] ?? 0) < node.maxRank && remaining >= node.cost) {
+            ranks[node.id] = (ranks[node.id] ?? 0) + 1;
+            remaining -= node.cost;
+          }
+        }
+      }
+      const spent = treeSpent(nation, ranks).nation;
+      expect(spent, `${nation} should spend under budget`).toBeLessThanOrEqual(budget);
+      expect(spent, `${nation} should actually spend points`).toBeGreaterThan(0);
+      expect(validateTree(nation, level, ranks), `${nation} allocation rejected`).toEqual({
+        ok: true,
+      });
+    }
+  });
 });
 
 describe('isRespec', () => {

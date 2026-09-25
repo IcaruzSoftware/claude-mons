@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import {
   BATTLE_RULES,
+  wildEncounterLevel,
   NATION_INFO,
   SPECIES,
   challengerReward,
@@ -167,20 +168,22 @@ export class BattleService {
     return summary;
   }
 
-  /** Offline fallback: a Wild Mon from another nation at the same level. */
+  /** Offline fallback: a Wild Mon from another nation using the shared bounded encounter distribution. */
   private wildBattle(me: MonSnapshot, myNation: Nation): BattlePlayMessage {
     const rnd = this.deps.random ?? Math.random;
     const nations = otherNations(myNation);
     const nation = nations[Math.floor(rnd() * nations.length)]!;
     const pool = speciesForNation(nation);
     const species = pool[Math.floor(rnd() * pool.length)] ?? pool[0]!;
+    const encounter = wildEncounterLevel(me.level, rnd());
+    const stage = stageForLevel(encounter.level) as MonSnapshot['stage'];
     const opponent = snapshotFor({
       monId: `wild-${species.id}`,
       playerId: null,
-      nickname: `Wild ${SPECIES[species.id]!.names[me.stage]}`,
+      nickname: `Wild ${SPECIES[species.id]!.names[stage]}`,
       speciesId: species.id,
-      stage: me.stage,
-      level: me.level,
+      stage,
+      level: encounter.level,
     });
     const id = randomUUID();
     const result = simulateBattle(me, opponent, id);
@@ -193,8 +196,7 @@ export class BattleService {
       opponent,
       reward: challengerReward({ won, isBot: true, myLevel: me.level, oppLevel: opponent.level }),
       isBot: true,
-      // Offline builds have no matchmaking service to roll an elite wild mon.
-      isElite: false,
+      isElite: encounter.isElite,
       winStreak: won ? prevStreak + 1 : 0,
     };
   }

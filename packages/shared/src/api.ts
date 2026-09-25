@@ -216,4 +216,8 @@ export interface LeaderboardNationRow {
   weekly_battles_won: number;
   weekly_battles_lost: number;
   rank: number;
+  /** all-time battle tallies; optional so an older server without these columns maps to
+   * `undefined`, treated as 0 by the client (see `leaderboardHelpers.nationStanding`) */
+  battles_won?: number;
+  battles_lost?: number;
 }

@@ -2,8 +2,8 @@
 doc_type: design
 purpose: "Read this when redesigning a specific panel tab (Mon, Leaderboard, Battles, Settings) or planning the order of work for the panel reskin."
 audience: agent
-last_verified: 2026-09-23
-last_verified_commit: c7f00a8
+last_verified: 2026-09-24
+last_verified_commit: 0c357ff
 related_files:
   - docs/design/ui-style.md
   - docs/design/progression.md
@@ -127,19 +127,26 @@ info web page ... the skill tree should be an actual tree"; Settings "fine for n
 └──────────────────────────────────────────┘
 ```
 
-- **Components**: 4 nation banner tiles (`NationBadge` crest chip, weekly XP as a big display-font
-  number, `{hatched}/{members} trainers · avg Lv N` line, a tiny win-rate bar — `weekly_battles_won`
-  / `weekly_battles_lost` from `LeaderboardPayload`, same data
-  `apps/desktop/src/renderer/panel/views/Leaderboard.tsx` already computes), a week/all-time pixel
+- **Components**: 4 nation banner tiles (`NationBadge` crest chip, scope XP as a big display-font
+  number, `{hatched}/{members} trainers · avg Lv N` line, a tiny win-rate bar), a week/all-time pixel
   segmented toggle, a top-3 podium (`podiumOrder` in
   `apps/desktop/src/renderer/panel/views/leaderboardHelpers.ts` orders it 2nd/1st/3rd left-to-right;
   pedestal height ranks 1st tallest/center, sprite on each pedestal, name + xp beneath), compact rows
   for rank 4+ with the player's own row (`mine`) highlighted in `--accent`.
+- **One switch drives both sections.** The WEEK / ALL-TIME toggle lives in the Trainers header but
+  its `scope` state also selects what the nation tiles show: weekly XP + this week's battle tallies,
+  or all-time XP + all-time battle tallies. The tiles re-sort by the selected XP (tie-breaking by the
+  other), the header reads `Nation standings · this week` / `· all time`, and the pure
+  `nationStanding` / `sortNations` helpers in
+  `apps/desktop/src/renderer/panel/views/leaderboardHelpers.ts` do the selection and ordering.
 - **Win bar can be legitimately absent.** A tile only draws the `winbar` fill when the nation has
-  logged battles this week (`weekly_battles_won + weekly_battles_lost > 0`); a nation with no
-  battles (or, per commit `8a24ac9`, only orphaned-account battles now excluded server-side) shows
-  a `winbar-empty` `"no battles yet"` label instead of a bar at 0% — an empty bar would otherwise
-  misread as "this nation is losing everything" rather than "this nation hasn't played."
+  logged battles in the selected scope (`won + lost > 0`); a nation with no battles (or, per commit
+  `8a24ac9`, only orphaned-account battles now excluded server-side) shows a `winbar-empty`
+  `"no battles yet"` label instead of a bar at 0% — an empty bar would otherwise misread as "this
+  nation is losing everything" rather than "this nation hasn't played." All-time battle counts come
+  from the `battles_won` / `battles_lost` columns added in
+  `supabase/migrations/20260924052834_nations_alltime_battles.sql`; an older server without them is
+  treated as 0.
 - **States**: offline build (`!s.online.configured`) — unchanged placeholder message, no banners/board
   at all; loading (`data === null` before first fetch) — a placeholder line, banners/podium do not
   render partially; error (`data.error` set) — keep the existing inline "Could not refresh: ..." line

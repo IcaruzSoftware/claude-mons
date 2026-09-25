@@ -7,7 +7,7 @@ import type {
   Stance,
   StreakState,
 } from '@claude-mons/shared';
-import { DEFAULT_STANCE } from '@claude-mons/shared';
+import { DEFAULT_STANCE, speciesOf } from '@claude-mons/shared';
 import type { BattleSummary } from '../../common/ipc.ts';
 import type { AnchorMemory } from '../display.ts';
 import type { WaterIntervalMin } from '../reminders/WaterReminder.ts';
@@ -107,6 +107,23 @@ export interface LocalState {
 
 /** Default preferred bind port for HookServer's localhost endpoint (falls back to +1..+20 if taken). */
 export const DEFAULT_HOOK_PORT = 51733;
+
+/**
+ * The nation a mon's talent tree belongs to. Once hatched this is the mon's *species* nation -- the
+ * single source of truth the renderer's loadout editor (`speciesOf(pet.speciesId).nation`) and the
+ * server's `monState` both use to build and validate the tree. `profile.nation` is only a safe
+ * fallback while still an egg (no species yet); using it after hatch can disagree with the species
+ * nation and make the main-process `set-loadout` gate reject an otherwise-valid tree the editor
+ * built (docs/design/talent-tree.md).
+ */
+export function loadoutNation(state: {
+  profile: { nation: Nation | null };
+  pet: { speciesId: string | null };
+}): Nation {
+  return state.pet.speciesId
+    ? speciesOf(state.pet.speciesId).nation
+    : (state.profile.nation ?? 'water');
+}
 
 export function defaultState(): LocalState {
   return {

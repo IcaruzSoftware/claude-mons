@@ -2,8 +2,8 @@
 doc_type: reference
 purpose: "Read this when authoring sprite definitions (SpriteDef), understanding the grid format, or running the preview script."
 audience: agent
-last_verified: 2026-09-13
-last_verified_commit: 8a24ac9
+last_verified: 2026-09-25
+last_verified_commit: b742185
 related_files:
   - packages/sprites/src/types.ts
   - packages/sprites/src/palette.ts
@@ -95,6 +95,10 @@ Tests assert idle idle bbox bottom == anchor.y and horizontal centering ±2 px.
 | question | 3 | true | 2 |
 | heart | 6 | true | 3 |
 
+The Ottlet line uses fixed chestnut fur and a cream muzzle/belly, with rounded ears, whiskers,
+curved tails and a teal fish with coral fins in every animation. Lowercase palette keys preserve
+these colors when Water tinting is applied; sizes, foot anchors and animation names stay unchanged.
+
 ## Authoring Helpers
 
 `packages/sprites/src/util.ts` exports helpers that never mutate input:
@@ -131,7 +135,7 @@ See `packages/sprites/src/egg.ts` or `packages/sprites/src/species/sparkit.ts` f
 | `dripple` | `pipefin` | `torrentide` |
 | `bubblit` | `cachecoral` | `deepseaquel` |
 | `sparkit` | `blazebit` | `infernode` |
-| `cinderpup` | `hotfixhound` | `overclockwolf` |
+| `cinderpup` | `emberfox` | `twinflare` |
 | `pebblet` | `boulderbyte` | `monolithor` |
 | `mossling` | `rootling` | `terraformer` |
 | `puffle` | `gustling` | `nimbyte` |

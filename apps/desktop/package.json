@@ -36,7 +36,8 @@
     "electron": "^44.0.0",
     "electron-vite": "^5.0.0",
     "vite": "^7.0.0",
-    "electron-builder": "^26.0.0"
+    "electron-builder": "^26.0.0",
+    "happy-dom": "^15.0.0"
   },
   "desktopName": "claude-mons.desktop",
   "homepage": "https://github.com/IcaruzSoftware/claude-mons"

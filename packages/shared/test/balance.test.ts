@@ -112,18 +112,13 @@ describe('balance (cross-nation round-robin)', () => {
 
   // Boundary matchups either side of a stage transition (baby/teen at 10, teen/adult at 25).
   //
-  // Tuned by simulation on 2026-09-13 (see CLAUDE.md's Phase A tuning task and
-  // docs/design/progression.md Evolution multipliers): the original stage multipliers (1.00/1.15/
-  // 1.30) made the low-level side of these matchups win only ~27-28 %, well outside the 35-65 % band
-  // the design doc asks for. Retuned to 1.00/1.03/1.06, which lands both boundaries at ~38-48 %
-  // (still the disadvantaged side, since the low-level mon really is behind, but nowhere near
-  // routed). The tighter 38-48 % band (rather than the full 35-65 %) reflects that a stage-boundary
-  // matchup is a real, if smaller, handicap by design -- see the sweep script referenced below for
-  // the search that produced these numbers.
+  // Protocol 5 intentionally favors the higher-level side (60-75% at these boundaries).
+  // With the smaller elemental swing, weaker defaults no longer win via a 4x type swing.
+  // Keep the stat growth/stage multipliers unchanged; preparation is tested separately.
   it.each([
     ['L9 vs L11 (baby/teen boundary)', 9, 11] as const,
     ['L24 vs L26 (teen/adult boundary)', 24, 26] as const,
-  ])('%s: low side stays in the 38-48 %% band', (_label, lowLevel, highLevel) => {
+  ])('%s: low side stays in the 25-40 %% band', (_label, lowLevel, highLevel) => {
     const BATTLES_PER_PAIR = 300; // 48 cross-nation ordered pairs * 300 = 14,400 battles
     let lowWins = 0;
     let total = 0;
@@ -155,8 +150,8 @@ describe('balance (cross-nation round-robin)', () => {
     }
     const rate = lowWins / total;
     const msg = `low-level side win rate ${(rate * 100).toFixed(1)}% (n=${total})`;
-    expect(rate, msg).toBeGreaterThanOrEqual(0.38);
-    expect(rate, msg).toBeLessThanOrEqual(0.48);
+    expect(rate, msg).toBeGreaterThanOrEqual(0.25);
+    expect(rate, msg).toBeLessThanOrEqual(0.40);
   });
 
   // Stance triangle (docs/design/progression.md Stances): countering the opponent's stance should

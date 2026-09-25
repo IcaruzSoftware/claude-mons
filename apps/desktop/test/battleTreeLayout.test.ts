@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { NATIONS, nationNodes } from '@claude-mons/shared';
 import {
   BRANCH_X,
   TIER_Y,
@@ -28,6 +29,27 @@ describe('treeNodePosition', () => {
   it('matches the raw TIER_Y table', () => {
     for (let tier = 1; tier <= 6; tier++) {
       expect(treeNodePosition(1, tier).y).toBe(TIER_Y[tier - 1]);
+    }
+  });
+
+  // Regression guard: TalentTree (Battles.tsx) derives one column per branch (in nationNodes order,
+  // capped at 3) and positions each node with treeNodePosition(columnIndex, tier). This asserts the
+  // layout yields a finite, in-range coordinate for EVERY node of EVERY nation -- so the editor can
+  // never fail to place a non-earth node (see docs/design/talent-tree.md).
+  it('positions every node of every nation on the tree canvas', () => {
+    for (const nation of NATIONS) {
+      const nodes = nationNodes(nation);
+      const branches: string[] = [];
+      for (const n of nodes) if (!branches.includes(n.branch)) branches.push(n.branch);
+      expect(branches.length, `${nation} branch count`).toBe(3);
+      for (const node of nodes) {
+        const ci = branches.indexOf(node.branch);
+        const { x, y } = treeNodePosition(ci, node.tier);
+        expect(Number.isFinite(x), `${node.id} x`).toBe(true);
+        expect(Number.isFinite(y), `${node.id} y`).toBe(true);
+        expect(BRANCH_X).toContain(x);
+        expect(TIER_Y as readonly number[]).toContain(y);
+      }
     }
   });
 });
