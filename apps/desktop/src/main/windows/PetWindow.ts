@@ -337,8 +337,13 @@ export class PetWindow {
     this.lastShape = shape;
     const b = this.win.getBounds();
     const rects = linuxShapeRects(this.mode, shape, { width: b.width, height: b.height }, SHAPE_INFLATE);
-    this.win.setShape(rects);
-    if (DEBUG) console.info('[pet] setShape', JSON.stringify({ mode: this.mode, rects }));
+    try {
+      this.win.setShape(rects);
+      if (DEBUG) console.info('[pet] setShape', JSON.stringify({ mode: this.mode, rects }));
+    } catch (err) {
+      // setShape needs the X11 SHAPE extension; if it is somehow unavailable, don't crash the app.
+      if (DEBUG) console.warn('[pet] setShape failed', err);
+    }
   }
 
   send(channel: string, payload: unknown): void {

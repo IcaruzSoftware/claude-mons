@@ -511,9 +511,13 @@ export class PetHost {
     if (msg.type === 'move') {
       if (this.drag) this.onDragMove(world, performance.now());
       else this.updateLinuxHover(overSprite);
-    } else if (msg.type === 'leave') {
+      return; // moves stream at ~60 Hz; don't flood the reducer with input:any
+    }
+    if (msg.type === 'leave') {
       if (!this.drag) this.updateLinuxHover(false);
-    } else if (msg.type === 'down' && msg.button === 0) {
+      return;
+    }
+    if (msg.type === 'down' && msg.button === 0) {
       if (overSprite) this.beginDrag(world);
     } else if (msg.type === 'up' && msg.button === 0 && this.drag) {
       this.endDrag(world);
