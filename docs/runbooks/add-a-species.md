@@ -2,8 +2,8 @@
 doc_type: runbook
 purpose: "Read this when adding a new species to a nation."
 audience: both
-last_verified: 2026-09-22
-last_verified_commit: 6d5bbcd
+last_verified: 2026-09-25
+last_verified_commit: 76a7435
 related_files:
   - packages/shared/src/game/species.ts
   - packages/shared/src/battle/effects.ts
@@ -22,6 +22,12 @@ When you need to design a new species and register it across the sprite, shared,
 ## 1. Plan the species
 
 Choose a nation, rarity (common or rare), and stat budget. Refer to [species-and-nations.md](../design/species-and-nations.md) for the type cycle, rarity weights, base stat ranges per nation, and the current table of all species.
+
+New species must keep `id === names.baby.toLowerCase()` (`packages/shared/test/battle.test.ts`
+enforces this). `cinderpup` is the one documented legacy exception: its id is a stable database key
+(`species_base_stats`, `mons.species_id`, battle snapshots) that predates a display-name rename to
+"Emberkit", so it cannot change without a migration. Do not introduce a second exception; rename the
+display name of a *new* species before shipping it instead.
 
 ```bash
 # Example: new rare Water species

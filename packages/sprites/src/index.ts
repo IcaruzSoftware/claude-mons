@@ -32,8 +32,9 @@ export function getSprite(id: string): SpriteDef {
 export type Stage = 'egg' | 'baby' | 'teen' | 'adult';
 
 /**
- * Evolution lines: species id (the baby name, as used by `packages/shared` and the server) →
- * the stage-specific sprite names. Sprite files are named after the form they draw
+ * Evolution lines: species id (usually the baby name, as used by `packages/shared` and the
+ * server; `cinderpup` is the documented exception -- a stable database key that now displays as
+ * "Emberkit") → the stage-specific sprite names. Sprite files are named after the form they draw
  * (`boulderbyte-teen`), while a mon keeps its species id (`pebblet`) for life.
  */
 export const EVOLUTION_LINES: Record<string, { baby: string; teen: string; adult: string }> = {
@@ -41,7 +42,7 @@ export const EVOLUTION_LINES: Record<string, { baby: string; teen: string; adult
   bubblit: { baby: 'bubblit', teen: 'cachecoral', adult: 'deepseaquel' },
   ottlet: { baby: 'ottlet', teen: 'brookfin', adult: 'tidewhisker' },
   sparkit: { baby: 'sparkit', teen: 'blazebit', adult: 'infernode' },
-  cinderpup: { baby: 'cinderpup', teen: 'emberfox', adult: 'twinflare' },
+  cinderpup: { baby: 'emberkit', teen: 'emberfox', adult: 'twinflare' },
   pebblet: { baby: 'pebblet', teen: 'boulderbyte', adult: 'monolithor' },
   mossling: { baby: 'mossling', teen: 'rootling', adult: 'terraformer' },
   puffle: { baby: 'puffle', teen: 'gustling', adult: 'nimbyte' },
