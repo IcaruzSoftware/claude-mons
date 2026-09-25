@@ -45,6 +45,7 @@ export const IPC = {
   uiChooseNation: 'ui:choose-nation',
   uiToggleHooks: 'ui:toggle-hooks',
   uiSetHookMode: 'ui:set-hook-mode',
+  uiAckCodexTrust: 'ui:ack-codex-trust',
   uiSetSpriteScale: 'ui:set-sprite-scale',
   uiOpenExternal: 'ui:open-external',
   uiQuit: 'ui:quit',
@@ -257,8 +258,21 @@ export interface UiSnapshot {
      * app enables `[features] hooks = true` in Codex's `config.toml` itself): `'unsupported'` means
      * that file's `[features]` table has a form the app refuses to edit automatically, `null` means
      * no install/reinstall has attempted it yet.
+     *
+     * `needsTrust` is set (in memory only, never persisted) whenever an automatic reinstall
+     * actually rewrote the installed Codex command line (a binary/script mode switch, or a
+     * script-mode port rotation -- see `apps/desktop/src/main/hooks/mode.ts:needsReinstall`). Codex
+     * trusts its hooks by a hash of the command line, so a rewritten command silently stops running
+     * until the player re-runs `/hooks` in Codex; this flag drives the Settings hint and the tray
+     * label suffix that tell them so. Cleared by `ui:ack-codex-trust` or by the player
+     * connecting/disconnecting Codex themselves.
      */
-    codex: { status: HookStatusValue; detected: boolean; feature: 'ok' | 'unsupported' | null };
+    codex: {
+      status: HookStatusValue;
+      detected: boolean;
+      feature: 'ok' | 'unsupported' | null;
+      needsTrust: boolean;
+    };
   };
   settings: { spriteScale: number; autostart: boolean };
   water: {

@@ -1,4 +1,5 @@
 import { spawn as nodeSpawn, type ChildProcess } from 'node:child_process';
+import type { HookMode } from './HookInstaller.ts';
 
 /** Result of trying to actually run the installed hook binary. */
 export type ProbeResult = 'ok' | 'blocked' | 'missing';
@@ -87,4 +88,41 @@ export function computeEffectiveMode(
 ): 'binary' | 'script' {
   if (configured === 'binary' || configured === 'script') return configured;
   return probe === 'ok' ? 'binary' : 'script';
+}
+
+export interface NeedsReinstallArgs {
+  /** Mode actually found on disk right now (from `statusOf`), or null if nothing/partial/unreadable. */
+  installedMode: HookMode | null;
+  /** Mode hooks should be installed in right now (`computeEffectiveMode`'s result). */
+  effectiveMode: 'binary' | 'script';
+  /** Whether we ourselves installed hooks before (`LocalState.hooks.installedAt`/`codexInstalledAt`). */
+  wasInstalled: boolean;
+  /** Whether the hook server picked a different port than last run (script mode only). */
+  portChanged: boolean;
+}
+
+/**
+ * Whether an agent's on-disk hooks need to be rewritten in place, without the user re-clicking
+ * Connect: either the installed mode no longer matches the effective one (a binary <-> script
+ * switch, e.g. the probe result changed), or the effective mode is script and the hook server's
+ * port rotated since the last install (the port is embedded in the curl command, so a stale port
+ * silently stops delivering events). Pure -- used by `App.applyHookModeForAgent` for both Claude
+ * Code and Codex (see Review Focus 4 in the final whole-branch review: this was previously inline
+ * and untested for the Codex path).
+ *
+ * `modeMismatch` is gated on `wasInstalled` so a mode we merely detect on disk (e.g. hooks someone
+ * else's tool wrote in the same file, or a status still resolving from a fresh install we haven't
+ * recorded yet) never triggers an unsolicited reinstall. `stalePort` has no such gate: a script-mode
+ * command embeds the port directly, so any agent whose installed command still points at the old
+ * port needs fixing regardless of whether *we* were the one who last wrote it.
+ */
+export function needsReinstall({
+  installedMode,
+  effectiveMode,
+  wasInstalled,
+  portChanged,
+}: NeedsReinstallArgs): boolean {
+  const modeMismatch = wasInstalled && installedMode !== null && installedMode !== effectiveMode;
+  const stalePort = portChanged && installedMode === 'script';
+  return modeMismatch || stalePort;
 }

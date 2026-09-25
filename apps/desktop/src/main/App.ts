@@ -40,6 +40,7 @@ import {
   CODEX_AGENT,
   codexConfigPath,
   codexDetected,
+  codexHomeOverridden,
   codexHooksPath,
   type HookAgentSpec,
 } from './hooks/agents.ts';
@@ -54,7 +55,7 @@ import {
 import { HookServer } from './hooks/HookServer.ts';
 import { SpoolDrainer } from './hooks/SpoolDrainer.ts';
 import { ensureHookBinary } from './hooks/binary.ts';
-import { computeEffectiveMode, probeBinary, type ProbeResult } from './hooks/mode.ts';
+import { computeEffectiveMode, needsReinstall, probeBinary, type ProbeResult } from './hooks/mode.ts';
 import {
   authActionOnLostSession,
   buildAdoptedProfile,
@@ -128,6 +129,12 @@ export class App {
   };
   /** Last `ensureCodexHooksFeature()` result (Codex only); null before any install/reinstall attempt. */
   private codexFeature: 'ok' | 'unsupported' | null = null;
+  /**
+   * Set (in memory only) when an automatic reinstall rewrote Codex's installed command line, which
+   * invalidates Codex's own `/hooks` trust hash. Cleared by `ui:ack-codex-trust` or by the player
+   * connecting/disconnecting Codex themselves. See `UiSnapshot.hooks.codex.needsTrust`.
+   */
+  private codexNeedsTrust = false;
   private hookBinaryPath: string | null = null;
   private probeResult: ProbeResult | null = null;
   private effectiveMode: 'binary' | 'script' = 'script';
@@ -203,6 +210,7 @@ export class App {
             return status === 'no-binary' ? 'not-installed' : status;
           },
           toggle: (agent) => void this.toggleHooks(agent),
+          codexNeedsTrust: () => this.codexNeedsTrust,
         },
         water: {
           enabled: () => this.store.get().settings.waterReminder.enabled,
@@ -284,12 +292,14 @@ export class App {
       // Installs hooks into CLAUDE_CONFIG_DIR/settings.json and CODEX_HOME/hooks.json in the
       // currently effective mode, for manual live testing without touching the developer's real
       // ~/.claude/settings.json or ~/.codex config (see docs/runbooks/verify-a-ui-change.md).
-      // toggleHooks('codex') below is a no-op unless CODEX_HOME already exists -- this flag never
-      // creates a Codex install, only connects one that's already there.
+      // The Codex half only ever runs when CODEX_HOME is explicitly set: without it, codexHome()
+      // falls back to the developer's real ~/.codex, and toggleHooks('codex') would happily write
+      // to it on any machine where Codex is actually installed (codexDetected() only guards against
+      // *creating* ~/.codex, not against writing into one that already exists).
       if (process.argv.includes('--dev-install-hooks')) {
         setTimeout(() => {
           void this.toggleHooks('claude');
-          void this.toggleHooks('codex');
+          if (codexHomeOverridden()) void this.toggleHooks('codex');
         }, 1500);
       }
       devWaterIn = parseDevWaterInArg(process.argv);
@@ -378,6 +388,7 @@ export class App {
           status: this.hookStatuses.codex as HookStatusValue,
           detected: codexDetected(),
           feature: this.codexFeature,
+          needsTrust: this.codexNeedsTrust,
         },
       },
       settings: { spriteScale: s.settings.spriteScale, autostart: this.autostartEnabled },
@@ -451,6 +462,12 @@ export class App {
     });
     ipcMain.handle(IPC.uiToggleHooks, async (_e, agent: unknown) => {
       await this.toggleHooks(agent === 'codex' ? 'codex' : 'claude');
+      return this.snapshot();
+    });
+    ipcMain.handle(IPC.uiAckCodexTrust, () => {
+      this.codexNeedsTrust = false;
+      this.host.tray.refreshMenu();
+      this.pushSnapshot();
       return this.snapshot();
     });
     ipcMain.handle(IPC.uiSetSpriteScale, (_e, scale: unknown) => {
@@ -875,6 +892,9 @@ export class App {
     const installer = this.installers[agent];
     if (!installer) return;
     const spec: HookAgentSpec = agent === 'claude' ? CLAUDE_AGENT : CODEX_AGENT;
+    // A user-initiated connect/disconnect always re-trusts (or tears down) the current command
+    // themselves, so any stale-trust warning from an earlier automatic reinstall no longer applies.
+    if (agent === 'codex') this.codexNeedsTrust = false;
     try {
       if (
         this.hookStatuses[agent] === 'installed-binary' ||
@@ -937,7 +957,7 @@ export class App {
       opts,
       () => this.store.get().hooks.installedAt,
     );
-    const codexReinstalled = await this.applyHookModeForAgent(
+    const codexReinstall = await this.applyHookModeForAgent(
       CODEX_AGENT,
       codexHooksPath(),
       target,
@@ -947,11 +967,18 @@ export class App {
         this.codexFeature = await ensureCodexHooksFeature(codexConfigPath());
       },
     );
-    if (!codexReinstalled) {
+    if (!codexReinstall.attempted) {
       // No install/reinstall ran this session (e.g. a plain restart with nothing to change), so
       // `beforeInstall` above never fired -- read config.toml's current state instead, so the
       // snapshot's `codex.feature` reflects reality rather than staying stuck at its last value.
       this.codexFeature = await readCodexFeatureStatus(codexConfigPath());
+    }
+    if (codexReinstall.succeeded) {
+      // A reinstall only ever runs on a mode switch or a script-mode port rotation (see
+      // `needsReinstall`), both of which change the installed command line -- so a *successful*
+      // reinstall always invalidates Codex's `/hooks` trust hash. See `UiSnapshot.hooks.codex.needsTrust`.
+      this.codexNeedsTrust = true;
+      if (DEBUG) console.info('[hooks] Codex command changed on reinstall; needs /hooks re-trust');
     }
     if (DEBUG) {
       console.info(
@@ -966,13 +993,16 @@ export class App {
    * Rebuilds one agent's installer against the shared `target` and refreshes its status. If hooks
    * were already installed in the *other* mode (or, when `portChanged`, the same script-mode command
    * needs a fresh port), this reinstalls in place so the on-disk settings always match the effective
-   * mode without the user re-clicking Connect. A reinstall's `beforeInstall` failure (Codex's
-   * `ensureCodexHooksFeature`, which throws on an unreadable `config.toml` or a failed backup) is
-   * swallowed here, same as any other automatic-reinstall failure -- it only surfaces as a dialog
-   * from a user-initiated `toggleHooks`; under `CLAUDE_MONS_DEBUG` it is also logged, the same way
-   * `applyHookMode`'s own effective-mode line is. Returns whether a reinstall was attempted, so
-   * `applyHookMode` can tell a real attempt (which already updated `codexFeature`) apart from a
-   * quiet restart where nothing needed reinstalling.
+   * mode without the user re-clicking Connect -- the decision itself is `needsReinstall`
+   * (`apps/desktop/src/main/hooks/mode.ts`), pure and unit-tested. A reinstall's `beforeInstall`
+   * failure (Codex's `ensureCodexHooksFeature`, which throws on an unreadable `config.toml` or a
+   * failed backup) is swallowed here, same as any other automatic-reinstall failure -- it only
+   * surfaces as a dialog from a user-initiated `toggleHooks`; under `CLAUDE_MONS_DEBUG` it is also
+   * logged, the same way `applyHookMode`'s own effective-mode line is. Returns `attempted` (a
+   * reinstall was needed, whether or not it actually succeeded -- `applyHookMode` uses this to tell
+   * a real attempt, which already updated `codexFeature`, apart from a quiet restart where nothing
+   * needed reinstalling) and `succeeded` (the write actually completed, which for Codex means the
+   * installed command line changed and its `/hooks` trust is now stale).
    */
   private async applyHookModeForAgent(
     spec: HookAgentSpec,
@@ -981,7 +1011,7 @@ export class App {
     opts: { portChanged?: boolean },
     installedAt: () => number | null,
     beforeInstall?: () => Promise<void>,
-  ): Promise<boolean> {
+  ): Promise<{ attempted: boolean; succeeded: boolean }> {
     const installer = new HookInstaller({
       settingsPath,
       target,
@@ -996,11 +1026,13 @@ export class App {
         : this.hookStatuses[spec.agent] === 'installed-script'
           ? 'script'
           : null;
-    const wasInstalled = installedAt() !== null;
-    const modeMismatch =
-      wasInstalled && installedMode !== null && installedMode !== this.effectiveMode;
-    const stalePort = Boolean(opts.portChanged) && installedMode === 'script';
-    if (!modeMismatch && !stalePort) return false;
+    const reinstall = needsReinstall({
+      installedMode,
+      effectiveMode: this.effectiveMode,
+      wasInstalled: installedAt() !== null,
+      portChanged: Boolean(opts.portChanged),
+    });
+    if (!reinstall) return { attempted: false, succeeded: false };
     const previousStatus = this.hookStatuses[spec.agent];
     try {
       this.hookStatuses[spec.agent] = await installer.install();
@@ -1009,8 +1041,9 @@ export class App {
       if (DEBUG) {
         console.info(`[hooks] ${spec.label} reinstall failed: ${String(err)}`);
       }
+      return { attempted: true, succeeded: false };
     }
-    return true;
+    return { attempted: true, succeeded: true };
   }
 
   private async shutdown(): Promise<void> {

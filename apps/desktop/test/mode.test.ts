@@ -1,6 +1,11 @@
 import { EventEmitter } from 'node:events';
 import { describe, expect, it } from 'vitest';
-import { computeEffectiveMode, probeBinary, type SpawnFn } from '../src/main/hooks/mode.ts';
+import {
+  computeEffectiveMode,
+  needsReinstall,
+  probeBinary,
+  type SpawnFn,
+} from '../src/main/hooks/mode.ts';
 
 class FakeChild extends EventEmitter {
   killed = false;
@@ -103,5 +108,108 @@ describe('computeEffectiveMode', () => {
     expect(computeEffectiveMode('auto', 'blocked')).toBe('script');
     expect(computeEffectiveMode('auto', 'missing')).toBe('script');
     expect(computeEffectiveMode('auto', null)).toBe('script');
+  });
+});
+
+describe('needsReinstall', () => {
+  it('is false when nothing is installed yet', () => {
+    expect(
+      needsReinstall({
+        installedMode: null,
+        effectiveMode: 'binary',
+        wasInstalled: false,
+        portChanged: false,
+      }),
+    ).toBe(false);
+  });
+
+  it('is false when the installed mode already matches the effective mode', () => {
+    expect(
+      needsReinstall({
+        installedMode: 'binary',
+        effectiveMode: 'binary',
+        wasInstalled: true,
+        portChanged: false,
+      }),
+    ).toBe(false);
+    expect(
+      needsReinstall({
+        installedMode: 'script',
+        effectiveMode: 'script',
+        wasInstalled: true,
+        portChanged: false,
+      }),
+    ).toBe(false);
+  });
+
+  it('is true on a mode mismatch (binary <-> script) once we know we installed it', () => {
+    expect(
+      needsReinstall({
+        installedMode: 'binary',
+        effectiveMode: 'script',
+        wasInstalled: true,
+        portChanged: false,
+      }),
+    ).toBe(true);
+    expect(
+      needsReinstall({
+        installedMode: 'script',
+        effectiveMode: 'binary',
+        wasInstalled: true,
+        portChanged: false,
+      }),
+    ).toBe(true);
+  });
+
+  it('ignores a mode mismatch when we never recorded installing it ourselves', () => {
+    expect(
+      needsReinstall({
+        installedMode: 'binary',
+        effectiveMode: 'script',
+        wasInstalled: false,
+        portChanged: false,
+      }),
+    ).toBe(false);
+  });
+
+  it('ignores a mismatch when the on-disk mode is unknown (partial/unreadable/not-installed)', () => {
+    expect(
+      needsReinstall({
+        installedMode: null,
+        effectiveMode: 'script',
+        wasInstalled: true,
+        portChanged: false,
+      }),
+    ).toBe(false);
+  });
+
+  it('is true on a stale port in script mode, regardless of wasInstalled -- this is what makes a Codex reinstall pick up a rotated port', () => {
+    expect(
+      needsReinstall({
+        installedMode: 'script',
+        effectiveMode: 'script',
+        wasInstalled: true,
+        portChanged: true,
+      }),
+    ).toBe(true);
+    expect(
+      needsReinstall({
+        installedMode: 'script',
+        effectiveMode: 'script',
+        wasInstalled: false,
+        portChanged: true,
+      }),
+    ).toBe(true);
+  });
+
+  it('a port change is irrelevant in binary mode', () => {
+    expect(
+      needsReinstall({
+        installedMode: 'binary',
+        effectiveMode: 'binary',
+        wasInstalled: true,
+        portChanged: true,
+      }),
+    ).toBe(false);
   });
 });

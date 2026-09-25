@@ -65,6 +65,7 @@ const uiApi = {
     ipcRenderer.invoke(IPC.uiToggleHooks, agent),
   setHookMode: (mode: 'auto' | 'binary' | 'script'): Promise<UiSnapshot> =>
     ipcRenderer.invoke(IPC.uiSetHookMode, mode),
+  ackCodexTrust: (): Promise<UiSnapshot> => ipcRenderer.invoke(IPC.uiAckCodexTrust),
   setSpriteScale: (scale: number): Promise<UiSnapshot> =>
     ipcRenderer.invoke(IPC.uiSetSpriteScale, scale),
   openExternal: (url: string): Promise<void> => ipcRenderer.invoke(IPC.uiOpenExternal, url),

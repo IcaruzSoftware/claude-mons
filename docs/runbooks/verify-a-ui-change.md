@@ -2,8 +2,8 @@
 doc_type: runbook
 purpose: "Read this before shipping any change to the panel, onboarding, hover card or reminder UI: how to prove it works without touching your real pet."
 audience: both
-last_verified: 2026-09-13
-last_verified_commit: 44486b0
+last_verified: 2026-09-25
+last_verified_commit: 2ccd329
 related_files:
   - scripts/ui-probe.mjs
   - apps/desktop/test/styleContract.test.ts
@@ -42,10 +42,14 @@ change you are verifying *needs* the server (leaderboard rows, real matchmaking)
 real player row — use a throwaway profile anyway and delete the row afterwards with
 `docs/runbooks/delete-a-player.md`.
 
-Hook installation writes to `<CLAUDE_CONFIG_DIR>/settings.json` (default `~/.claude`). It only happens
-when something asks for it — the Connect button, the tray toggle, `--dev-install-hooks`, or a stored
-install whose mode no longer matches. A fresh profile has none, so nothing touches your real hooks;
-if you are testing the Connect step itself, point `CLAUDE_CONFIG_DIR` at a throwaway directory too.
+Hook installation writes to `<CLAUDE_CONFIG_DIR>/settings.json` (default `~/.claude`) and, for Codex,
+`<CODEX_HOME>/hooks.json` plus `[features] hooks` in `<CODEX_HOME>/config.toml` (default `~/.codex`).
+It only happens when something asks for it — the Connect button, the tray toggle,
+`--dev-install-hooks`, or a stored install whose mode no longer matches. A fresh profile has none, so
+nothing touches your real hooks; if you are testing the Connect step itself (or any Codex UI), point
+**both** `CLAUDE_CONFIG_DIR` and `CODEX_HOME` at throwaway directories. `--dev-install-hooks` only
+ever installs Codex hooks when `CODEX_HOME` is set for exactly this reason — without it, it would
+silently write into your real `~/.codex` if Codex happens to be installed on your machine.
 
 ## 2. Run the static checks
 
@@ -122,5 +126,5 @@ directory. Nothing else on the machine was written to.
 ## Acceptance
 
 `pnpm check` is green, the probe's assertions in step 4 hold on a freshly started throwaway instance,
-the capture from step 5 matches the specs, and `%APPDATA%\claude-mons` / `~/.config/claude-mons` and
-`~/.claude/settings.json` are unchanged.
+the capture from step 5 matches the specs, and `%APPDATA%\claude-mons` / `~/.config/claude-mons`,
+`~/.claude/settings.json` and `~/.codex` are unchanged.

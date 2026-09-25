@@ -2,8 +2,8 @@
 doc_type: runbook
 purpose: "Use this when the pet does not respond to Claude Code activity (no XP, no stimulus)."
 audience: both
-last_verified: 2026-09-13
-last_verified_commit: 8a24ac9
+last_verified: 2026-09-25
+last_verified_commit: 2ccd329
 related_files:
   - packages/hook-cli/README.md
   - apps/desktop/README.md
@@ -134,7 +134,19 @@ tail -5 "<userData>/hook-spool.jsonl" | jq .
 
 Each line should be valid JSON with `"spooled": true`. If the file grows unbounded, the drainer is stuck or the app is crashing during drain. Script mode has no spool file to inspect — a lost event there simply never appears anywhere (see [ADR 0014](../decisions/0014-curl-script-mode-hook-fallback.md)).
 
-11. **Restore settings.json from backup (if corrupt).**
+11. **Codex: hooks installed but nothing arrives -> run `/hooks`, check trust.**
+
+Codex trusts installed hooks by a hash of the exact command line, checked once when you run `/hooks`
+inside a Codex session. Reconnecting Codex in Settings, or an automatic reinstall (a binary/script
+mode switch, or a script-mode port rotation after a restart — `apps/desktop/src/main/hooks/mode.ts:
+needsReinstall`), rewrites that command line and silently invalidates the old trust, even though
+`~/.codex/hooks.json` and `HookStatusValue` both still show it installed. When an automatic reinstall
+is the cause, `UiSnapshot.hooks.codex.needsTrust` is set (in memory only) and Settings shows a hint
+with a "Done" button (`ui:ack-codex-trust`) to dismiss it once you've re-trusted; the tray's Codex
+menu item also gets a "(run /hooks again)" suffix while it's set. Either way, the fix is the same: run
+`/hooks` in Codex, confirm the claude-mons entry, and start a new session.
+
+12. **Restore settings.json from backup (if corrupt).**
 
 If step 3 shows invalid JSON, look for timestamped backups:
 

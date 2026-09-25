@@ -2,8 +2,8 @@
 doc_type: reference
 purpose: "Understand the desktop app's process model, module map, IPC channels, and CLI flags."
 audience: agent
-last_verified: 2026-09-13
-last_verified_commit: 44486b0
+last_verified: 2026-09-25
+last_verified_commit: 2ccd329
 related_files:
   - apps/desktop/src/**
   - apps/desktop/IPC.md
@@ -159,7 +159,7 @@ All channel names and payload types live in `src/common/ipc.ts`. See `apps/deskt
 | `--dev-nation <water\|fire\|earth\|air>` | Yes | Auto-choose nation after 1 s |
 | `--dev-battle` | Yes | Trigger `onBattleRequest()` after 2.5 s |
 | `--dev-xp <n>` | Yes | Grant XP via `game.grantXp(n, 'server')` after 2 s |
-| `--dev-install-hooks` | Yes | Install hooks (`toggleHooks()`) 1.5 s after boot, in the effective mode; used for manual testing against `CLAUDE_CONFIG_DIR` |
+| `--dev-install-hooks` | Yes | Install hooks (`toggleHooks()`) 1.5 s after boot, in the effective mode; used for manual testing against `CLAUDE_CONFIG_DIR`. The Codex half only runs when `CODEX_HOME` is also set (`codexHomeOverridden()`), so this never writes into a developer's real `~/.codex` |
 | `--dev-onboarding-step <n>` | Yes | Open the onboarding wizard on step n (via `UiSnapshot.devOnboardingStep`) instead of step 0; for capturing a specific step |
 | `--dev-water-in <seconds>` | Yes | Force the water reminder due N seconds after start (`WaterReminder.devForceDueInSeconds`), so the card appears quickly for manual testing or `--capture` instead of waiting out a full interval |
 | `--dev-signed-out` | Yes | Force the signed-out banner (`docs/architecture/flows/account-linking.md#signed-out`) ~0.8 s after start (fills in a demo linked account if none), so the banner can be verified offline without a backend |
@@ -183,6 +183,7 @@ app) and `--remote-debugging-port=<port>` exposes the renderers to the Chrome De
 | `CLAUDE_MONS_SUPABASE_URL` | Override Supabase URL |
 | `CLAUDE_MONS_SUPABASE_ANON_KEY` | Override Supabase anon key |
 | `CLAUDE_CONFIG_DIR` | Override Claude config path (HookInstaller) |
+| `CODEX_HOME` | Override Codex's config directory (default `~/.codex`); also gates `--dev-install-hooks`'s Codex half (see above) |
 | `ELECTRON_RENDERER_URL` | electron-vite dev server URL |
 | `APPIMAGE` | Set by AppImage runtime (Updater/Autostart) |
 | `XDG_CONFIG_HOME` | Used for autostart path on Linux |

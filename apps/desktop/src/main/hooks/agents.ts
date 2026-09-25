@@ -82,3 +82,14 @@ export function codexConfigPath(env: NodeJS.ProcessEnv = process.env, home = hom
 export function codexDetected(env: NodeJS.ProcessEnv = process.env, home = homedir()): boolean {
   return existsSync(codexHome(env, home));
 }
+
+/**
+ * Whether `CODEX_HOME` is explicitly set (non-empty) in the environment. `--dev-install-hooks`
+ * (`apps/desktop/src/main/App.ts`) gates its Codex half on this: without it, `codexHome()` falls
+ * back to the developer's real `~/.codex`, and if that happens to exist on their machine (most
+ * Codex users), the flag would silently write real hooks into it -- see
+ * `docs/runbooks/verify-a-ui-change.md` and `apps/desktop/README.md`'s environment variable table.
+ */
+export function codexHomeOverridden(env: NodeJS.ProcessEnv = process.env): boolean {
+  return Boolean(env.CODEX_HOME && env.CODEX_HOME.length > 0);
+}

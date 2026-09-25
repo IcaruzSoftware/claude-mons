@@ -2,7 +2,7 @@ import { promises as fs } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { codexDetected, codexHome } from '../src/main/hooks/agents.ts';
+import { codexDetected, codexHome, codexHomeOverridden } from '../src/main/hooks/agents.ts';
 
 describe('codexDetected', () => {
   let home: string;
@@ -29,5 +29,16 @@ describe('codexDetected', () => {
     await fs.mkdir(codexHomeDir, { recursive: true });
     expect(codexDetected({ CODEX_HOME: codexHomeDir }, home)).toBe(true);
     expect(codexDetected({}, home)).toBe(false);
+  });
+});
+
+describe('codexHomeOverridden', () => {
+  it('is false when CODEX_HOME is unset or empty', () => {
+    expect(codexHomeOverridden({})).toBe(false);
+    expect(codexHomeOverridden({ CODEX_HOME: '' })).toBe(false);
+  });
+
+  it('is true once CODEX_HOME is set to a non-empty path', () => {
+    expect(codexHomeOverridden({ CODEX_HOME: '/tmp/cx' })).toBe(true);
   });
 });

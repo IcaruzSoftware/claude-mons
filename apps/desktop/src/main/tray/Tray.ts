@@ -19,6 +19,8 @@ export interface TrayActions {
   openPanel(): void;
   hookStatus(agent: HookAgent): HookStatus;
   toggleHooks(agent: HookAgent): void;
+  /** True while an automatic reinstall changed Codex's command line and it needs re-trusting via `/hooks`. */
+  codexNeedsTrust(): boolean;
   /** Mirrors `settings.waterReminder.enabled`. */
   waterReminderEnabled(): boolean;
   toggleWaterReminder(): void;
@@ -28,9 +30,8 @@ export interface TrayActions {
 
 /**
  * Tray/context-menu text for one agent's hook item, parametrized by its display label so Claude
- * Code and Codex share the same phrasing. Pure -- `App.ts` has no unit-test harness of its own
- * (Ruling C, `.superpowers/sdd/2026-09-25-codex-integration/task-5-brief.md`), so this is extracted
- * and unit-tested directly in `apps/desktop/test/Tray.test.ts` instead.
+ * Code and Codex share the same phrasing. Pure -- `App.ts` has no unit-test harness of its own, so
+ * this is extracted and unit-tested directly in `apps/desktop/test/Tray.test.ts` instead.
  */
 export function hookMenuLabel(label: string, status: HookStatus): string {
   switch (status) {
@@ -113,11 +114,12 @@ export class AppTray {
     // (`codexHome()`'s directory exists) -- most users won't have one, and there's nothing to
     // connect to otherwise.
     const codexStatus = codexDetected() ? this.actions.hookStatus('codex') : null;
+    const codexTrustSuffix = this.actions.codexNeedsTrust() ? ' (run /hooks again)' : '';
     const codexItems: MenuItemConstructorOptions[] =
       codexStatus
         ? [
             {
-              label: hookMenuLabel(CODEX_AGENT.label, codexStatus),
+              label: hookMenuLabel(CODEX_AGENT.label, codexStatus) + codexTrustSuffix,
               click: () => this.actions.toggleHooks('codex'),
               enabled: codexStatus !== 'unreadable',
             },

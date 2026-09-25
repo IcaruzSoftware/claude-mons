@@ -252,12 +252,21 @@ export function SettingsView({ s }: { s: UiSnapshot }) {
                 {codex.detected ? hookStatusLabel(codex.status, 'codex') : 'Codex not found'}
               </span>
               <div class="hint">
-                Adds hooks to ~/.codex/hooks.json and turns on `[features] hooks` in config.toml.
-                Then run `/hooks` in Codex once to trust them, and start a new session.
+                Adds hooks to ~/.codex/hooks.json and turns on <code>[features] hooks</code> in
+                config.toml. Then run <code>/hooks</code> in Codex once to trust them, and start a
+                new session.
               </div>
               {codex.feature === 'unsupported' && (
                 <div class="hint">
-                  Set `hooks = true` under `[features]` in config.toml yourself.
+                  Set <code>hooks = true</code> under <code>[features]</code> in config.toml
+                  yourself.
+                </div>
+              )}
+              {codex.needsTrust && (
+                <div class="hint">
+                  <span class="status-dot warn" /> Codex hooks changed. Run <code>/hooks</code> in
+                  Codex to trust them again, then start a new session.{' '}
+                  <button onClick={() => void window.monsUi.ackCodexTrust()}>Done</button>
                 </div>
               )}
             </div>

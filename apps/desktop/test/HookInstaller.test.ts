@@ -271,6 +271,47 @@ describe('HookInstaller (filesystem)', () => {
     expect(await fs.readFile(settingsPath, 'utf8')).toBe('{ not json');
   });
 
+  it('reinstalling Codex script-mode hooks with a new port rewrites the command and keeps a foreign hook', async () => {
+    const foreign: Settings = {
+      hooks: {
+        SessionStart: [
+          {
+            hooks: [
+              { command: "bash '/h/.codex/herdr-agent-state.sh' session", timeout: 10, type: 'command' },
+            ],
+          },
+        ],
+      },
+    };
+    await fs.writeFile(settingsPath, JSON.stringify(foreign));
+
+    const oldEndpoint = { port: 51733, token: 'a'.repeat(64) };
+    const first = new HookInstaller({
+      settingsPath,
+      target: { mode: 'script', endpoint: oldEndpoint },
+      spec: CODEX_AGENT,
+    });
+    expect(await first.install()).toBe('installed-script');
+
+    const newEndpoint = { port: 51799, token: 'a'.repeat(64) };
+    const second = new HookInstaller({
+      settingsPath,
+      target: { mode: 'script', endpoint: newEndpoint },
+      spec: CODEX_AGENT,
+    });
+    expect(await second.install()).toBe('installed-script');
+
+    const written = JSON.parse(await fs.readFile(settingsPath, 'utf8'));
+    const stopCommand = written.hooks.Stop[0].hooks[0].command as string;
+    expect(stopCommand).toContain(`:${newEndpoint.port}/hook`);
+    expect(stopCommand).not.toContain(`:${oldEndpoint.port}/hook`);
+    expect(written.hooks.Stop).toHaveLength(1); // old-port command replaced, not appended
+    const sessionStartCommands = written.hooks.SessionStart.flatMap(
+      (g: { hooks: { command: string }[] }) => g.hooks.map((h) => h.command),
+    );
+    expect(sessionStartCommands).toContain("bash '/h/.codex/herdr-agent-state.sh' session");
+  });
+
   it('runs beforeInstall once before writing', async () => {
     let calls = 0;
     const beforeInstall = async () => {
