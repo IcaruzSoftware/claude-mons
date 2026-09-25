@@ -2,8 +2,8 @@
 doc_type: design
 purpose: "Read this when adding/changing a nation, species, hatch rarity, stage threshold, or sprite id, and need every place that must stay in sync."
 audience: agent
-last_verified: 2026-09-24
-last_verified_commit: bf1f338
+last_verified: 2026-09-25
+last_verified_commit: b742185
 related_files:
   - packages/shared/src/game/nations.ts
   - packages/shared/src/game/species.ts
@@ -51,7 +51,7 @@ Nine species, defined in `packages/shared/src/game/species.ts` and mirrored in `
 | Water | bubblit | rare | Bubblit → Cachecoral → Deepseaquel | 76/50/53/36 |
 | Water | ottlet | rare | Ottlet → Brookfin → Tidewhisker | 75/60/40/40 |
 | Fire | sparkit | common | Sparkit → Blazebit → Infernode | 70/60/42/38 |
-| Fire | cinderpup | rare | Cinderpup → Hotfixhound → Overclockwolf | 75/60/40/40 |
+| Fire | cinderpup | rare | Cinderpup → Emberfox → Twinflare | 75/60/40/40 |
 | Earth | pebblet | common | Pebblet → Boulderbyte → Monolithor | 90/45/55/20 |
 | Earth | mossling | rare | Mossling → Rootling → Terraformer | 91/46/55/23 |
 | Air | puffle | common | Puffle → Gustling → Nimbyte | 61/52/48/49 |

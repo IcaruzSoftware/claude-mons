@@ -41,7 +41,7 @@ export const EVOLUTION_LINES: Record<string, { baby: string; teen: string; adult
   bubblit: { baby: 'bubblit', teen: 'cachecoral', adult: 'deepseaquel' },
   ottlet: { baby: 'ottlet', teen: 'brookfin', adult: 'tidewhisker' },
   sparkit: { baby: 'sparkit', teen: 'blazebit', adult: 'infernode' },
-  cinderpup: { baby: 'cinderpup', teen: 'hotfixhound', adult: 'overclockwolf' },
+  cinderpup: { baby: 'cinderpup', teen: 'emberfox', adult: 'twinflare' },
   pebblet: { baby: 'pebblet', teen: 'boulderbyte', adult: 'monolithor' },
   mossling: { baby: 'mossling', teen: 'rootling', adult: 'terraformer' },
   puffle: { baby: 'puffle', teen: 'gustling', adult: 'nimbyte' },

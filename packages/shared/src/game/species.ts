@@ -129,7 +129,7 @@ export const SPECIES: Record<string, Species> = {
     id: 'cinderpup',
     nation: 'fire',
     rarity: 'rare',
-    names: { baby: 'Cinderpup', teen: 'Hotfixhound', adult: 'Overclockwolf' },
+    names: { baby: 'Cinderpup', teen: 'Emberfox', adult: 'Twinflare' },
     baseStats: { hp: 75, atk: 60, def: 40, spd: 40 },
     movePool: pool([
       ['Ember Bite', 45, 'neutral', 'priority'],

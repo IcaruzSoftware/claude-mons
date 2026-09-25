@@ -2,8 +2,8 @@
 doc_type: reference
 purpose: "Release notes and version history; check this when seeing claude-mons updates or deciding what version to expect features in."
 audience: both
-last_verified: 2026-09-24
-last_verified_commit: 0c357ff
+last_verified: 2026-09-25
+last_verified_commit: b742185
 related_files:
   - docs/history/v1-handoff-2026-09-04.md
   - docs/README.md
@@ -22,6 +22,9 @@ All notable changes to claude-mons are documented here. See [Keep a Changelog](h
 
 ### Changed
 
+- The rare Fire line is now a two-tailed fire fox: Cinderpup → Emberfox → Twinflare, redrawn. The
+  teen and adult were renamed away from the old dog/wolf coding puns (Hotfixhound, Overclockwolf);
+  the species id `cinderpup`, its stats and its move pool are unchanged.
 - The WEEK / ALL-TIME switch now also drives the nation standings. Previously the four nation tiles
   at the top of the Leaderboard tab were always weekly while the switch only affected the trainer
   list; the one switch now selects the XP and battle tallies shown in both sections.

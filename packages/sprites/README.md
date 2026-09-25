@@ -2,8 +2,8 @@
 doc_type: reference
 purpose: "Read this when authoring sprite definitions (SpriteDef), understanding the grid format, or running the preview script."
 audience: agent
-last_verified: 2026-09-24
-last_verified_commit: bf1f338
+last_verified: 2026-09-25
+last_verified_commit: b742185
 related_files:
   - packages/sprites/src/types.ts
   - packages/sprites/src/palette.ts
@@ -135,7 +135,7 @@ See `packages/sprites/src/egg.ts` or `packages/sprites/src/species/sparkit.ts` f
 | `dripple` | `pipefin` | `torrentide` |
 | `bubblit` | `cachecoral` | `deepseaquel` |
 | `sparkit` | `blazebit` | `infernode` |
-| `cinderpup` | `hotfixhound` | `overclockwolf` |
+| `cinderpup` | `emberfox` | `twinflare` |
 | `pebblet` | `boulderbyte` | `monolithor` |
 | `mossling` | `rootling` | `terraformer` |
 | `puffle` | `gustling` | `nimbyte` |
