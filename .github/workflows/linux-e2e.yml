@@ -27,6 +27,7 @@ jobs:
   e2e:
     name: e2e (${{ matrix.mode }})
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
@@ -51,10 +52,11 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            xvfb x11-utils x11-xserver-utils xdotool wmctrl imagemagick \
+            xvfb xwayland x11-utils x11-xserver-utils xdotool wmctrl imagemagick \
             openbox picom dbus-x11 mutter weston \
             libgtk-3-0t64 libnotify4 libnss3 libxss1 libxtst6 xdg-utils \
             libatspi2.0-0t64 libuuid1 libsecret-1-0 libasound2t64 libgbm1
+          echo "Xwayland: $(command -v Xwayland || echo MISSING)"
 
       - name: Run harness (${{ matrix.mode }})
         id: harness

@@ -68,6 +68,9 @@ start_wayland_xwayland() {
   # exactly as it does on the owner's GNOME/Wayland session. Try mutter, then weston.
   export XDG_RUNTIME_DIR="$(mktemp -d /tmp/xdg.XXXXXX)"
   chmod 700 "$XDG_RUNTIME_DIR"
+  if ! command -v Xwayland >/dev/null 2>&1; then
+    log "Xwayland binary is not installed; the compositor cannot provide an X server"; return 1
+  fi
   if command -v mutter >/dev/null 2>&1 && start_mutter; then return 0; fi
   log "mutter unavailable/failed; trying weston"
   if command -v weston >/dev/null 2>&1 && start_weston; then return 0; fi
@@ -138,6 +141,9 @@ launch_app() {
   # seed flags apply — the asar/AppImage wrapper does not change X11 input behaviour (window flags,
   # ozone platform, transparency, input shape). Launch flags mirror electron-builder.yml's
   # linux.executableArgs (--ozone-platform=x11 --disable-gpu) that the .desktop entry passes.
+  # Only --dev-nation (no --dev-xp): the pet stays a stationary egg, so its hitbox/geometry do not
+  # change mid-run (a hatch/evolve would resize the window and thrash click-through timing). The egg
+  # exercises every input path this harness asserts (hover, click, drag, click-through, right-click).
   export CLAUDE_MONS_OFFLINE=1
   export CLAUDE_MONS_DEBUG=1
   ( cd "$ROOT/apps/desktop" && exec pnpm exec electron out/main/index.js \
@@ -146,14 +152,15 @@ launch_app() {
       --disable-gpu \
       --user-data-dir="$PROFILE" \
       --remote-debugging-port="$PORT" \
-      --dev-nation earth \
-      --dev-xp 400 ) >"$APP_LOG" 2>&1 &
+      --dev-nation earth ) >"$APP_LOG" 2>&1 &
   track $!
   wait_for 40 bash -c "curl -sf http://127.0.0.1:$PORT/json/list >/dev/null" || {
     log "DevTools endpoint never came up"; return 1
   }
-  wait_for 30 bash -c 'xdotool search --name "^claude-mons pet$" >/dev/null 2>&1' || {
-    log "pet window never appeared"; return 1
+  # Gate on the pet renderer target rather than an X window title (Electron's X WM_NAME is not
+  # reliably the BrowserWindow title on every WM); the probe locates the X window by geometry.
+  wait_for 30 bash -c "curl -sf http://127.0.0.1:$PORT/json/list | grep -q 'pet/index.html'" || {
+    log "pet renderer never appeared"; return 1
   }
   return 0
 }
@@ -180,8 +187,12 @@ fi
 log "running probe"
 CLAUDE_MONS_DEBUG_PORT="$PORT" \
 ARTIFACT_DIR="$ART" APP_LOG="$APP_LOG" XEV_LOG="$XEV_LOG" MODE="$MODE" SUMMARY_FILE="$SUMMARY" \
-  node "$ROOT/scripts/linux-e2e/probe.mjs"
+  timeout 240 node "$ROOT/scripts/linux-e2e/probe.mjs"
 RC=$?
+if [ "$RC" = "124" ]; then
+  log "probe timed out after 240s"
+  echo "probe timed out after 240s (see app.log / screenshots)" >>"$SUMMARY"
+fi
 
 # Post-mortem environment evidence.
 xlsclients -display "$DISPLAY" >"$ART/xlsclients-after.txt" 2>&1 || true

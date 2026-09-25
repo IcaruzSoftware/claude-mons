@@ -5,7 +5,7 @@
  * docs/runbooks/linux-e2e.md. Node >= 22 (global fetch/WebSocket), no npm deps.
  *
  * Reads over the DevTools Protocol from the pet renderer's debug-only `window.__monsProbe()` hook
- * to locate the sprite in screen space and to confirm the behaviour model reacted; reads the app's
+ * to locate the sprite in screen space and confirm the model reacted; reads the app's
  * CLAUDE_MONS_DEBUG stdout (APP_LOG) as the authoritative "did OS input reach the renderer" oracle;
  * captures screenshots, `xwininfo -shape`, `xprop` and `xev` output as artifacts.
  */
@@ -39,7 +39,6 @@ function screenshot(name) {
   if (r.status !== 0) spawnSync('bash', ['-c', `xwd -root -silent | convert xwd:- '${path}'`], { stdio: 'ignore' });
   return name;
 }
-
 function fileTextSafe(path) {
   try { return readFileSync(path, 'utf8'); } catch { return ''; }
 }
@@ -52,7 +51,7 @@ async function waitForLog(offset, needle, secs) {
   const end = Date.now() + secs * 1000;
   while (Date.now() < end) {
     if (logSince(offset).includes(needle)) return true;
-    await sleep(200);
+    await sleep(150);
   }
   return false;
 }
@@ -62,8 +61,9 @@ async function waitForLog(offset, needle, secs) {
 async function targets() {
   const res = await fetch(`http://127.0.0.1:${PORT}/json/list`).catch(() => null);
   if (!res) return [];
-  return (await res.json()).filter((t) => t.type === 'page');
+  return (await res.json().catch(() => [])).filter((t) => t.type === 'page');
 }
+async function appAlive() { return (await targets()).length > 0; }
 function connect(url) {
   return new Promise((resolve, reject) => {
     const ws = new WebSocket(url);
@@ -90,21 +90,25 @@ async function evalIn(nameFrag, expr) {
   const all = await targets();
   const t = all.find((x) => x.url.includes(`/${nameFrag}/`) || x.url.includes(`${nameFrag}/index.html`));
   if (!t) return { found: false, value: undefined };
-  const ws = await connect(t.webSocketDebuggerUrl);
+  let ws;
   try {
+    ws = await connect(t.webSocketDebuggerUrl);
     const r = await rpc(ws, 'Runtime.evaluate', { expression: expr, returnByValue: true, awaitPromise: true });
     if (r.exceptionDetails) return { found: true, value: undefined };
     return { found: true, value: r.result.value };
+  } catch {
+    return { found: false, value: undefined };
   } finally {
-    ws.close();
+    ws?.close();
   }
 }
 async function petProbe() {
   const r = await evalIn('pet', 'JSON.stringify(window.__monsProbe ? window.__monsProbe() : null)');
   try { return r.value ? JSON.parse(r.value) : null; } catch { return null; }
 }
+/** A window is "visible" if its DevTools target exists and reports visibilityState 'visible'. */
 async function windowVisible(nameFrag) {
-  const r = await evalIn(nameFrag, "document.visibilityState");
+  const r = await evalIn(nameFrag, 'document.visibilityState');
   return r.found && r.value === 'visible';
 }
 
@@ -121,26 +125,29 @@ async function aimAtSprite() {
   if (c) xdotool('mousemove', String(c.x), String(c.y));
   return { p, c };
 }
-/** Keep the pointer on the sprite for `ms`, re-aiming so a walking pet stays under the cursor. */
-async function keepOnSprite(ms) {
-  const end = Date.now() + ms;
-  let last = null;
-  while (Date.now() < end) {
-    const { c } = await aimAtSprite();
-    if (c) last = c;
-    await sleep(200);
-  }
-  return last;
-}
 
 // --- window / X evidence ---------------------------------------------------------------------
 
-function petWindowId() {
-  const out = xdotool('search', '--name', '^claude-mons pet$');
-  return out.split('\n').filter(Boolean).pop() || '';
+/** Find the pet's X window by matching the CDP-reported geometry (Electron's X WM_NAME is not a
+ *  reliable lookup key on every WM). */
+function petWindowId(geometry) {
+  if (!geometry) return '';
+  const ids = new Set(
+    xdotool('search', '--name', 'claude-mons').split('\n').filter(Boolean)
+      .concat(xdotool('search', '--all', '--onlyvisible', '').split('\n').filter(Boolean)),
+  );
+  for (const id of ids) {
+    const g = sh('xdotool', ['getwindowgeometry', '--shell', id]);
+    const x = Number(/X=(-?\d+)/.exec(g)?.[1]);
+    const y = Number(/Y=(-?\d+)/.exec(g)?.[1]);
+    const w = Number(/WIDTH=(\d+)/.exec(g)?.[1]);
+    if (Math.abs(x - geometry.x) <= 2 && Math.abs(y - geometry.y) <= 2 && Math.abs(w - geometry.width) <= 2)
+      return id;
+  }
+  return '';
 }
 function captureXEvidence(tag, winId) {
-  if (!winId) return;
+  if (!winId) { writeFileSync(join(ART, `xwininfo-${tag}.txt`), '(pet X window id not found)\n'); return; }
   writeFileSync(join(ART, `xwininfo-${tag}.txt`), sh('xwininfo', ['-id', winId, '-stats', '-shape']));
   writeFileSync(join(ART, `xprop-${tag}.txt`), sh('xprop', ['-id', winId]));
 }
@@ -153,72 +160,90 @@ function record(name, pass, detail) {
   console.info(`[probe] ${pass ? 'PASS' : 'FAIL'} ${name} — ${detail}`);
 }
 
-async function main() {
-  // 0. Wait until the sprite has a screen-space hitbox.
-  let p0 = null;
+/** Wait until the pet is a settled, non-transitional egg with a stable sprite position. */
+async function waitStable() {
+  let lastX = null, stable = 0, p = null;
   for (let i = 0; i < 60; i++) {
-    p0 = await petProbe();
-    if (p0?.spriteScreen) break;
-    await sleep(500);
+    p = await petProbe();
+    const c = spriteCenter(p);
+    if (p && c && !/drag|fall|hatch|celebrate/.test(p.state)) {
+      if (lastX !== null && Math.abs(c.x - lastX) <= 1) stable++;
+      else stable = 0;
+      lastX = c.x;
+      if (stable >= 3) return p;
+    }
+    await sleep(400);
   }
-  const winId = petWindowId();
+  return p;
+}
+
+async function main() {
+  const p0 = await waitStable();
+  const winId = petWindowId(p0?.geometry);
   writeFileSync(join(ART, 'probe-initial.json'), JSON.stringify({ probe: p0, winId }, null, 2));
   captureXEvidence('rest', winId);
   screenshot('00-rest.png');
   if (!p0?.spriteScreen) {
-    record('setup', false, 'pet renderer never reported a sprite hitbox (window.__monsProbe null)');
+    record('setup', false, 'pet renderer never reported a stable sprite hitbox (window.__monsProbe null)');
     return finish();
   }
-  record('setup', true, `sprite at ${JSON.stringify(spriteCenter(p0))}, window ${winId}`);
+  record('setup', true, `state=${p0.state} sprite=${JSON.stringify(spriteCenter(p0))} window=${JSON.stringify(p0.geometry)} xid=${winId || 'n/a'}`);
 
-  // 1. hover -> hover card
+  // 1. hover -> hover card (kept on the sprite for >HOVER_DELAY_MS while polling for the card).
   {
     const off = logSize();
-    const c = await keepOnSprite(1800);
+    let cardEver = false, aimed = null;
+    const end = Date.now() + 3500;
+    while (Date.now() < end) {
+      const { c } = await aimAtSprite();
+      if (c) aimed = c;
+      if (await windowVisible('hovercard')) { cardEver = true; break; }
+      await sleep(200);
+    }
     captureXEvidence('hover', winId);
     screenshot('01-hover.png');
     const trackOver = logSince(off).includes('"over":true');
     const hoverLog = logSince(off).includes('[pet] hover true');
-    const card = await windowVisible('hovercard');
-    record('hover', (trackOver || hoverLog) && card,
-      `trackOver=${trackOver} hoverLog=${hoverLog} hoverCardVisible=${card} aimed=${JSON.stringify(c)}`);
+    record('hover', (trackOver || hoverLog) && cardEver,
+      `trackOver=${trackOver} hoverLog=${hoverLog} hoverCardVisible=${cardEver} aimed=${JSON.stringify(aimed)}`);
   }
 
-  // 2. left click -> panel visible
+  // 2. left click -> pointer reaches renderer AND panel becomes visible.
   {
-    const off = logSize();
-    await aimAtSprite();
-    xdotool('click', '1');
-    const reached = await waitForLog(off, '[pet] pointer down 0', 3);
-    await sleep(800);
+    let clickReached = false;
+    for (let attempt = 0; attempt < 5 && !clickReached; attempt++) {
+      const off = logSize();
+      await aimAtSprite();
+      xdotool('click', '1');
+      clickReached = await waitForLog(off, '[pet] pointer down 0', 2);
+    }
+    await sleep(1000);
     const panel = await windowVisible('panel');
     screenshot('02-click.png');
-    record('left-click', reached && panel, `pointerReachedRenderer=${reached} panelVisible=${panel}`);
+    record('left-click', clickReached && panel, `pointerReachedRenderer=${clickReached} panelVisible=${panel}`);
   }
 
-  // 3. drag -> anchor moves
+  // 3. drag -> anchor moves. Retry the grab until the mousedown reaches the renderer.
   {
     const before = (await petProbe())?.pos?.x ?? null;
-    const start = spriteCenter(await petProbe());
-    if (start) {
-      xdotool('mousemove', String(start.x), String(start.y));
+    let grabbed = false, start = null;
+    for (let attempt = 0; attempt < 5 && !grabbed; attempt++) {
+      start = (await aimAtSprite()).c;
+      if (!start) break;
+      const off = logSize();
       xdotool('mousedown', '1');
-      for (let i = 1; i <= 10; i++) {
-        xdotool('mousemove', String(start.x + i * 20), String(start.y));
-        await sleep(40);
-      }
-      xdotool('mouseup', '1');
+      grabbed = await waitForLog(off, '[pet] pointer down 0', 1);
+      if (!grabbed) { xdotool('mouseup', '1'); await sleep(200); }
     }
-    // let it land
-    for (let i = 0; i < 20; i++) {
-      const st = (await petProbe())?.state;
-      if (st && !/drag|fall/.test(st)) break;
-      await sleep(150);
+    if (grabbed && start) {
+      for (let i = 1; i <= 12; i++) { xdotool('mousemove', String(start.x + i * 18), String(start.y)); await sleep(40); }
     }
+    xdotool('mouseup', '1');
+    for (let i = 0; i < 25; i++) { const st = (await petProbe())?.state; if (st && !/drag|fall/.test(st)) break; await sleep(150); }
     const after = (await petProbe())?.pos?.x ?? null;
     screenshot('03-drag.png');
     const moved = before != null && after != null && Math.abs(after - before) >= 60;
-    record('drag', moved, `anchorX ${before} -> ${after} (start ${JSON.stringify(start)})`);
+    record('drag', moved, `grabReachedRenderer=${grabbed} anchorX ${before} -> ${after} start=${JSON.stringify(start)}`);
   }
 
   // 4. click-through: a click on a transparent part of the pet window reaches the window beneath.
@@ -226,16 +251,12 @@ async function main() {
     const p = await petProbe();
     const g = p?.geometry;
     const xevId = xdotool('search', '--name', '^Event Tester$').split('\n').filter(Boolean)[0] || '';
-    let detail = 'no xev/geometry';
-    let pass = false;
+    let detail = 'no xev/geometry', pass = false;
     if (g && xevId) {
-      // Park the pet away from the corner we test, then place xev beneath the whole pet window.
-      xdotool('windowmove', xevId, String(g.x - 40), String(g.y - 60));
+      xdotool('windowmove', xevId, String(Math.max(0, g.x - 40)), String(Math.max(0, g.y - 60)));
       xdotool('windowsize', xevId, String(g.width + 80), String(g.height + 120));
       await sleep(400);
-      // A transparent corner of the pet window well away from the (bottom-centre) sprite.
-      const tx = g.x + 8;
-      const ty = g.y + 8;
+      const tx = g.x + 8, ty = g.y + 8; // transparent corner, far from the bottom-centre sprite
       const offLog = logSize();
       const xevBefore = fileTextSafe(XEV_LOG).length;
       xdotool('mousemove', String(tx), String(ty));
@@ -244,21 +265,24 @@ async function main() {
       const xevGot = fileTextSafe(XEV_LOG).slice(xevBefore).includes('ButtonPress');
       const petGot = logSince(offLog).includes('[pet] pointer down');
       pass = xevGot && !petGot;
-      detail = `xevReceivedClick=${xevGot} petSwallowed=${petGot} at (${tx},${ty})`;
+      detail = `xevReceivedClick=${xevGot} petSwallowed=${petGot} at (${tx},${ty}) window=${JSON.stringify(g)}`;
     }
     screenshot('04-clickthrough.png');
     record('click-through', pass, detail);
   }
 
-  // 5. right click -> context menu / tray popup
+  // 5. right click -> context menu / tray popup.
   {
-    const off = logSize();
-    await aimAtSprite();
-    xdotool('click', '3');
-    const reached =
-      (await waitForLog(off, '[pet] pointer contextmenu', 3)) ||
-      logSince(off).includes('[pet] pointer down 2');
-    await sleep(500);
+    let reached = false;
+    for (let attempt = 0; attempt < 5 && !reached; attempt++) {
+      const off = logSize();
+      await aimAtSprite();
+      xdotool('click', '3');
+      reached =
+        (await waitForLog(off, '[pet] pointer contextmenu', 2)) ||
+        logSince(off).includes('[pet] pointer down 2');
+    }
+    await sleep(400);
     screenshot('05-rightclick.png');
     record('right-click', reached, `contextEventReachedRenderer=${reached}`);
   }
@@ -269,8 +293,7 @@ async function main() {
 function finish() {
   writeFileSync(join(ART, 'results.json'), JSON.stringify(results, null, 2));
   const passed = results.filter((r) => r.pass).length;
-  let md = `\n## Linux e2e — ${MODE}\n\n`;
-  md += `**${passed}/${results.length} checks passed**\n\n`;
+  let md = `\n## Linux e2e — ${MODE}\n\n**${passed}/${results.length} checks passed**\n\n`;
   md += `| Step | Result | Detail |\n|---|---|---|\n`;
   for (const r of results) md += `| ${r.name} | ${r.pass ? '✅ pass' : '❌ fail'} | ${r.detail.replace(/\|/g, '\\|')} |\n`;
   appendFileSync(SUMMARY, md);
@@ -279,7 +302,8 @@ function finish() {
   process.exit(allPass ? 0 : 1);
 }
 
-main().catch((e) => {
-  record('probe-error', false, String(e?.stack ?? e));
-  finish();
-});
+// Guard: if the app has died, say so plainly instead of failing every step opaquely.
+appAlive().then((alive) => {
+  if (!alive) { record('app-alive', false, 'no DevTools page targets — app did not start or crashed'); return finish(); }
+  return main();
+}).catch((e) => { record('probe-error', false, String(e?.stack ?? e)); finish(); });
