@@ -43,6 +43,12 @@ describe('enableHooksFeature', () => {
       kind: 'edited',
       text: '[features]\r\nhooks = true\r\n',
     }));
+
+  it('inserts right after [features] when immediately followed by another table, no blank line', () =>
+    expect(enableHooksFeature('[features]\n[tui]\n')).toEqual({
+      kind: 'edited',
+      text: '[features]\nhooks = true\n[tui]\n',
+    }));
 });
 
 describe('ensureCodexHooksFeature', () => {
@@ -109,5 +115,36 @@ describe('ensureCodexHooksFeature', () => {
     expect(after.mtimeMs).toBe(before.mtimeMs);
     const entries = await fs.readdir(dir);
     expect(entries.filter((f) => f.includes('claude-mons-backup-'))).toHaveLength(0);
+  });
+
+  it('rejects a read error other than ENOENT (EISDIR) and writes nothing', async () => {
+    // configPath itself is a directory, so reading it as a file fails with EISDIR, not ENOENT.
+    await fs.mkdir(configPath);
+
+    await expect(ensureCodexHooksFeature(configPath)).rejects.toThrow();
+
+    const stat = await fs.stat(configPath);
+    expect(stat.isDirectory()).toBe(true);
+    const entries = await fs.readdir(dir);
+    expect(entries.filter((f) => f.includes('claude-mons-backup-'))).toHaveLength(0);
+  });
+
+  it('does not write when the backup of an existing file fails', async () => {
+    const original = '[features]\nhooks = false\n';
+    await fs.writeFile(configPath, original, 'utf8');
+    // Make the directory unwritable so backupFile's copyFile (creating a new file in `dir`)
+    // fails; the read of the existing config.toml above already succeeded, so this isolates
+    // the backup step itself.
+    await fs.chmod(dir, 0o500);
+    try {
+      await expect(ensureCodexHooksFeature(configPath)).rejects.toThrow();
+    } finally {
+      await fs.chmod(dir, 0o700);
+    }
+
+    expect(await fs.readFile(configPath, 'utf8')).toBe(original);
+    const entries = await fs.readdir(dir);
+    expect(entries.filter((f) => f.includes('claude-mons-backup-'))).toHaveLength(0);
+    expect(entries.filter((f) => f.includes('claude-mons.tmp'))).toHaveLength(0);
   });
 });

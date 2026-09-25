@@ -32,6 +32,10 @@ export function enableHooksFeature(toml: string): FeatureEdit {
       headerIndex = i;
       continue;
     }
+    // Only guard against the dotted/inline forms before we've found a real [features] header:
+    // once it's found, a later `features.x = ...`/`features = {...}` line would be TOML
+    // redefining the same table, which TOML itself disallows, so it's not a case we need to
+    // handle here.
     if (headerIndex === -1 && DOTTED_OR_INLINE_FEATURES.test(line)) {
       return { kind: 'unsupported' };
     }
@@ -79,10 +83,14 @@ export function enableHooksFeature(toml: string): FeatureEdit {
  */
 export async function ensureCodexHooksFeature(configPath: string): Promise<'ok' | 'unsupported'> {
   let current: string;
+  let existed: boolean;
   try {
     current = await fs.readFile(configPath, 'utf8');
-  } catch {
+    existed = true;
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
     current = '';
+    existed = false;
   }
 
   const result = enableHooksFeature(current);
@@ -90,7 +98,11 @@ export async function ensureCodexHooksFeature(configPath: string): Promise<'ok' 
   if (result.kind === 'unsupported') return 'unsupported';
 
   await fs.mkdir(dirname(configPath), { recursive: true });
-  await backupFile(configPath);
+  // Only back up a file that actually exists, and require that backup to succeed: unlike
+  // HookInstaller (which always calls backupFile on a file it just read successfully),
+  // a failed backup here must abort before the write, never fall through to overwriting the
+  // original silently.
+  if (existed) await backupFile(configPath, { required: true });
   const tmp = `${configPath}.claude-mons.tmp`;
   await fs.writeFile(tmp, result.text, 'utf8');
   await fs.rename(tmp, configPath);
