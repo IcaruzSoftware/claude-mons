@@ -3,12 +3,12 @@ import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import type { HookEventName } from '@claude-mons/shared';
 import { CLAUDE_AGENT, type HookAgentSpec } from './agents.ts';
+import { backupFile } from './backup.ts';
 
 /** Marker that identifies binary-mode hook commands we own inside the user's settings. */
 export const HOOK_MARKER = 'claude-mons-hook';
 /** Marker that identifies script-mode (curl) hook commands we own. Header has no space before ':'. */
 export const SCRIPT_HOOK_MARKER = 'X-Claude-Mons-Token:';
-const BACKUPS_TO_KEEP = 5;
 
 export type HookMode = 'binary' | 'script';
 export type HookStatus =
@@ -229,27 +229,9 @@ export class HookInstaller {
   private async write(settings: Settings, backup: boolean): Promise<void> {
     const path = this.opts.settingsPath;
     await fs.mkdir(dirname(path), { recursive: true });
-    if (backup) await this.backup();
+    if (backup) await backupFile(path);
     const tmp = `${path}.claude-mons.tmp`;
     await fs.writeFile(tmp, `${JSON.stringify(settings, null, 2)}\n`, 'utf8');
     await fs.rename(tmp, path);
-  }
-
-  private async backup(): Promise<void> {
-    const path = this.opts.settingsPath;
-    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
-    const dest = `${path}.claude-mons-backup-${stamp}`;
-    try {
-      await fs.copyFile(path, dest);
-    } catch {
-      return;
-    }
-    // keep only the newest N backups
-    const dir = dirname(path);
-    const prefix = `${path.slice(dir.length + 1)}.claude-mons-backup-`;
-    const entries = (await fs.readdir(dir)).filter((f) => f.startsWith(prefix)).sort();
-    for (const old of entries.slice(0, Math.max(0, entries.length - BACKUPS_TO_KEEP))) {
-      await fs.rm(join(dir, old), { force: true }).catch(() => {});
-    }
   }
 }

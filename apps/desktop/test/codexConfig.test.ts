@@ -1,0 +1,113 @@
+import { promises as fs } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { enableHooksFeature, ensureCodexHooksFeature } from '../src/main/hooks/codexConfig.ts';
+
+describe('enableHooksFeature', () => {
+  it('creates the table in an empty file', () =>
+    expect(enableHooksFeature('')).toEqual({ kind: 'edited', text: '[features]\nhooks = true\n' }));
+
+  it('appends a table when none exists and keeps the rest', () => {
+    const r = enableHooksFeature('model = "gpt-5"\n\n[tui]\nx = 1\n');
+    expect(r).toEqual({
+      kind: 'edited',
+      text: 'model = "gpt-5"\n\n[tui]\nx = 1\n\n[features]\nhooks = true\n',
+    });
+  });
+
+  it('inserts into an existing [features] table', () => {
+    const r = enableHooksFeature('[features]\nfoo = true\n\n[tui]\n');
+    expect(r).toEqual({
+      kind: 'edited',
+      text: '[features]\nhooks = true\nfoo = true\n\n[tui]\n',
+    });
+  });
+
+  it('flips hooks = false', () =>
+    expect(enableHooksFeature('[features]\nhooks = false # off\n')).toEqual({
+      kind: 'edited',
+      text: '[features]\nhooks = true\n',
+    }));
+
+  it('leaves hooks = true alone', () =>
+    expect(enableHooksFeature('[features]\nhooks = true\n')).toEqual({ kind: 'unchanged' }));
+
+  it('refuses dotted or inline forms it cannot edit safely', () => {
+    expect(enableHooksFeature('features.hooks = false\n').kind).toBe('unsupported');
+    expect(enableHooksFeature('features = { hooks = false }\n').kind).toBe('unsupported');
+  });
+
+  it('handles CRLF files', () =>
+    expect(enableHooksFeature('[features]\r\nhooks = false\r\n')).toEqual({
+      kind: 'edited',
+      text: '[features]\r\nhooks = true\r\n',
+    }));
+});
+
+describe('ensureCodexHooksFeature', () => {
+  let dir: string;
+  let configPath: string;
+
+  beforeEach(async () => {
+    dir = await fs.mkdtemp(join(tmpdir(), 'cm-codex-config-'));
+    configPath = join(dir, 'config.toml');
+  });
+
+  afterEach(async () => {
+    await fs.rm(dir, { recursive: true, force: true });
+  });
+
+  it('creates a missing file with the feature enabled and writes no backup', async () => {
+    expect(await ensureCodexHooksFeature(configPath)).toBe('ok');
+    expect(await fs.readFile(configPath, 'utf8')).toBe('[features]\nhooks = true\n');
+    const entries = await fs.readdir(dir);
+    expect(entries.filter((f) => f.includes('claude-mons-backup-'))).toHaveLength(0);
+  });
+
+  it('creates missing nested directories', async () => {
+    const nestedPath = join(dir, 'nested', 'config.toml');
+    expect(await ensureCodexHooksFeature(nestedPath)).toBe('ok');
+    expect(await fs.readFile(nestedPath, 'utf8')).toBe('[features]\nhooks = true\n');
+  });
+
+  it('edits an existing file needing a change and backs up the original', async () => {
+    const original = '[features]\nhooks = false\n';
+    await fs.writeFile(configPath, original, 'utf8');
+
+    expect(await ensureCodexHooksFeature(configPath)).toBe('ok');
+
+    expect(await fs.readFile(configPath, 'utf8')).toBe('[features]\nhooks = true\n');
+    const backups = (await fs.readdir(dir)).filter((f) => f.includes('claude-mons-backup-'));
+    expect(backups).toHaveLength(1);
+    expect(await fs.readFile(join(dir, backups[0]!), 'utf8')).toBe(original);
+  });
+
+  it('leaves an already-enabled file untouched, no backup', async () => {
+    const original = '[features]\nhooks = true\n';
+    await fs.writeFile(configPath, original, 'utf8');
+    const before = await fs.stat(configPath);
+
+    expect(await ensureCodexHooksFeature(configPath)).toBe('ok');
+
+    const after = await fs.stat(configPath);
+    expect(await fs.readFile(configPath, 'utf8')).toBe(original);
+    expect(after.mtimeMs).toBe(before.mtimeMs);
+    const entries = await fs.readdir(dir);
+    expect(entries.filter((f) => f.includes('claude-mons-backup-'))).toHaveLength(0);
+  });
+
+  it('leaves an unsupported form untouched and reports unsupported', async () => {
+    const original = 'features.hooks = false\n';
+    await fs.writeFile(configPath, original, 'utf8');
+    const before = await fs.stat(configPath);
+
+    expect(await ensureCodexHooksFeature(configPath)).toBe('unsupported');
+
+    const after = await fs.stat(configPath);
+    expect(await fs.readFile(configPath, 'utf8')).toBe(original);
+    expect(after.mtimeMs).toBe(before.mtimeMs);
+    const entries = await fs.readdir(dir);
+    expect(entries.filter((f) => f.includes('claude-mons-backup-'))).toHaveLength(0);
+  });
+});
