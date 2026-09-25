@@ -108,3 +108,25 @@ export async function ensureCodexHooksFeature(configPath: string): Promise<'ok' 
   await fs.rename(tmp, configPath);
   return 'ok';
 }
+
+/**
+ * Read-only counterpart to `ensureCodexHooksFeature`: reports what `[features] hooks` currently
+ * evaluates to without writing anything. Used to keep `UiSnapshot.hooks.codex.feature` accurate
+ * across a restart where no install/reinstall runs this session -- an unreadable or missing file
+ * reports `null` (not `'unsupported'`, which is reserved for a form the app knows it cannot edit),
+ * the same as before any attempt has ever been made.
+ */
+export async function readCodexFeatureStatus(
+  configPath: string,
+): Promise<'ok' | 'unsupported' | null> {
+  let current: string;
+  try {
+    current = await fs.readFile(configPath, 'utf8');
+  } catch {
+    return null;
+  }
+  const result = enableHooksFeature(current);
+  if (result.kind === 'unchanged') return 'ok';
+  if (result.kind === 'unsupported') return 'unsupported';
+  return null;
+}

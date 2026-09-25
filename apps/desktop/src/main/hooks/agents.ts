@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import type { HookEventName } from '@claude-mons/shared';
@@ -71,4 +72,13 @@ export function codexHooksPath(env: NodeJS.ProcessEnv = process.env, home = home
 /** Location of Codex's TOML config. */
 export function codexConfigPath(env: NodeJS.ProcessEnv = process.env, home = homedir()): string {
   return join(codexHome(env, home), 'config.toml');
+}
+
+/**
+ * Whether Codex is actually installed on this machine, i.e. its config directory already exists.
+ * The panel/tray only ever offer to connect Codex when this is true, and `toggleHooks('codex')`
+ * refuses otherwise -- nothing in the app may create `~/.codex` just by probing it.
+ */
+export function codexDetected(env: NodeJS.ProcessEnv = process.env, home = homedir()): boolean {
+  return existsSync(codexHome(env, home));
 }

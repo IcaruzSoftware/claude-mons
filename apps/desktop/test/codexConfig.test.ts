@@ -2,7 +2,11 @@ import { promises as fs } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { enableHooksFeature, ensureCodexHooksFeature } from '../src/main/hooks/codexConfig.ts';
+import {
+  enableHooksFeature,
+  ensureCodexHooksFeature,
+  readCodexFeatureStatus,
+} from '../src/main/hooks/codexConfig.ts';
 
 describe('enableHooksFeature', () => {
   it('creates the table in an empty file', () =>
@@ -146,5 +150,53 @@ describe('ensureCodexHooksFeature', () => {
     const entries = await fs.readdir(dir);
     expect(entries.filter((f) => f.includes('claude-mons-backup-'))).toHaveLength(0);
     expect(entries.filter((f) => f.includes('claude-mons.tmp'))).toHaveLength(0);
+  });
+});
+
+describe('readCodexFeatureStatus', () => {
+  let dir: string;
+  let configPath: string;
+
+  beforeEach(async () => {
+    dir = await fs.mkdtemp(join(tmpdir(), 'cm-codex-config-read-'));
+    configPath = join(dir, 'config.toml');
+  });
+
+  afterEach(async () => {
+    await fs.rm(dir, { recursive: true, force: true });
+  });
+
+  it('is null when the file does not exist, and writes nothing', async () => {
+    expect(await readCodexFeatureStatus(configPath)).toBeNull();
+    await expect(fs.stat(configPath)).rejects.toThrow();
+  });
+
+  it('is ok when the flag is already enabled', async () => {
+    await fs.writeFile(configPath, '[features]\nhooks = true\n', 'utf8');
+    expect(await readCodexFeatureStatus(configPath)).toBe('ok');
+  });
+
+  it('is null when the flag is not set yet -- distinct from unsupported', async () => {
+    await fs.writeFile(configPath, '[features]\nhooks = false\n', 'utf8');
+    expect(await readCodexFeatureStatus(configPath)).toBeNull();
+    await fs.writeFile(configPath, 'model = "gpt-5"\n', 'utf8');
+    expect(await readCodexFeatureStatus(configPath)).toBeNull();
+  });
+
+  it('is unsupported for a form it cannot edit safely', async () => {
+    await fs.writeFile(configPath, 'features.hooks = false\n', 'utf8');
+    expect(await readCodexFeatureStatus(configPath)).toBe('unsupported');
+  });
+
+  it('never writes to the file', async () => {
+    const original = '[features]\nhooks = false\n';
+    await fs.writeFile(configPath, original, 'utf8');
+    const before = await fs.stat(configPath);
+
+    await readCodexFeatureStatus(configPath);
+
+    const after = await fs.stat(configPath);
+    expect(await fs.readFile(configPath, 'utf8')).toBe(original);
+    expect(after.mtimeMs).toBe(before.mtimeMs);
   });
 });

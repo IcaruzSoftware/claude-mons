@@ -1,8 +1,7 @@
-import { existsSync } from 'node:fs';
 import { Menu, Tray, app, type MenuItemConstructorOptions } from 'electron';
 import type { Stage } from '@claude-mons/shared';
 import type { HookAgent } from '../../common/ipc.ts';
-import { CLAUDE_AGENT, CODEX_AGENT, codexHome } from '../hooks/agents.ts';
+import { CLAUDE_AGENT, CODEX_AGENT, codexDetected } from '../hooks/agents.ts';
 import type { HookStatus } from '../hooks/HookInstaller.ts';
 import { iconFromSprite } from './icons.ts';
 
@@ -113,10 +112,9 @@ export class AppTray {
     // The Codex menu item only appears once a Codex install is actually detected on this machine
     // (`codexHome()`'s directory exists) -- most users won't have one, and there's nothing to
     // connect to otherwise.
-    const codexDetected = existsSync(codexHome());
-    const codexStatus = codexDetected ? this.actions.hookStatus('codex') : null;
+    const codexStatus = codexDetected() ? this.actions.hookStatus('codex') : null;
     const codexItems: MenuItemConstructorOptions[] =
-      codexDetected && codexStatus
+      codexStatus
         ? [
             {
               label: hookMenuLabel(CODEX_AGENT.label, codexStatus),
