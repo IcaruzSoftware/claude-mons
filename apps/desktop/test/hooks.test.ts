@@ -282,4 +282,13 @@ describe('ActivityTracker', () => {
       lastEventAt: 5,
     });
   });
+
+  it('Interrupt ends the turn without a stop stimulus', () => {
+    const t = new ActivityTracker();
+    t.ingest(env({ event: 'UserPromptSubmit', session_id: 's' }), 0);
+    t.ingest(env({ event: 'PreToolUse', session_id: 's', tool_use_id: 'a' }), 1);
+    const out = t.ingest(env({ event: 'Interrupt', session_id: 's' }), 2);
+    expect(out.map((s) => s.type)).toEqual(['activity:update']);
+    expect(t.snapshot(2)).toMatchObject({ inFlightTools: 0, midTurnSessions: 0 });
+  });
 });

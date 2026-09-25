@@ -20,9 +20,9 @@ const SESSION_TTL_MS = 30 * 60 * 1000;
 const TOOL_TTL_MS = 10 * 60 * 1000;
 
 /**
- * Collapses hook events from any number of concurrent Claude Code sessions into one activity
- * snapshot for the pet: working if any session has a tool in flight, thinking if any is mid-turn.
- * Also translates envelopes into behavior stimuli.
+ * Collapses hook events from any number of concurrent Claude Code or Codex sessions into one
+ * activity snapshot for the pet: working if any session has a tool in flight, thinking if any is
+ * mid-turn. Also translates envelopes into behavior stimuli.
  */
 export class ActivityTracker {
   private readonly sessions = new Map<string, SessionActivity>();
@@ -81,6 +81,12 @@ export class ActivityTracker {
       case 'SessionEnd':
         this.sessions.delete(key);
         out.push({ type: 'hook:session_end' });
+        break;
+      case 'Interrupt':
+        // Codex: the user interrupted the turn. Ends thinking/working, but no success animation —
+        // Claude Code fires nothing on interrupt, so the pet must not celebrate either.
+        s.midTurn = false;
+        s.inFlight.clear();
         break;
     }
 
