@@ -89,6 +89,13 @@ export interface PetConfig {
   seed: number;
   debug: boolean;
   /**
+   * True on Linux: the renderer then streams pointer `move`/`leave` events (for hover and drag,
+   * since `screen.getCursorScreenPoint()` is unreliable under (X)Wayland) and the main process
+   * drives click-through with `BrowserWindow.setShape` instead of `setIgnoreMouseEvents`. See ADR
+   * 0020 and `docs/architecture/input-and-gestures.md`.
+   */
+  linux: boolean;
+  /**
    * The window's own geometry at the moment this config was sent. `PetRenderer` uses this to seed
    * its initial geometry instead of a `{0,0,0,0}` placeholder: without it, the very first frame(s)
    * — drawn as soon as `petConfig` starts the render loop — could be computed before the
@@ -129,6 +136,13 @@ export type Hitbox = { x: number; y: number; w: number; h: number } | null;
 export interface HitboxMessage {
   hitbox: Hitbox;
   geometryVersion: number;
+  /**
+   * Window-local bounding box of everything the renderer drew this frame (sprite tile plus any FX
+   * glyph above it), or null when nothing is drawn. Linux uses it as the window's input+draw shape
+   * (`BrowserWindow.setShape`, see `apps/desktop/src/main/display.ts:linuxShapeRects` and ADR 0020);
+   * ignored on Windows, which toggles `setIgnoreMouseEvents` from cursor polling instead.
+   */
+  shape?: Hitbox;
 }
 
 export interface PointerMessage {

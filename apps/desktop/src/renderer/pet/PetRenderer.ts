@@ -27,6 +27,14 @@ function fxBob(now: number): number {
   return Math.round(Math.sin(now / 250) * 2);
 }
 
+type Rect = { x: number; y: number; w: number; h: number };
+/** Smallest rect covering both `a` and `b`. */
+function unionRect(a: Rect, b: Rect): Rect {
+  const x = Math.min(a.x, b.x);
+  const y = Math.min(a.y, b.y);
+  return { x, y, w: Math.max(a.x + a.w, b.x + b.w) - x, h: Math.max(a.y + a.h, b.y + b.h) - y };
+}
+
 const FX_IDS: Record<FxName, string> = {
   zzz: 'fx-zzz',
   sparkle: 'fx-sparkle',
@@ -51,6 +59,8 @@ export class PetRenderer {
     geometryVersion: -1,
   };
   private lastHitbox: Hitbox = null;
+  /** Window-local bounds of everything drawn this frame (sprite tile ∪ FX glyph); the Linux shape. */
+  private lastShape: Hitbox = null;
   private animStart = 0;
   private lastAnim: AnimName | null = null;
   private battle: BattlePlayer | null = null;
@@ -91,6 +101,17 @@ export class PetRenderer {
    */
   getGeometryVersion(): number {
     return this.geometry.geometryVersion;
+  }
+
+  /** Window-local bounds of everything drawn this frame (sprite tile ∪ FX); the Linux window shape. */
+  getShape(): Hitbox {
+    return this.lastShape;
+  }
+
+  /** Last drawn sprite hitbox (window-local) and the geometry it was drawn against, for the Linux
+   *  e2e harness (see docs/runbooks/linux-e2e.md); surfaced via `window.__monsProbe`. */
+  getProbe(): { hitbox: Hitbox; shape: Hitbox; geometry: WindowGeometry } {
+    return { hitbox: this.lastHitbox, shape: this.lastShape, geometry: this.geometry };
   }
 
   resize(): void {
@@ -172,12 +193,17 @@ export class PetRenderer {
     }
     ctx.restore();
 
+    // The sprite tile is the base of the Linux draw/input shape (see getShape); union in the FX
+    // glyph below so nothing drawn is clipped by the window shape.
+    let shape: { x: number; y: number; w: number; h: number } = { x: left, y: top, w: size, h: size };
     if (fx) {
       // anchor effects to the visible head, not the sprite grid top (babies leave ~half the grid empty)
       const bodyBBox = frameBBox(def, resolvedAnim, frame);
       const headTop = bodyBBox ? top + bodyBBox.y * s : top;
-      this.drawFx(fx, ax, headTop, s, now);
+      const fxRect = this.drawFx(fx, ax, headTop, s, now);
+      if (fxRect) shape = unionRect(shape, fxRect);
     }
+    this.lastShape = shape;
 
     if (this.battle) this.drawBattle(this.battle, model, ax, ay, top, size, s, now);
 
@@ -204,12 +230,19 @@ export class PetRenderer {
     return next.x !== prev.x || next.y !== prev.y || next.w !== prev.w || next.h !== prev.h;
   }
 
-  private drawFx(fx: FxName, ax: number, headTop: number, s: number, now: number): void {
+  /** Returns the window-local rect the glyph was drawn into (for the Linux shape), or null. */
+  private drawFx(
+    fx: FxName,
+    ax: number,
+    headTop: number,
+    s: number,
+    now: number,
+  ): { x: number; y: number; w: number; h: number } | null {
     let def: SpriteDef;
     try {
       def = getSprite(FX_IDS[fx]);
     } catch {
-      return;
+      return null;
     }
     const frame = frameAt(def, 'idle', now);
     const img = this.cache.get(def, 'idle', frame);
@@ -222,6 +255,7 @@ export class PetRenderer {
     const x = Math.round(ax + 6 * s);
     const y = Math.round(headTop - (glyphBottom + 1) * s + bob);
     this.ctx.drawImage(img, x, y, size, size);
+    return { x, y, w: size, h: size };
   }
 
   /** Opponent sprite, hp bars, damage popups and the banner line. */

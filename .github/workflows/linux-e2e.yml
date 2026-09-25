@@ -1,0 +1,83 @@
+name: Linux e2e
+
+# Verifies the pet overlay's OS-level input on Linux — hover, left-click, drag, click-through and
+# right-click — by driving real pointer input against the running app under two display environments:
+# the x11 leg warps the X pointer with xdotool (XTEST); the wayland-xwayland leg injects through the
+# Wayland compositor with a virtual-pointer client (wlr-virtual-pointer), so events travel compositor
+# -> XWayland -> app as on a real Wayland session. See docs/runbooks/linux-e2e.md. The stand-in for
+# "we have been guessing on Linux for weeks": it reproduces (and gates against) the input bug on
+# GitHub runners.
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Git ref to test (informational; the run already uses the dispatched ref)'
+        required: false
+        type: string
+  pull_request:
+    paths:
+      - 'apps/desktop/**'
+      - 'packages/**'
+      - '.github/workflows/linux-e2e.yml'
+      - 'scripts/linux-e2e/**'
+
+concurrency:
+  group: linux-e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  e2e:
+    name: e2e (${{ matrix.mode }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: [x11, wayland-xwayland]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build desktop (unpackaged)
+        run: pnpm --filter @claude-mons/desktop build
+
+      - name: Install display + input tooling
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            xvfb xwayland x11-utils x11-xserver-utils xdotool wmctrl imagemagick \
+            openbox picom dbus-x11 sway libwayland-dev libwayland-bin pkg-config gcc \
+            libgtk-3-0t64 libnotify4 libnss3 libxss1 libxtst6 xdg-utils \
+            libatspi2.0-0t64 libuuid1 libsecret-1-0 libasound2t64 libgbm1
+          echo "Xwayland: $(command -v Xwayland || echo MISSING)"
+
+      - name: Run harness (${{ matrix.mode }})
+        id: harness
+        run: |
+          set +e
+          bash scripts/linux-e2e/run.sh "${{ matrix.mode }}"
+          code=$?
+          echo "exit code: $code"
+          if [ "$code" = "78" ] && [ "${{ matrix.mode }}" = "wayland-xwayland" ]; then
+            echo "::warning::wayland-xwayland environment could not be started on this runner; leg skipped (see artifacts and docs/runbooks/linux-e2e.md)"
+            exit 0
+          fi
+          exit $code
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-e2e-${{ matrix.mode }}
+          path: artifacts-linux-e2e/${{ matrix.mode }}
+          if-no-files-found: warn
