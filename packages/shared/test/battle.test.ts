@@ -60,10 +60,19 @@ describe('species table', () => {
         expect(pool.map((s) => s.rarity).sort()).toEqual(['common', 'rare']);
       }
     }
+    // species_id is a stable database key (species_base_stats, mons.species_id, battle snapshots)
+    // and never changes; a display name can still be renamed without a migration. `cinderpup` was
+    // renamed to display as "Emberkit" while keeping its id, so it's exempted from the
+    // id === lowercased-baby-name convention every other species follows.
+    const LEGACY_IDS: Record<string, string> = { cinderpup: 'Emberkit' };
     for (const s of Object.values(SPECIES)) {
       const total = s.baseStats.hp + s.baseStats.atk + s.baseStats.def + s.baseStats.spd;
       expect(total).toBe(s.rarity === 'common' ? 210 : 215);
-      expect(s.id).toBe(s.names.baby.toLowerCase());
+      if (s.id in LEGACY_IDS) {
+        expect(s.names.baby).toBe(LEGACY_IDS[s.id]);
+      } else {
+        expect(s.id).toBe(s.names.baby.toLowerCase());
+      }
     }
     expect(SPECIES_IDS).toHaveLength(9);
   });

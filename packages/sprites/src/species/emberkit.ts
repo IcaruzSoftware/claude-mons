@@ -2,7 +2,8 @@ import type { SpriteDef } from '../types.ts';
 import { compose, dots, flipH, frame, recolor, withRows, type Layer } from '../util.ts';
 
 /**
- * Cinderpup (Fire, rare, baby): a fire-fox kit ("Feuerfuchs"). Side view facing right: a big head
+ * Emberkit (Fire, rare, baby; species id `cinderpup`, a stable database key that outlived this
+ * display-name rename). Side view facing right: a big head
  * with huge dark-tipped ears, a slender fur-coloured muzzle with a cream jaw and a dark nose, a
  * cream chest bib, a chubby little body on short dark-pawed legs, and TWO bushy flame-tipped tails
  * that fan up behind the rump in a V (one bright, one darker), each with a cream band before its
@@ -249,8 +250,8 @@ const attack = [
   ),
 ];
 
-export const CINDERPUP_BABY: SpriteDef = {
-  id: 'cinderpup-baby',
+export const EMBERKIT_BABY: SpriteDef = {
+  id: 'emberkit-baby',
   size: SIZE,
   palette: PALETTE,
   anchor: { x: 16, y: 31 },

@@ -3,7 +3,7 @@ doc_type: reference
 purpose: "Read this when authoring sprite definitions (SpriteDef), understanding the grid format, or running the preview script."
 audience: agent
 last_verified: 2026-09-25
-last_verified_commit: b742185
+last_verified_commit: 76a7435
 related_files:
   - packages/sprites/src/types.ts
   - packages/sprites/src/palette.ts
@@ -130,16 +130,20 @@ See `packages/sprites/src/egg.ts` or `packages/sprites/src/species/sparkit.ts` f
 
 ### Evolution lines
 
-| Baby species id | Teen sprite id | Adult sprite id |
-|---|---|---|
-| `dripple` | `pipefin` | `torrentide` |
-| `bubblit` | `cachecoral` | `deepseaquel` |
-| `sparkit` | `blazebit` | `infernode` |
-| `cinderpup` | `emberfox` | `twinflare` |
-| `pebblet` | `boulderbyte` | `monolithor` |
-| `mossling` | `rootling` | `terraformer` |
-| `puffle` | `gustling` | `nimbyte` |
-| `wispit` | `zephyrix` | `stratosphinx` |
+| Baby species id | Baby sprite form | Teen sprite id | Adult sprite id |
+|---|---|---|---|
+| `dripple` | `dripple` | `pipefin` | `torrentide` |
+| `bubblit` | `bubblit` | `cachecoral` | `deepseaquel` |
+| `sparkit` | `sparkit` | `blazebit` | `infernode` |
+| `cinderpup` | `emberkit` | `emberfox` | `twinflare` |
+| `pebblet` | `pebblet` | `boulderbyte` | `monolithor` |
+| `mossling` | `mossling` | `rootling` | `terraformer` |
+| `puffle` | `puffle` | `gustling` | `nimbyte` |
+| `wispit` | `wispit` | `zephyrix` | `stratosphinx` |
+
+`cinderpup` is the one species whose baby sprite form differs from its own id (species ids are
+stable database keys; display names and sprite form names can change without a migration — its baby
+form displays as "Emberkit").
 
 ## Rasterization
 
