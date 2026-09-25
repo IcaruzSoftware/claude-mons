@@ -35,18 +35,18 @@ describe('BattleService (offline / wild mon)', () => {
     expect(await service.request()).toEqual({ ok: false, reason: 'egg' });
   });
 
-  it('fights a wild mon from another nation at the same level and credits xp on finish', async () => {
+  it('fights a weaker wild mon from another nation and credits xp on finish', async () => {
     const { service, state } = setup({ level: 7 });
     const r = await service.request();
     expect(r.ok).toBe(true);
     if (!r.ok) return;
     expect(r.play.isBot).toBe(true);
     expect(r.play.me.level).toBe(7);
-    expect(r.play.opponent.level).toBe(7);
+    expect(r.play.opponent.level).toBe(5);
     expect(r.play.opponent.nation).not.toBe('fire');
     expect(r.play.opponent.playerId).toBeNull();
     expect(r.play.result.turns.length).toBeGreaterThan(0);
-    expect([5, 20]).toContain(r.play.reward);
+    expect([10, 20]).toContain(r.play.reward);
 
     // finishing an unknown id does nothing
     expect(service.finish('nope')).toBeNull();

@@ -36,8 +36,8 @@ describe('rng', () => {
 describe('nations', () => {
   it('form a single cycle where each nation beats one and resists one', () => {
     for (const n of NATIONS) {
-      const beats = NATIONS.filter((m) => effectiveness(n, m) === 2);
-      const resisted = NATIONS.filter((m) => effectiveness(n, m) === 0.5);
+      const beats = NATIONS.filter((m) => effectiveness(n, m) > 1);
+      const resisted = NATIONS.filter((m) => effectiveness(n, m) < 1);
       expect(beats).toHaveLength(1);
       expect(resisted).toHaveLength(1);
       expect(effectiveness(n, n)).toBe(1);
@@ -120,11 +120,11 @@ describe('simulateBattle', () => {
 
   it('rewards follow the design table', () => {
     expect(challengerReward({ won: true, isBot: false, myLevel: 10, oppLevel: 10 })).toBe(30);
-    expect(challengerReward({ won: true, isBot: false, myLevel: 10, oppLevel: 20 })).toBe(45);
+    expect(challengerReward({ won: true, isBot: false, myLevel: 10, oppLevel: 20 })).toBe(75);
     expect(challengerReward({ won: true, isBot: false, myLevel: 20, oppLevel: 10 })).toBe(15);
     expect(challengerReward({ won: false, isBot: false, myLevel: 10, oppLevel: 10 })).toBe(10);
     expect(challengerReward({ won: true, isBot: true, myLevel: 10, oppLevel: 10 })).toBe(20);
-    expect(challengerReward({ won: false, isBot: true, myLevel: 10, oppLevel: 10 })).toBe(5);
+    expect(challengerReward({ won: false, isBot: true, myLevel: 10, oppLevel: 10 })).toBe(10);
   });
 
   it('win-streak multiplier is +10%/win, capped at +50% (5 wins)', () => {

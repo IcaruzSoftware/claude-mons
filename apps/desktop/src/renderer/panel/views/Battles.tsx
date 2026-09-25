@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'preact/hooks';
 import {
   DEFAULT_STANCE,
+  FOLLOW_THROUGH_MULT,
   EFFECT_DESCRIPTIONS,
   NATION_INFO,
   RESPEC_COOLDOWN_MS,
@@ -362,6 +363,11 @@ function LoadoutEditor({
             currently unlocked moves below.
           </p>
         )}
+        <p class="hint">
+          Automatic combo: open with Burn or DEF down, then follow with Priority, True hit,
+          Crit up or Charge while the effect lasts for +{Math.round((FOLLOW_THROUGH_MULT - 1) * 100)}%
+          damage once per battle. Prepare the order in Edit loadout; battles play themselves.
+        </p>
         <div class="slots">
           {([0, 1, 2] as const).map((i) => {
             const move = species.movePool.find((m) => m.id === moves[i]);
@@ -742,6 +748,11 @@ export function BattlesView({ s }: { s: UiSnapshot }) {
 
       <div class="section">
         <h3>Loadout</h3>
+        <p class="hint">
+          Automatic combo: open with Burn or DEF down, then follow with Priority, True hit,
+          Crit up or Charge while the effect lasts for +{Math.round((FOLLOW_THROUGH_MULT - 1) * 100)}%
+          damage once per battle. Prepare the order in Edit loadout; battles play themselves.
+        </p>
         <div class="slots">
           {moves.map((m, i) => (
             <div class="slot-card" key={i}>
