@@ -57,7 +57,7 @@ import { appendCappedLog } from './diag.ts';
 import { SyncQueue } from './net/SyncQueue.ts';
 import { backendConfig } from './net/config.ts';
 import { JsonStore } from './persistence/JsonStore.ts';
-import { MIGRATIONS, defaultState, type LocalState } from './persistence/state.ts';
+import { MIGRATIONS, defaultState, loadoutNation, type LocalState } from './persistence/state.ts';
 import { isWaterIntervalMin, todayCount, WaterReminder } from './reminders/WaterReminder.ts';
 import {
   ScriptRunner,
@@ -380,11 +380,11 @@ export class App {
           ? unlockedMoves(speciesOf(s.pet.speciesId), p.level).map((m) => m.id)
           : [],
         treePoints: {
-          spent: treeSpent(s.profile.nation ?? 'water', s.loadout.tree).nation,
+          spent: treeSpent(loadoutNation(s), s.loadout.tree).nation,
           available: pointsAvailable(p.level),
         },
         sharedPassivePoints: {
-          spent: treeSpent(s.profile.nation ?? 'water', s.loadout.tree).shared,
+          spent: treeSpent(loadoutNation(s), s.loadout.tree).shared,
           available: sharedPassivePoints(p.level),
         },
         lastRespecAt: s.loadout.lastRespecAt,
@@ -489,7 +489,7 @@ export class App {
       const level = this.game.snapshot().level;
       const result = validateLoadout(payload as SetLoadoutPayload, {
         level,
-        nation: s.profile.nation ?? 'water',
+        nation: loadoutNation(s),
         speciesId: s.pet.speciesId,
         ...(s.loadout.tree ? { existingTree: s.loadout.tree } : {}),
         lastRespecAt: s.loadout.lastRespecAt,

@@ -32,6 +32,10 @@ All notable changes to claude-mons are documented here. See [Keep a Changelog](h
   is now the secondary button. Sign-in emails carry only the 6-digit code, because clicking the
   email's link consumed the same one-time token and made the code fail with `otp_expired`. (#13,
   contributed by TheManitu.)
+- **Saving talents could fail with "unknown talent node" when a mon's species nation and the stored
+  profile nation disagreed.** The main-process `set-loadout` gate (and the talent-point counters)
+  now derive the tree's nation from the mon's species, the same single source of truth the loadout
+  editor and the server already use, instead of the profile nation.
 
 ## [0.2.3] - 2026-09-23
 

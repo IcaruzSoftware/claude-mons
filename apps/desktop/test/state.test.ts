@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { MIGRATIONS, defaultState } from '../src/main/persistence/state.ts';
+import { MIGRATIONS, defaultState, loadoutNation } from '../src/main/persistence/state.ts';
+import { NATIONS, speciesForNation } from '@claude-mons/shared';
 
 describe('MIGRATIONS', () => {
   it('is append-only: one migration per schema version bump, defaultState matches the latest', () => {
@@ -39,5 +40,25 @@ describe('MIGRATIONS', () => {
     const addOpponentLoadoutSummary = MIGRATIONS[MIGRATIONS.length - 1]!;
     expect(() => addOpponentLoadoutSummary({ schemaVersion: 6 })).not.toThrow();
     expect(() => addOpponentLoadoutSummary({ schemaVersion: 6, battles: {} })).not.toThrow();
+  });
+});
+
+describe('loadoutNation', () => {
+  it("uses the hatched mon's species nation for every nation, not profile.nation", () => {
+    for (const nation of NATIONS) {
+      const species = speciesForNation(nation)[0]!;
+      // profile.nation deliberately set to a DIFFERENT nation than the species: the tree belongs to
+      // the species, so the main-process set-loadout gate must validate against the species nation
+      // (matching the renderer editor and the server's monState). Before the fix this returned
+      // profile.nation, which made the gate reject a valid non-matching tree the editor built.
+      const wrongProfile = NATIONS.find((n) => n !== nation)!;
+      const state = { profile: { nation: wrongProfile }, pet: { speciesId: species.id } };
+      expect(loadoutNation(state), `${nation} species`).toBe(nation);
+    }
+  });
+
+  it('falls back to profile.nation (then water) only while still an egg', () => {
+    expect(loadoutNation({ profile: { nation: 'air' }, pet: { speciesId: null } })).toBe('air');
+    expect(loadoutNation({ profile: { nation: null }, pet: { speciesId: null } })).toBe('water');
   });
 });
