@@ -1,7 +1,7 @@
 import { promises as fs } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   enableHooksFeature,
   ensureCodexHooksFeature,
@@ -146,14 +146,14 @@ describe('ensureCodexHooksFeature', () => {
   it('does not write when the backup of an existing file fails', async () => {
     const original = '[features]\nhooks = false\n';
     await fs.writeFile(configPath, original, 'utf8');
-    // Make the directory unwritable so backupFile's copyFile (creating a new file in `dir`)
-    // fails; the read of the existing config.toml above already succeeded, so this isolates
-    // the backup step itself.
-    await fs.chmod(dir, 0o500);
+    // Fail only backupFile's copyFile; the read of the existing config.toml still succeeds, so
+    // this isolates the backup step itself. (A read-only directory via chmod would not work on
+    // Windows, where directory permission bits are ignored.)
+    const copyFile = vi.spyOn(fs, 'copyFile').mockRejectedValueOnce(new Error('EACCES'));
     try {
       await expect(ensureCodexHooksFeature(configPath)).rejects.toThrow();
     } finally {
-      await fs.chmod(dir, 0o700);
+      copyFile.mockRestore();
     }
 
     expect(await fs.readFile(configPath, 'utf8')).toBe(original);
