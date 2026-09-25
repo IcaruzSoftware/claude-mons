@@ -12,6 +12,7 @@ export class PetLoop {
   private readonly renderer: PetRenderer;
   private queue: Stimulus[] = [];
   private lastHitbox: Hitbox = null;
+  private lastShape: Hitbox = null;
   private lastStateSentAt = -Infinity;
   private lastRenderKey = '';
   private battle: BattlePlayer | null = null;
@@ -113,14 +114,15 @@ export class PetLoop {
     state: string;
     pos: { x: number; y: number };
     hitbox: Hitbox;
+    shape: Hitbox;
     geometry: WindowGeometry;
     spriteScreen: { x: number; y: number; w: number; h: number } | null;
   } {
-    const { hitbox, geometry } = this.renderer.getProbe();
+    const { hitbox, shape, geometry } = this.renderer.getProbe();
     const spriteScreen = hitbox
       ? { x: geometry.x + hitbox.x, y: geometry.y + hitbox.y, w: hitbox.w, h: hitbox.h }
       : null;
-    return { state: this.model.state, pos: this.model.pos, hitbox, geometry, spriteScreen };
+    return { state: this.model.state, pos: this.model.pos, hitbox, shape, geometry, spriteScreen };
   }
 
   private step(now: number): void {
@@ -144,12 +146,16 @@ export class PetLoop {
     if (key !== this.lastRenderKey) {
       this.lastRenderKey = key;
       const hitbox = this.renderer.draw(this.model, now);
-      if (this.renderer.hitboxChanged(hitbox, this.lastHitbox)) {
+      const shape = this.renderer.getShape();
+      // Send when the opaque hitbox OR the draw/input shape changes (FX can appear/disappear
+      // without moving the hitbox); the shape is what Linux feeds BrowserWindow.setShape.
+      if (this.renderer.hitboxChanged(hitbox, this.lastHitbox) || this.renderer.hitboxChanged(shape, this.lastShape)) {
         this.lastHitbox = hitbox;
+        this.lastShape = shape;
         // Tagged with the geometry version this hitbox was computed against (see PetRenderer's
         // `geometry` field), so the main process can discard it if a hop/mode switch/resize has
         // moved the window on since — see docs/architecture/overlay-and-input.md.
-        window.mons.sendHitbox({ hitbox, geometryVersion: this.renderer.getGeometryVersion() });
+        window.mons.sendHitbox({ hitbox, geometryVersion: this.renderer.getGeometryVersion(), shape });
       }
     }
 

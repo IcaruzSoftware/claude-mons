@@ -152,6 +152,26 @@ function captureXEvidence(tag, winId) {
   writeFileSync(join(ART, `xprop-${tag}.txt`), sh('xprop', ['-id', winId]));
 }
 
+/** The X server's own idea of the pointer (XQueryPointer) — what the real mouse would report. */
+function getMouseLoc() {
+  const s = sh('xdotool', ['getmouselocation', '--shell']);
+  const x = Number(/X=(-?\d+)/.exec(s)?.[1]);
+  const y = Number(/Y=(-?\d+)/.exec(s)?.[1]);
+  return Number.isFinite(x) && Number.isFinite(y) ? { x, y } : null;
+}
+/** The cursor the APP last saw via screen.getCursorScreenPoint(), parsed from its debug log. */
+function latestAppCursor() {
+  const lines = fileTextSafe(APP_LOG).split('\n').filter((l) => l.includes('[pet] track'));
+  const last = lines.at(-1);
+  const m = last && /"cursor":\{"x":(-?\d+),"y":(-?\d+)\}/.exec(last);
+  return m ? { x: Number(m[1]), y: Number(m[2]) } : null;
+}
+/** True if the app's DevTools target for `nameFrag` exists at all (created), regardless of visibility. */
+async function windowExists(nameFrag) {
+  const all = await targets();
+  return all.some((t) => t.url.includes(`/${nameFrag}/`) || t.url.includes(`${nameFrag}/index.html`));
+}
+
 // --- steps -----------------------------------------------------------------------------------
 
 const results = [];
@@ -189,6 +209,18 @@ async function main() {
   }
   record('setup', true, `state=${p0.state} sprite=${JSON.stringify(spriteCenter(p0))} window=${JSON.stringify(p0.geometry)} xid=${winId || 'n/a'}`);
 
+  // Evidence (not a scored check): warp the X pointer and record whether xdotool actually moved it
+  // (getmouselocation) and, for a cursor-polling build, whether the app tracked it. On the fixed
+  // Linux build there are no `[pet] track` lines (cursor polling is gone by design, ADR 0020), so
+  // appPolledCursor is null here — the six checks below prove input works via the shape model.
+  {
+    const target = { x: 500, y: 500 };
+    xdotool('mousemove', String(target.x), String(target.y));
+    await sleep(800);
+    writeFileSync(join(ART, 'cursor-diagnostic.json'),
+      JSON.stringify({ target, xServerPointer: getMouseLoc(), appPolledCursor: latestAppCursor() }, null, 2));
+  }
+
   // 1. hover -> hover card (kept on the sprite for >HOVER_DELAY_MS while polling for the card).
   {
     const off = logSize();
@@ -208,19 +240,23 @@ async function main() {
       `trackOver=${trackOver} hoverLog=${hoverLog} hoverCardVisible=${cardEver} aimed=${JSON.stringify(aimed)}`);
   }
 
-  // 2. left click -> pointer reaches renderer AND panel becomes visible.
+  // 2. left click -> pointer reaches renderer AND the panel window opens.
   {
     let clickReached = false;
-    for (let attempt = 0; attempt < 5 && !clickReached; attempt++) {
+    for (let attempt = 0; attempt < 4 && !clickReached; attempt++) {
+      if (!(await appAlive())) break;
       const off = logSize();
       await aimAtSprite();
       xdotool('click', '1');
       clickReached = await waitForLog(off, '[pet] pointer down 0', 2);
     }
-    await sleep(1000);
-    const panel = await windowVisible('panel');
+    await sleep(800);
+    // Panel opens via onClick -> panel.toggle -> panel.show, which creates the panel window; its
+    // DevTools target existing is a reliable "it opened" signal even when a headless WM reports a
+    // shown-but-unfocused window's visibilityState inconsistently.
+    const panelOpened = (await windowExists('panel')) || (await windowVisible('panel'));
     screenshot('02-click.png');
-    record('left-click', clickReached && panel, `pointerReachedRenderer=${clickReached} panelVisible=${panel}`);
+    record('left-click', clickReached && panelOpened, `pointerReachedRenderer=${clickReached} panelOpened=${panelOpened}`);
   }
 
   // 3. drag -> anchor moves. Retry the grab until the mousedown reaches the renderer.

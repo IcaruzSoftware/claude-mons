@@ -190,6 +190,37 @@ export function canHopFollow(mode: ArenaMode): boolean {
   return mode === 'follow';
 }
 
+/**
+ * Window-local input+draw shape rects for the pet window on Linux (see ADR 0020). Unlike Windows,
+ * where `setIgnoreMouseEvents` toggles click-through per cursor poll, Linux uses the X11 SHAPE
+ * extension (`BrowserWindow.setShape`): only pixels inside the returned rects are drawn and receive
+ * mouse events; everything else falls through to the window below. This sidesteps the (X)Wayland
+ * deadlock where `screen.getCursorScreenPoint()` never updates because the input-transparent window
+ * never sees the pointer (see `docs/architecture/input-and-gestures.md`).
+ *
+ * - follow: the sprite's drawn content (`shape` = union of the sprite tile and any FX/glyph the
+ *   renderer draws above it), inflated by `inflate` and clamped to the window, so the transparent
+ *   remainder of the compact window stays click-through and nothing drawn there is clipped.
+ * - battle / motion: the whole window, so the full battle HUD (or a fast-falling sprite) is never
+ *   clipped and the grab keeps pointer capture through a drag.
+ * - follow with no reported content yet: a 1×1 fail-closed rect (nothing interactive) until the
+ *   first shape arrives.
+ */
+export function linuxShapeRects(
+  mode: ArenaMode,
+  shape: { x: number; y: number; w: number; h: number } | null,
+  size: { width: number; height: number },
+  inflate: number,
+): Array<{ x: number; y: number; width: number; height: number }> {
+  if (mode !== 'follow') return [{ x: 0, y: 0, width: size.width, height: size.height }];
+  if (!shape) return [{ x: 0, y: 0, width: 1, height: 1 }];
+  const x = Math.max(0, Math.floor(shape.x - inflate));
+  const y = Math.max(0, Math.floor(shape.y - inflate));
+  const right = Math.min(size.width, Math.ceil(shape.x + shape.w + inflate));
+  const bottom = Math.min(size.height, Math.ceil(shape.y + shape.h + inflate));
+  return [{ x, y, width: Math.max(1, right - x), height: Math.max(1, bottom - y) }];
+}
+
 export function displayContaining<D extends DisplayLike>(
   displays: readonly D[],
   point: { x: number; y: number },

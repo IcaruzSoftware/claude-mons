@@ -19,6 +19,7 @@ import {
 } from '../common/ipc.ts';
 import {
   displayContaining,
+  pointInRect,
   restoreAnchorX,
   worldForDisplay,
   type AnchorMemory,
@@ -30,6 +31,14 @@ import { AppTray } from './tray/Tray.ts';
 import { PetWindow } from './windows/PetWindow.ts';
 
 const DEBUG = process.env.CLAUDE_MONS_DEBUG === '1';
+/**
+ * Linux drives hover/drag/click-through from renderer pointer events + the window shape rather than
+ * `CursorTracker`'s `screen.getCursorScreenPoint()` polling, which is unreliable under (X)Wayland.
+ * See ADR 0020 and `docs/architecture/input-and-gestures.md`. Windows/macOS keep the tracker.
+ */
+const IS_LINUX = process.platform === 'linux';
+/** DIPs of slack around the sprite hitbox for the Linux hover/press hit-test (matches the tracker). */
+const HITBOX_INFLATE = 3;
 
 export interface PetHostState {
   stage: Stage;
@@ -76,6 +85,8 @@ export class PetHost {
     maxDist: number;
   } | null = null;
   private lastHitbox: Hitbox = null;
+  /** Linux hover edge state (the tracker's `hovering` is unused on Linux — hover comes from the DOM). */
+  private linuxHovering = false;
   private shake: ShakeDetectorState = createShakeState();
   private petVisible = true;
   /** True while a battle is animating in the renderer; see `playBattle`/`IPC.petBattleDone`. */
@@ -278,7 +289,9 @@ export class PetHost {
       return;
     }
     this.window.show();
-    if (!this.trackerStarted) {
+    // Linux does not poll the cursor at all (getCursorScreenPoint is unreliable under (X)Wayland);
+    // hover/drag come from renderer pointer events and click-through from the window shape.
+    if (!this.trackerStarted && !IS_LINUX) {
       this.trackerStarted = true;
       this.tracker.start();
     }
@@ -313,6 +326,7 @@ export class PetHost {
       x: this.lastState?.x ?? restoreAnchorX(this.display, this.state.anchorMemory),
       seed: this.state.seed,
       debug: DEBUG,
+      linux: IS_LINUX,
       windowGeometry: this.window.geometry(),
     };
     this.window.send(IPC.petConfig, config);
@@ -339,7 +353,13 @@ export class PetHost {
         this.assertHitboxWithinWindow(msg.hitbox);
       }
       this.lastHitbox = msg.hitbox;
-      this.tracker.setHitbox(msg);
+      if (IS_LINUX) {
+        // Linux: the renderer-reported content shape is the window's input+draw region (setShape);
+        // the cursor tracker does not run here (see class notes / ADR 0020).
+        this.window.applyShape(msg.shape ?? msg.hitbox);
+      } else {
+        this.tracker.setHitbox(msg);
+      }
     });
 
     ipcMain.on(IPC.petState, (e, msg: StateMessage) => {
@@ -454,6 +474,7 @@ export class PetHost {
    * menu — see docs/architecture/overlay-and-input.md "Pointer handling".
    */
   private onPointer(msg: PointerMessage): void {
+    if (IS_LINUX) return this.onPointerLinux(msg);
     const g = this.window.win.getBounds();
     // For releases we trust the OS cursor (the message may come from a blur fallback).
     const worldPoint =
@@ -474,6 +495,48 @@ export class PetHost {
     this.stimulate({ type: 'input:any' });
   }
 
+  /**
+   * Linux pointer handling. The window shape (see `PetWindow.applyShape`) already restricts events
+   * to the sprite region, and coordinates come from the renderer's own DOM pointer events (window-
+   * local), so there is no `screen.getCursorScreenPoint()` and no cursor tracker involved. Hover and
+   * drag streaming are derived from `move`/`leave`; a `down`/`contextmenu` is trusted when it lands
+   * on the reported hitbox. See ADR 0020 / `docs/architecture/input-and-gestures.md`.
+   */
+  private onPointerLinux(msg: PointerMessage): void {
+    const g = this.window.win.getBounds();
+    const world = { x: g.x + msg.x, y: g.y + msg.y };
+    const overSprite = !!this.lastHitbox && pointInRect(msg, this.lastHitbox, HITBOX_INFLATE);
+    if (DEBUG && msg.type !== 'move')
+      console.info('[pet] pointer', msg.type, msg.button, JSON.stringify(world), 'over', overSprite);
+    if (msg.type === 'move') {
+      if (this.drag) this.onDragMove(world, performance.now());
+      else this.updateLinuxHover(overSprite);
+    } else if (msg.type === 'leave') {
+      if (!this.drag) this.updateLinuxHover(false);
+    } else if (msg.type === 'down' && msg.button === 0) {
+      if (overSprite) this.beginDrag(world);
+    } else if (msg.type === 'up' && msg.button === 0 && this.drag) {
+      this.endDrag(world);
+    } else if (msg.type === 'contextmenu' || (msg.type === 'down' && msg.button === 2)) {
+      if (this.drag) {
+        this.endDrag(world);
+        this.tray.popup();
+      } else if (overSprite) {
+        this.tray.popup();
+      }
+    }
+    this.stimulate({ type: 'input:any' });
+  }
+
+  /** Linux hover edge detection (replaces `CursorTracker.onHoverChange`); suppressed during motion. */
+  private updateLinuxHover(over: boolean): void {
+    if (over === this.linuxHovering) return;
+    this.linuxHovering = over;
+    if (this.window.getMode() === 'motion') return;
+    if (DEBUG) console.info('[pet] hover', over);
+    this.callbacks.onHover(over, this.spriteAnchorInfo());
+  }
+
   private beginDrag(cursor: { x: number; y: number }): void {
     // A pointer-down landing on the sprite mid-battle would otherwise call `enterMotion` and
     // shrink the arena out from under the battle window (`playBattle`/`enterBattle`), clipping the
@@ -482,13 +545,16 @@ export class PetHost {
     const anchor = this.currentAnchor();
     this.drag = { anchorAtGrab: anchor, cursorAtGrab: cursor, startedAt: Date.now(), maxDist: 0 };
     this.shake = createShakeState();
+    this.linuxHovering = false;
     this.callbacks.onHover(false, this.spriteAnchorInfo());
     // Motion mode: the window is sized once to the whole display work area and never moves again
     // until `onLanded` shrinks it back — the model's own position (from `input:grab`/`input:drag`
     // stimuli below) is what moves the sprite inside that canvas at render rate. See "Motion mode"
     // in docs/architecture/overlay-and-input.md.
     this.window.enterMotion();
-    this.tracker.beginDrag();
+    // Linux streams drag samples from renderer pointer `move` events (pointer capture keeps them
+    // flowing) instead of the cursor tracker, which does not run there.
+    if (!IS_LINUX) this.tracker.beginDrag();
     this.stimulate({ type: 'input:grab', x: cursor.x, y: cursor.y });
   }
 
@@ -522,12 +588,16 @@ export class PetHost {
     const wasClick =
       Date.now() - this.drag.startedAt < CLICK_MAX_MS && this.drag.maxDist < CLICK_MAX_DIST;
     this.drag = null;
-    this.tracker.endDrag();
-    // Not strictly required to close click-through by itself (the motion-mode window's geometry
-    // hasn't changed, so a stale hitbox wouldn't fail the version check) — but forcing it here is
-    // cheap and keeps every drag/mode transition point behaving the same way, and it discards the
-    // hitbox outright rather than leaving whatever the drag last reported in place a tick longer.
-    this.tracker.forceIgnore();
+    // Linux has no cursor tracker running; the window shape resumes gating input once `onLanded`
+    // switches back to follow mode and the next renderer shape arrives.
+    if (!IS_LINUX) {
+      this.tracker.endDrag();
+      // Not strictly required to close click-through by itself (the motion-mode window's geometry
+      // hasn't changed, so a stale hitbox wouldn't fail the version check) — but forcing it here is
+      // cheap and keeps every drag/mode transition point behaving the same way, and it discards the
+      // hitbox outright rather than leaving whatever the drag last reported in place a tick longer.
+      this.tracker.forceIgnore();
+    }
     if (wasClick) this.callbacks.onClick();
     // The pet falls to the ground of whichever display it was dropped over. `onDragMove` already
     // retargets the motion arena live as the cursor crosses displays; this is a harmless no-op

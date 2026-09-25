@@ -5,6 +5,7 @@ import {
   clampRectToArea,
   compactBounds,
   displayContaining,
+  linuxShapeRects,
   motionBounds,
   needsHop,
   nextArenaMode,
@@ -229,6 +230,31 @@ describe('display geometry', () => {
       expect(canHopFollow('follow')).toBe(true);
       expect(canHopFollow('motion')).toBe(false);
       expect(canHopFollow('battle')).toBe(false);
+    });
+  });
+
+  describe('linuxShapeRects', () => {
+    const size = { width: 432, height: 360 };
+
+    it('follow mode shapes the content rect, inflated and clamped to the window', () => {
+      // x/y inflate by 3; the bottom (300+60+3=363) clamps to the 360-px window edge.
+      const rects = linuxShapeRects('follow', { x: 195, y: 300, w: 42, h: 60 }, size, 3);
+      expect(rects).toEqual([{ x: 192, y: 297, width: 48, height: 63 }]);
+    });
+
+    it('follow mode clamps the inflated rect to the window edges', () => {
+      const rects = linuxShapeRects('follow', { x: 0, y: 0, w: 432, h: 360 }, size, 3);
+      expect(rects).toEqual([{ x: 0, y: 0, width: 432, height: 360 }]);
+    });
+
+    it('follow mode with no content yet is fail-closed (1x1, nothing interactive)', () => {
+      expect(linuxShapeRects('follow', null, size, 3)).toEqual([{ x: 0, y: 0, width: 1, height: 1 }]);
+    });
+
+    it('battle and motion modes shape the whole window (HUD/fall never clipped)', () => {
+      const full = [{ x: 0, y: 0, width: 432, height: 360 }];
+      expect(linuxShapeRects('battle', { x: 10, y: 10, w: 20, h: 20 }, size, 3)).toEqual(full);
+      expect(linuxShapeRects('motion', null, size, 3)).toEqual(full);
     });
   });
 

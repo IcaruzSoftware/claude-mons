@@ -1,10 +1,11 @@
 import { join } from 'node:path';
 import { BrowserWindow, screen, type Display } from 'electron';
-import { IPC, type WindowGeometry } from '../../common/ipc.ts';
+import { IPC, type Hitbox, type WindowGeometry } from '../../common/ipc.ts';
 import {
   battleBounds,
   canHopFollow,
   compactBounds,
+  linuxShapeRects,
   motionBounds,
   needsHop,
   nextArenaMode,
@@ -13,6 +14,14 @@ import {
 } from '../display.ts';
 
 const DEBUG = process.env.CLAUDE_MONS_DEBUG === '1';
+/**
+ * Linux drives click-through with the X11 window shape (`setShape`) instead of the per-tick
+ * `setIgnoreMouseEvents` toggle, because `screen.getCursorScreenPoint()` is unreliable under
+ * (X)Wayland — see ADR 0020 and `docs/architecture/input-and-gestures.md`.
+ */
+const IS_LINUX = process.platform === 'linux';
+/** Matches `CursorTracker`'s `inflate`: a few DIPs around the sprite so the edge stays grabbable. */
+const SHAPE_INFLATE = 3;
 
 export type PetWindowMode = ArenaMode;
 
@@ -76,6 +85,8 @@ export class PetWindow {
   private lastAnchor: { x: number; y: number };
   /** Debug-only: last value passed to `setIgnoreMouse`, so transitions can be logged once. */
   private lastIgnore: boolean | null = null;
+  /** Linux only: last renderer-reported draw/input shape (window-local), replayed on mode changes. */
+  private lastShape: Hitbox = null;
 
   constructor(display: Display, anchor: { x: number; y: number }, opts: PetWindowOptions) {
     this.display = display;
@@ -125,7 +136,13 @@ export class PetWindow {
 
     this.win.setAlwaysOnTop(true, 'screen-saver');
     this.win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
-    this.win.setIgnoreMouseEvents(true);
+    if (IS_LINUX) {
+      // Keep the window input-active and let the shape decide click-through; start fail-closed
+      // (nothing interactive) until the first renderer shape arrives. See applyShape / ADR 0020.
+      this.applyShape(null);
+    } else {
+      this.win.setIgnoreMouseEvents(true);
+    }
     this.win.setMenu(null);
 
     // Kept as a safety net for any bounds change this class did not initiate directly (there
@@ -202,6 +219,9 @@ export class PetWindow {
         this.display,
       ),
     );
+    // Fail-closed until the next renderer shape arrives (window just resized/moved, so the old
+    // window-local shape no longer applies); one or two frames later a fresh hitbox refines it.
+    this.applyShape(null);
     this.reassertTopmost();
   }
 
@@ -222,6 +242,8 @@ export class PetWindow {
         this.display,
       ),
     );
+    // Battle: the whole window is interactive/visible so the full HUD draws (linuxShapeRects).
+    this.applyShape(this.lastShape);
     this.reassertTopmost();
   }
 
@@ -238,6 +260,9 @@ export class PetWindow {
     if (next === this.mode) return;
     this.mode = next;
     this.setBoundsSafe(motionBounds(this.display));
+    // Motion: the whole window is interactive so a fast-falling sprite is never clipped and the
+    // grab keeps pointer capture (linuxShapeRects returns the full window for non-follow modes).
+    this.applyShape(this.lastShape);
     this.reassertTopmost();
   }
 
@@ -249,6 +274,7 @@ export class PetWindow {
   retargetMotion(): void {
     if (this.mode !== 'motion') return;
     this.setBoundsSafe(motionBounds(this.display));
+    this.applyShape(this.lastShape);
     this.reassertTopmost();
   }
 
@@ -287,6 +313,10 @@ export class PetWindow {
 
   setIgnoreMouse(ignore: boolean): void {
     if (this.win.isDestroyed()) return;
+    // Linux governs click-through with the window shape (applyShape), not this toggle: keeping the
+    // window input-active is what lets pointer motion reach it at all under (X)Wayland. Ignore the
+    // call so the fail-closed cursor tracker can't blank the shape. See ADR 0020.
+    if (IS_LINUX) return;
     if (DEBUG && ignore !== this.lastIgnore) {
       // The Linux input bug (docs/runbooks/linux-e2e.md) hinges on whether `setIgnoreMouseEvents`
       // actually toggles the X input shape, so log each transition the main process commands.
@@ -295,6 +325,20 @@ export class PetWindow {
     }
     if (ignore) this.win.setIgnoreMouseEvents(true);
     else this.win.setIgnoreMouseEvents(false);
+  }
+
+  /**
+   * Linux only: set the window's X11 draw+input shape to the renderer-reported content (follow) or
+   * the whole window (battle/motion), so transparent areas fall through to the window below without
+   * relying on cursor polling. No-op on other platforms. See `linuxShapeRects` and ADR 0020.
+   */
+  applyShape(shape: Hitbox): void {
+    if (!IS_LINUX || this.win.isDestroyed()) return;
+    this.lastShape = shape;
+    const b = this.win.getBounds();
+    const rects = linuxShapeRects(this.mode, shape, { width: b.width, height: b.height }, SHAPE_INFLATE);
+    this.win.setShape(rects);
+    if (DEBUG) console.info('[pet] setShape', JSON.stringify({ mode: this.mode, rects }));
   }
 
   send(channel: string, payload: unknown): void {
