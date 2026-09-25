@@ -9,6 +9,11 @@ export const HOOK_MARKER = 'claude-mons-hook';
 export const SCRIPT_HOOK_MARKER = 'X-Claude-Mons-Token:';
 const BACKUPS_TO_KEEP = 5;
 
+/** Claude Code has no `Interrupt` event (Codex only); never install a hook for it here. */
+const CLAUDE_CODE_HOOK_EVENTS: readonly HookEventName[] = HOOK_EVENTS.filter(
+  (e) => e !== 'Interrupt',
+);
+
 export type HookMode = 'binary' | 'script';
 export type HookStatus =
   'installed-binary' | 'installed-script' | 'partial' | 'not-installed' | 'unreadable';
@@ -75,7 +80,7 @@ export function scriptCommand(
 /** Builds the hooks we add for all supported events, pointed at the given target. */
 export function buildOurHooks(target: HookTarget): HooksSection {
   const section: HooksSection = {};
-  for (const event of HOOK_EVENTS) {
+  for (const event of CLAUDE_CODE_HOOK_EVENTS) {
     const command =
       target.mode === 'binary'
         ? hookCommand(target.binaryPath, target.homeDir, event)
@@ -142,7 +147,7 @@ export function statusOf(settings: Settings): HookStatus {
   if (!hooks || typeof hooks !== 'object') return 'not-installed';
   let present = 0;
   const modes = new Set<HookMode>();
-  for (const event of HOOK_EVENTS) {
+  for (const event of CLAUDE_CODE_HOOK_EVENTS) {
     const groups = hooks[event];
     if (!Array.isArray(groups)) continue;
     let foundForEvent = false;
@@ -160,7 +165,7 @@ export function statusOf(settings: Settings): HookStatus {
     if (foundForEvent) present++;
   }
   if (present === 0) return 'not-installed';
-  if (present < HOOK_EVENTS.length || modes.size > 1) return 'partial';
+  if (present < CLAUDE_CODE_HOOK_EVENTS.length || modes.size > 1) return 'partial';
   return modes.has('script') ? 'installed-script' : 'installed-binary';
 }
 

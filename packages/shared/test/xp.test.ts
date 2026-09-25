@@ -34,6 +34,12 @@ describe('tool classification', () => {
     expect(classifyTool(undefined)).toBe('read');
   });
 
+  it('classifies Codex tool names', () => {
+    expect(classifyTool('apply_patch')).toBe('mutate');
+    expect(classifyTool('update_plan')).toBe('meta');
+    expect(classifyTool('Bash')).toBe('run'); // Codex reports shell as Bash
+  });
+
   it('computes raw bucket xp', () => {
     const raw = bucketRawXp(
       bucket(0, { prompts: 2, stops: 1, tools: { Edit: 3, Read: 4, TodoWrite: 5 } }),
