@@ -18,10 +18,20 @@ related_files:
 
 All notable changes to claude-mons are documented here. See [Keep a Changelog](https://keepachangelog.com/) for format details.
 
-## [Unreleased]
+## [0.2.4] - 2026-09-25
 
 ### Changed
 
+- **Fairer battles** (#17, contributed by TheManitu). Real opponents are searched within three
+  levels (weaker first, then equal, then stronger), and the database rejects wider gaps even from
+  older clients; wild encounters are usually 1–3 levels weaker, with a 10 % elite at +3. Elemental
+  matchups swing less (1.2× / 0.9× instead of 2× / 0.5×), burn, drain and crits are retuned, and five
+  species' stats are redistributed within their budgets. A prepared opening combo — Burn or DEF
+  down in slot 1, then a different Priority, True-hit, Crit-up or Charge move while it lasts —
+  earns +20 % damage once. Wins pay +15 XP per level the opponent is above you (up to +3); every
+  loss pays 10 XP. Battle protocol 5; stored battle logs still replay.
+- **The Ottlet line is redrawn** (#16, contributed by TheManitu) with recognisable otter features
+  and its fish.
 - The rare Fire line is now a two-tailed fire fox: Emberkit → Emberfox → Twinflare, redrawn. The
   baby, teen and adult were all renamed away from the old dog/wolf coding puns (Cinderpup,
   Hotfixhound, Overclockwolf); the species id `cinderpup`, its stats and its move pool are
