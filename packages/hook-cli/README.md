@@ -1,9 +1,9 @@
 ---
 doc_type: reference
-purpose: "Read this when building or understanding how hook events flow from Claude Code to the desktop app."
+purpose: "Read this when building or understanding how hook events flow from Claude Code or Codex to the desktop app."
 audience: agent
-last_verified: "2026-09-13"
-last_verified_commit: 8a24ac9
+last_verified: "2026-09-25"
+last_verified_commit: 08cd894
 related_files:
   - packages/shared/src/hooks/payload.ts
   - apps/desktop/src/main/hooks/binary.ts
@@ -12,12 +12,19 @@ related_files:
   - apps/desktop/src/main/hooks/rawHook.ts
   - apps/desktop/src/main/hooks/mode.ts
   - apps/desktop/src/main/hooks/HookInstaller.ts
+  - apps/desktop/src/main/hooks/agents.ts
   - docs/decisions/0014-curl-script-mode-hook-fallback.md
+  - docs/decisions/0021-codex-hook-integration.md
 ---
 
 # hook-cli
 
-Tiny Go binary (Go 1.22, stdlib only) invoked by Claude Code on every tool call and hook event. Reads whitelisted metadata from stdin, creates an envelope, and POSTs it to the running desktop app or spools it for later. Never writes stdout; always exits 0.
+Tiny Go binary (Go 1.22, stdlib only) invoked by Claude Code or Codex on every tool call and hook event. Reads whitelisted metadata from stdin, creates an envelope, and POSTs it to the running desktop app or spools it for later. Never writes stdout; always exits 0.
+
+Codex's hooks feature posts the same JSON shape Claude Code does, so this binary needs no
+agent-specific logic: the installer passes the already-normalized `HookEventName` via `--event`
+(`apps/desktop/src/main/hooks/agents.ts`), so Codex's own event names (`PermissionRequest`,
+`Interrupt`) never need to reach this binary at all. See [ADR 0021](../../docs/decisions/0021-codex-hook-integration.md).
 
 ## Script-mode fallback (no Go binary)
 
@@ -34,7 +41,7 @@ Set `CLAUDE_MONS_DEBUG=1` to debug to stderr.
 
 ## Whitelisted Stdin Fields
 
-Only these fields are extracted from the raw hook JSON and included in the envelope; everything else (prompt text, tool input/output, transcript paths) is dropped:
+Only these fields are extracted from the raw hook JSON and included in the envelope; everything else (prompt text, tool input/output, transcript paths) is dropped. Codex's own extra stdin fields — `prompt`, `tool_input`, `tool_response`, `transcript_path`, `model`, `permission_mode`, `turn_id`, `last_assistant_message` — are dropped the same way, since this whitelist did not need to change to add Codex support:
 
 | Field | Type | Usage |
 |---|---|---|

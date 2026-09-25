@@ -2,13 +2,14 @@
 doc_type: architecture
 purpose: "Read this when tracing what happens between first launch and a hatched mon: nation choice, anonymous sign-in, create-profile, and who decides the hatch."
 audience: agent
-last_verified: 2026-09-13
-last_verified_commit: 8a24ac9
+last_verified: 2026-09-25
+last_verified_commit: 08cd894
 related_files:
   - apps/desktop/src/main/App.ts
   - apps/desktop/src/main/PetHost.ts
   - apps/desktop/src/main/petGate.ts
   - apps/desktop/src/main/tray/Tray.ts
+  - apps/desktop/src/main/hooks/agents.ts
   - apps/desktop/src/renderer/panel/App.tsx
   - apps/desktop/src/renderer/panel/views/Onboarding.tsx
   - apps/desktop/src/renderer/panel/onboardingSteps.ts
@@ -20,6 +21,7 @@ related_files:
   - apps/desktop/src/main/game/GameService.ts
   - supabase/functions/create-profile/index.ts
   - docs/architecture/flows/account-linking.md
+  - docs/decisions/0021-codex-hook-integration.md
 ---
 
 # Onboarding flow
@@ -56,10 +58,11 @@ passes the live `UiSnapshot` in as a prop (`<Onboarding s={s} />`) so the wizard
 status without its own IPC round-trip. `Onboarding` is a 5-step wizard (step index kept in local component state, not
 persisted): **1. Welcome** (title, one-line pitch, an untinted egg that slowly cycles through each
 nation's tint via `SpriteView`); **2. What is claude-mons** (three bullets: taskbar-edge pet, XP
-from real Claude Code activity with no prompt text ever leaving the machine, egg→baby→teen→adult);
-**3. Controls** (a compact hover/click/drag/shake/Settings/leaderboard reference table); **4.
-Connect Claude Code** (two sentences on what connecting does, a primary "Connect Claude Code"
-button and a secondary "Skip for now"); **5. Choose your nation** — the four-card picker from
+from real Claude Code or Codex activity with no prompt text ever leaving the machine,
+egg→baby→teen→adult); **3. Controls** (a compact hover/click/drag/shake/Settings/leaderboard
+reference table); **4. Connect Claude Code** (two sentences on what connecting does, a primary
+"Connect Claude Code" button, a second "Connect Codex" button that only appears once
+`s.hooks.codex.detected` is true, and a "Skip for now" link); **5. Choose your nation** — the four-card picker from
 `NATION_INFO`/`speciesForNation` (species detail, palette and hatch rarity are covered in
 `../../design/species-and-nations.md`, not restated here), noting the choice is permanent. Copy for
 all five steps lives in the `onboardingCopy` constant at the top of
@@ -78,9 +81,13 @@ staying scrollable if the window is resized smaller.
 then renders the resulting `s.hooks.status` inline via the shared helpers in
 `apps/desktop/src/renderer/ui/hookStatus.ts` — a green dot and "Connected. Start a new Claude Code
 session to begin training." for `installed-binary`/`installed-script`, otherwise the label for the
-status plus a hint to finish in Settings later. It never installs hooks without the click. The
-secondary "Skip for now" button and the nav's own "Next" both call the same
-`nextOnboardingStep` advance.
+status plus a hint to finish in Settings later. It never installs hooks without the click. A second
+"Connect Codex" button, shown only when `s.hooks.codex.detected` (Codex's config directory already
+exists — see [ADR 0021](../../decisions/0021-codex-hook-integration.md)), calls the same
+`toggleHooks('codex')` and shows "Connected. Run `/hooks` in Codex to trust the hooks, then start a
+new session." on success, since Codex additionally requires trusting the installed hooks itself.
+The secondary "Skip for now" button and the nav's own "Next" both call the same
+`nextOnboardingStep` advance, independent of either connect button's state.
 
 That IPC call (`IPC.uiChooseNation`) reaches `App.chooseNation`
 (`apps/desktop/src/main/App.ts:chooseNation`), which is **idempotent by construction**: its first

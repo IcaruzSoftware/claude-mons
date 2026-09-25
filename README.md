@@ -2,8 +2,8 @@
 doc_type: root
 purpose: "Read this when starting with claude-mons, installing, or getting the app running locally."
 audience: both
-last_verified: 2026-09-13
-last_verified_commit: 8a24ac9
+last_verified: 2026-09-25
+last_verified_commit: 08cd894
 related_files:
   - CONTRIBUTING.md
   - PRIVACY.md
@@ -16,19 +16,20 @@ related_files:
   - docs/architecture/overview.md
   - docs/runbooks/apt-repository.md
   - docs/CODE_SIGNING_POLICY.md
+  - docs/decisions/0021-codex-hook-integration.md
   - CHANGELOG.md
   - docs/ROADMAP.md
 ---
 
 # claude-mons
 
-**Pokémon, but for Claude Code.** A tiny pixel creature lives on your desktop. Every time you prompt Claude Code, it trains. Hatch it from an egg, level it up, evolve it, climb the global leaderboard, and shake it to battle mons from rival nations.
+**Pokémon, but for Claude Code (and Codex).** A tiny pixel creature lives on your desktop. Every time you prompt Claude Code or Codex, it trains. Hatch it from an egg, level it up, evolve it, climb the global leaderboard, and shake it to battle mons from rival nations.
 
 ## How it works
 
 1. Pick a nation: **Water**, **Fire**, **Earth** or **Air**. Each has a personality and two species.
-2. An egg appears on your taskbar edge. Connect Claude Code with one click (adds hooks to `~/.claude/settings.json`; start a new Claude Code session afterwards).
-3. Work with Claude Code as usual. Prompts, tool calls and finished turns earn [XP](docs/design/economy.md). At the [hatch threshold](docs/design/species-and-nations.md), the egg hatches into one of your nation's species, rarity-weighted and rolled by the server.
+2. An egg appears on your taskbar edge. Connect Claude Code with one click (adds hooks to `~/.claude/settings.json`; start a new Claude Code session afterwards). If Codex CLI is installed, a second "Connect Codex" button appears (adds hooks to `~/.codex/hooks.json` and turns on Codex's hooks feature flag; run `/hooks` in Codex once to trust them — see [ADR 0021](docs/decisions/0021-codex-hook-integration.md)).
+3. Work with Claude Code or Codex as usual. Prompts, tool calls and finished turns earn [XP](docs/design/economy.md). At the [hatch threshold](docs/design/species-and-nations.md), the egg hatches into one of your nation's species, rarity-weighted and rolled by the server.
 4. Level up through Baby → Teen → Adult. Your nation's weekly XP is its power on the leaderboard.
 5. Grab your mon and shake it to [challenge a mon from another nation](docs/design/battle.md). Battles are automatic, deterministic and replayed as an animation, subject to a [daily cap and cooldown](docs/design/battle.md). Loadouts (moves, battle stance, a per-nation talent tree) shape how a battle plays out — see [docs/design/progression.md](docs/design/progression.md) and [docs/design/talent-tree.md](docs/design/talent-tree.md).
 
@@ -80,7 +81,7 @@ Repository layout:
 - `apps/desktop` – Electron app (main process, pet renderer, Preact panel/hover card)
 - `packages/shared` – game logic shared with Supabase Edge Functions (Deno-compatible)
 - `packages/sprites` – pixel art as string matrices, rasterizer, preview script
-- `packages/hook-cli` – Go binary invoked by Claude Code hooks
+- `packages/hook-cli` – Go binary invoked by Claude Code or Codex hooks
 - `supabase` – migrations, RLS, RPCs, Edge Functions
 - `scripts` – build and deployment automation
 
@@ -97,11 +98,11 @@ For development flags (e.g. `--dev-nation fire`, `--dev-xp 150`, `--simulate <sc
 
 ## Privacy
 
-claude-mons sends only aggregated event counts and anonymous game state to the server. Prompt text, tool inputs, tool outputs and file paths never leave your machine. Linking an email (optional, for using the same mon on a second computer) is the only other personal data ever stored. Full details in [PRIVACY.md](PRIVACY.md).
+claude-mons sends only aggregated event counts and anonymous game state to the server. Prompt text, tool inputs, tool outputs and file paths never leave your machine — this holds the same way for Codex's hook events as for Claude Code's. Linking an email (optional, for using the same mon on a second computer) is the only other personal data ever stored. Full details in [PRIVACY.md](PRIVACY.md).
 
 ## Uninstall
 
-Windows: Settings → Apps → claude-mons → Uninstall. Linux: remove the AppImage or `sudo apt remove claude-mons`. Click **Disconnect Claude Code** in the app's Settings or tray menu first so the hooks are removed from `~/.claude/settings.json`; local data in `` `%APPDATA%\claude-mons` `` (Windows) or `~/.config/claude-mons` (Linux) can then be deleted.
+Windows: Settings → Apps → claude-mons → Uninstall. Linux: remove the AppImage or `sudo apt remove claude-mons`. Click **Disconnect** for Claude Code and, if connected, Codex in the app's Settings or tray menu first, so the hooks are removed from `~/.claude/settings.json` (and `~/.codex/hooks.json`); local data in `` `%APPDATA%\claude-mons` `` (Windows) or `~/.config/claude-mons` (Linux) can then be deleted.
 
 ## Code signing
 
