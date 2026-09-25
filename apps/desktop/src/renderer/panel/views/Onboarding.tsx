@@ -57,6 +57,8 @@ export const onboardingCopy = {
     hint: "Didn't fully connect. You can finish this any time in Settings.",
     note: 'This can be changed any time in Settings.',
     codexCta: 'Connect Codex',
+    codexLead:
+      'Codex found too: connecting it writes ~/.codex/hooks.json and enables hooks in config.toml.',
     codexSuccess: 'Connected. Run /hooks in Codex to trust the hooks, then start a new session.',
   },
   nation: {
@@ -193,6 +195,7 @@ function ConnectStep({ hooks, advance }: { hooks: UiSnapshot['hooks']; advance: 
     <div class="onboard-step">
       <h1>{onboardingCopy.connect.title}</h1>
       <p class="lead">{onboardingCopy.connect.lead}</p>
+      {codex.detected && <p class="lead">{onboardingCopy.connect.codexLead}</p>}
       <div class="connect-actions">
         <button
           type="button"

@@ -28,14 +28,24 @@ describe('enableHooksFeature', () => {
     });
   });
 
-  it('flips hooks = false', () =>
+  it('flips hooks = false, preserving a trailing comment', () =>
     expect(enableHooksFeature('[features]\nhooks = false # off\n')).toEqual({
       kind: 'edited',
-      text: '[features]\nhooks = true\n',
+      text: '[features]\nhooks = true # off\n',
     }));
 
   it('leaves hooks = true alone', () =>
     expect(enableHooksFeature('[features]\nhooks = true\n')).toEqual({ kind: 'unchanged' }));
+
+  it('recognizes [features] with extra whitespace inside the brackets', () => {
+    const r = enableHooksFeature('[ features ]\nfoo = true\n');
+    expect(r).toEqual({ kind: 'edited', text: '[ features ]\nhooks = true\nfoo = true\n' });
+  });
+
+  it('recognizes a quoted table header', () => {
+    const r = enableHooksFeature('["features"]\nfoo = true\n');
+    expect(r).toEqual({ kind: 'edited', text: '["features"]\nhooks = true\nfoo = true\n' });
+  });
 
   it('refuses dotted or inline forms it cannot edit safely', () => {
     expect(enableHooksFeature('features.hooks = false\n').kind).toBe('unsupported');

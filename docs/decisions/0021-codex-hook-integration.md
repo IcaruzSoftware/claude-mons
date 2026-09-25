@@ -3,7 +3,7 @@ doc_type: decision
 purpose: "Read this when questioning why Codex has its own hook install, agent spec and event aliases, or how apply_patch/update_plan/Interrupt map onto the XP economy."
 audience: both
 last_verified: 2026-09-25
-last_verified_commit: 08cd894
+last_verified_commit: 2ccd329
 related_files:
   - apps/desktop/src/main/hooks/agents.ts
   - apps/desktop/src/main/hooks/HookInstaller.ts
@@ -16,6 +16,7 @@ related_files:
   - packages/shared/src/game/xp.ts
   - docs/architecture/flows/hook-to-xp.md
   - docs/design/economy.md
+  - docs/runbooks/release.md
 adr_status: accepted
 ---
 
@@ -78,7 +79,11 @@ instead of hardcoding Claude Code's event list, and add a Codex-specific spec an
 
 - `packages/shared`'s `classifyTool` changed, and `supabase/functions/_shared/game` is a generated
   copy of it (`pnpm sync:shared`): the `ingest-xp` Edge Function must be redeployed after this
-  branch merges, or the server will under-classify `apply_patch`/`update_plan` until it is.
+  branch merges, or the server will under-classify `apply_patch`/`update_plan` until it is. This
+  redeploy must land **before** the client release ships (see the ordering step in
+  [docs/runbooks/release.md](../runbooks/release.md)): a client released first has Codex hooks
+  already sending `apply_patch` events, but the old server still classifies it as `read` (weight 0),
+  so the very next reconciliation corrects the client's provisional `mutate` XP back down.
 - Codex on Windows is untested — Codex CLI's own Windows support and hook behavior have not been
   verified against this integration.
 - A script-mode Codex install needs re-trusting (`/hooks`) after every port/token rotation; a

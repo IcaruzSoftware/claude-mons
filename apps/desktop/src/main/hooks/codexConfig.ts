@@ -9,7 +9,7 @@ export type FeatureEdit =
   | { kind: 'unsupported' };
 
 const TABLE_HEADER = /^\s*\[/;
-const FEATURES_HEADER = /^\s*\[features\]\s*(#.*)?$/;
+const FEATURES_HEADER = /^\s*\[\s*"?features"?\s*\]\s*(#.*)?$/;
 const DOTTED_OR_INLINE_FEATURES = /^\s*features\s*[.=]/;
 const HOOKS_LINE = /^\s*hooks\s*=\s*(true|false)\b/;
 
@@ -64,10 +64,13 @@ export function enableHooksFeature(toml: string): FeatureEdit {
   }
 
   if (hooksIndex !== -1) {
-    const isTrue = /^\s*hooks\s*=\s*true\b/.test(body[hooksIndex] ?? '');
+    const line = body[hooksIndex] ?? '';
+    const isTrue = /^\s*hooks\s*=\s*true\b/.test(line);
     if (isTrue) return { kind: 'unchanged' };
     const next = [...body];
-    next[hooksIndex] = 'hooks = true';
+    // Replace only the value, not the whole line, so a trailing comment (`hooks = false # off`)
+    // survives the flip.
+    next[hooksIndex] = line.replace(/=\s*false\b/, '= true');
     return { kind: 'edited', text: next.join(eol) + eol };
   }
 
