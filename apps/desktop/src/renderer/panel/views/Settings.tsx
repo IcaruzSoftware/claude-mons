@@ -2,7 +2,12 @@ import { useState } from 'preact/hooks';
 import { NATION_INFO, validateNickname } from '@claude-mons/shared';
 import type { UiSnapshot, UpdateStatusValue } from '../../../common/ipc.ts';
 import { AccountEmailCode } from '../../ui/AccountEmailCode.tsx';
-import { HOOK_STATUS_LABEL, hookStatusDotClass, isHookConnected } from '../../ui/hookStatus.ts';
+import {
+  HOOK_STATUS_LABEL,
+  hookStatusDotClass,
+  hookStatusLabel,
+  isHookConnected,
+} from '../../ui/hookStatus.ts';
 import { PixelPanel } from '../../ui/PixelPanel.tsx';
 import { accountCopy } from '../accountCopy.ts';
 
@@ -182,9 +187,14 @@ export function SettingsView({ s }: { s: UiSnapshot }) {
   const connected = isHookConnected(hooks);
   const dot = hookStatusDotClass(hooks);
   const modeHint =
-    s.hooks.effectiveMode === 'script'
+    (s.hooks.effectiveMode === 'script'
       ? 'Script mode uses curl to reach the app directly; there is no offline spool, so events sent while the app is closed are lost.'
-      : 'Binary mode uses the bundled hook program and spools events while the app is closed.';
+      : 'Binary mode uses the bundled hook program and spools events while the app is closed.') +
+    ' Applies to both Claude Code and Codex.';
+  const codex = s.hooks.codex;
+  const codexConnected = codex.detected && isHookConnected(codex.status);
+  const codexDot = codex.detected ? hookStatusDotClass(codex.status) : '';
+  const codexDisabled = !codex.detected || codex.status === 'unreadable' || codex.status === 'no-binary';
 
   return (
     <div>
@@ -228,6 +238,36 @@ export function SettingsView({ s }: { s: UiSnapshot }) {
               <option value="binary">Binary</option>
               <option value="script">Script (curl)</option>
             </select>
+          </div>
+        </PixelPanel>
+      </div>
+
+      <div class="section">
+        <h3>Codex</h3>
+        <PixelPanel>
+          <div class="set-row">
+            <div>
+              <span class={`status-dot ${codexDot}`} />
+              <span class="label">
+                {codex.detected ? hookStatusLabel(codex.status, 'codex') : 'Codex not found'}
+              </span>
+              <div class="hint">
+                Adds hooks to ~/.codex/hooks.json and turns on `[features] hooks` in config.toml.
+                Then run `/hooks` in Codex once to trust them, and start a new session.
+              </div>
+              {codex.feature === 'unsupported' && (
+                <div class="hint">
+                  Set `hooks = true` under `[features]` in config.toml yourself.
+                </div>
+              )}
+            </div>
+            <button
+              class={codexConnected ? '' : 'primary'}
+              disabled={codexDisabled}
+              onClick={() => void window.monsUi.toggleHooks('codex')}
+            >
+              {codexConnected ? 'Disconnect' : codex.status === 'partial' ? 'Repair' : 'Connect'}
+            </button>
           </div>
         </PixelPanel>
       </div>
