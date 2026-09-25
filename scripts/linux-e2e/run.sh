@@ -64,18 +64,21 @@ start_x11() {
 }
 
 start_wayland_xwayland() {
-  # Headless Wayland compositor + XWayland, so the app (which forces ozone x11) runs under XWayland
-  # exactly as it does on the owner's GNOME/Wayland session. Try mutter, then weston.
+  # Headless Wayland compositor (sway/wlroots) + XWayland, so the app (which forces ozone x11) runs
+  # under XWayland exactly as it does on the owner's GNOME/Wayland session. We use sway because its
+  # IPC (`swaymsg seat <name> cursor …`) injects pointer input through the compositor itself, so
+  # events travel compositor -> XWayland -> app. xdotool/XTEST cannot do this under XWayland: XTEST
+  # pointer injection only reaches the compositor when it speaks libei/EIS, which headless weston does
+  # not, so the pointer never moved and the leg tested nothing (see docs/runbooks/linux-e2e.md).
   export XDG_RUNTIME_DIR="$(mktemp -d /tmp/xdg.XXXXXX)"
   chmod 700 "$XDG_RUNTIME_DIR"
   if ! command -v Xwayland >/dev/null 2>&1; then
     log "Xwayland binary is not installed; the compositor cannot provide an X server"; return 1
   fi
-  if command -v mutter >/dev/null 2>&1 && start_mutter; then return 0; fi
-  log "mutter unavailable/failed; trying weston"
-  if command -v weston >/dev/null 2>&1 && start_weston; then return 0; fi
-  log "no headless Wayland compositor with XWayland could be started"
-  return 1
+  if ! command -v sway >/dev/null 2>&1; then
+    log "sway is not installed; cannot bring up a wlroots headless Wayland session"; return 1
+  fi
+  start_sway
 }
 
 discover_xwayland_display() {
@@ -94,32 +97,56 @@ discover_xwayland_display() {
   return 1
 }
 
-start_mutter() {
-  # --headless --wayland brings up XWayland by default; that nested X server is what the app (ozone
-  # x11) connects to, reproducing the owner's "Wayland session, app forced to XWayland" setup.
-  dbus-run-session -- mutter --headless --wayland --virtual-monitor 1920x1080 \
-    >"$ART/mutter.log" 2>&1 &
+start_sway() {
+  # Headless wlroots session. WLR_BACKENDS=headless + WLR_LIBINPUT_NO_DEVICES=1 needs no seat, GPU or
+  # physical input; WLR_RENDERER=pixman uses software rendering (the runner has no GPU). A minimal
+  # config gives one 1920x1080 output, enables XWayland, and floats every window so it keeps the
+  # geometry its client requests (sway tiles by default, which would move the overlay and the xev
+  # under-window the click-through test relies on).
+  local cfg="$ART/sway.conf"
+  cat >"$cfg" <<'EOF'
+xwayland enable
+output HEADLESS-1 resolution 1920x1080 position 0 0
+default_border none
+default_floating_border none
+# Keep every window at its client-requested position/size (no tiling).
+for_window [class=".*"] floating enable
+for_window [app_id=".*"] floating enable
+# No idle behaviour or bar in a headless test session.
+EOF
+  WLR_BACKENDS=headless WLR_LIBINPUT_NO_DEVICES=1 WLR_RENDERER=pixman LIBGL_ALWAYS_SOFTWARE=1 \
+    sway -d -c "$cfg" >"$ART/sway.log" 2>&1 &
   track $!
-  local d
-  if ! d="$(discover_xwayland_display)"; then
-    log "mutter started but no XWayland display appeared"; return 1
-  fi
-  export DISPLAY="$d"
-  log "XWayland display is $DISPLAY (mutter)"
-  return 0
-}
 
-start_weston() {
-  weston --backend=headless-backend.so --xwayland --width=1920 --height=1080 \
-    --socket=wayland-e2e >"$ART/weston.log" 2>&1 &
-  track $!
-  export WAYLAND_DISPLAY=wayland-e2e
+  # sway creates its IPC socket at $XDG_RUNTIME_DIR/sway-ipc.<uid>.<pid>.sock; discover it so swaymsg
+  # (and the probe) can reach it.
+  local sock="" end=$(( SECONDS + 20 ))
+  while (( SECONDS < end )); do
+    sock="$(ls -t "$XDG_RUNTIME_DIR"/sway-ipc.*.sock 2>/dev/null | head -1)"
+    [ -n "$sock" ] && [ -S "$sock" ] && break
+    sock=""; sleep 0.5
+  done
+  [ -n "$sock" ] || { log "sway IPC socket never appeared"; return 1; }
+  export SWAYSOCK="$sock"
+  if ! wait_for 15 swaymsg -t get_version; then
+    log "sway IPC not responding on $SWAYSOCK"; return 1
+  fi
+
+  # The Wayland socket (for logging / any native client); swaymsg itself uses SWAYSOCK.
+  local wl
+  wl="$(ls -t "$XDG_RUNTIME_DIR"/wayland-* 2>/dev/null | grep -v '\.lock$' | head -1)"
+  [ -n "$wl" ] && export WAYLAND_DISPLAY="$(basename "$wl")"
+
+  # XWayland starts lazily but reserves its display socket up front; discover_xwayland_display's
+  # xdpyinfo probe both finds and warms it. That nested X server is what the app (ozone x11) connects
+  # to, reproducing the owner's "Wayland session, app forced to XWayland" setup.
   local d
   if ! d="$(discover_xwayland_display)"; then
-    log "weston started but no XWayland display appeared"; return 1
+    log "sway started but no XWayland display appeared"; return 1
   fi
   export DISPLAY="$d"
-  log "XWayland display is $DISPLAY (weston)"
+  log "sway up: SWAYSOCK=$SWAYSOCK WAYLAND_DISPLAY=${WAYLAND_DISPLAY:-?} XWayland DISPLAY=$DISPLAY"
+  swaymsg -t get_seats >"$ART/sway-seats-initial.json" 2>&1 || true
   return 0
 }
 

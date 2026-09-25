@@ -32,6 +32,47 @@ function sh(cmd, args, opts = {}) {
   }
 }
 const xdotool = (...args) => sh('xdotool', args).trim();
+const swaymsg = (...args) => sh('swaymsg', args);
+
+// --- pointer input backend -------------------------------------------------------------------
+// The bug under test lives below Chromium, so we drive OS pointer input, not CDP synthetic events.
+// x11: xdotool warps the X pointer via XTEST. wayland-xwayland: swaymsg injects through the Wayland
+// compositor (`seat <name> cursor set|press|release`), which forwards to XWayland and then the app —
+// XTEST cannot do this under XWayland, so xdotool would move nothing (see docs/runbooks/linux-e2e.md).
+// Buttons are named 'left'/'right'; each backend maps them to its own numbering.
+
+function swaySeatName() {
+  try {
+    const seats = JSON.parse(swaymsg('-t', 'get_seats'));
+    const named = seats.find((s) => s.name && s.name !== '*');
+    if (named?.name) return named.name;
+  } catch { /* fall through */ }
+  return 'seat0';
+}
+
+function makeInput(mode) {
+  if (mode === 'wayland-xwayland') {
+    const seat = swaySeatName();
+    const btn = (b) => (b === 'right' ? 'button3' : 'button1');
+    const cursor = (...a) => swaymsg('seat', seat, 'cursor', ...a);
+    return {
+      seat,
+      move: (x, y) => cursor('set', String(x), String(y)),
+      down: (b) => cursor('press', btn(b)),
+      up: (b) => cursor('release', btn(b)),
+      click: (b) => { cursor('press', btn(b)); cursor('release', btn(b)); },
+    };
+  }
+  const btn = (b) => (b === 'right' ? '3' : '1');
+  return {
+    seat: null,
+    move: (x, y) => xdotool('mousemove', String(x), String(y)),
+    down: (b) => xdotool('mousedown', btn(b)),
+    up: (b) => xdotool('mouseup', btn(b)),
+    click: (b) => xdotool('click', btn(b)),
+  };
+}
+const input = makeInput(MODE);
 
 function screenshot(name) {
   const path = join(ART, name);
@@ -122,7 +163,7 @@ function spriteCenter(p) {
 async function aimAtSprite() {
   const p = await petProbe();
   const c = spriteCenter(p);
-  if (c) xdotool('mousemove', String(c.x), String(c.y));
+  if (c) input.move(c.x, c.y);
   return { p, c };
 }
 
@@ -215,10 +256,12 @@ async function main() {
   // appPolledCursor is null here — the six checks below prove input works via the shape model.
   {
     const target = { x: 500, y: 500 };
-    xdotool('mousemove', String(target.x), String(target.y));
+    input.move(target.x, target.y);
     await sleep(800);
-    writeFileSync(join(ART, 'cursor-diagnostic.json'),
-      JSON.stringify({ target, xServerPointer: getMouseLoc(), appPolledCursor: latestAppCursor() }, null, 2));
+    const diag = { backend: MODE === 'wayland-xwayland' ? 'swaymsg' : 'xdotool', target,
+      xServerPointer: getMouseLoc(), appPolledCursor: latestAppCursor() };
+    if (MODE === 'wayland-xwayland') { try { diag.swaySeats = JSON.parse(swaymsg('-t', 'get_seats')); } catch { diag.swaySeats = null; } }
+    writeFileSync(join(ART, 'cursor-diagnostic.json'), JSON.stringify(diag, null, 2));
   }
 
   // 1. hover -> hover card (kept on the sprite for >HOVER_DELAY_MS while polling for the card).
@@ -247,7 +290,7 @@ async function main() {
       if (!(await appAlive())) break;
       const off = logSize();
       await aimAtSprite();
-      xdotool('click', '1');
+      input.click('left');
       clickReached = await waitForLog(off, '[pet] pointer down 0', 2);
     }
     await sleep(800);
@@ -267,14 +310,14 @@ async function main() {
       start = (await aimAtSprite()).c;
       if (!start) break;
       const off = logSize();
-      xdotool('mousedown', '1');
+      input.down('left');
       grabbed = await waitForLog(off, '[pet] pointer down 0', 1);
-      if (!grabbed) { xdotool('mouseup', '1'); await sleep(200); }
+      if (!grabbed) { input.up('left'); await sleep(200); }
     }
     if (grabbed && start) {
-      for (let i = 1; i <= 12; i++) { xdotool('mousemove', String(start.x + i * 18), String(start.y)); await sleep(40); }
+      for (let i = 1; i <= 12; i++) { input.move(start.x + i * 18, start.y); await sleep(40); }
     }
-    xdotool('mouseup', '1');
+    input.up('left');
     for (let i = 0; i < 25; i++) { const st = (await petProbe())?.state; if (st && !/drag|fall/.test(st)) break; await sleep(150); }
     const after = (await petProbe())?.pos?.x ?? null;
     screenshot('03-drag.png');
@@ -295,8 +338,8 @@ async function main() {
       const tx = g.x + 8, ty = g.y + 8; // transparent corner, far from the bottom-centre sprite
       const offLog = logSize();
       const xevBefore = fileTextSafe(XEV_LOG).length;
-      xdotool('mousemove', String(tx), String(ty));
-      xdotool('click', '1');
+      input.move(tx, ty);
+      input.click('left');
       await sleep(600);
       const xevGot = fileTextSafe(XEV_LOG).slice(xevBefore).includes('ButtonPress');
       const petGot = logSince(offLog).includes('[pet] pointer down');
@@ -313,7 +356,7 @@ async function main() {
     for (let attempt = 0; attempt < 5 && !reached; attempt++) {
       const off = logSize();
       await aimAtSprite();
-      xdotool('click', '3');
+      input.click('right');
       reached =
         (await waitForLog(off, '[pet] pointer contextmenu', 2)) ||
         logSince(off).includes('[pet] pointer down 2');
