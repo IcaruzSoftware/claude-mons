@@ -122,7 +122,8 @@ export const FOLLOW_THROUGH_MULT = 1.2;
  * Phoenix Reborn/Second Breath KO interceptions -- none of which add or remove an `rng()` call by
  * themselves, but the golden log's *values* change because the formula does).
  */
-export const BATTLE_PROTOCOL_VERSION = 5;
+// v5: fair elements/opening combos. v6: bounded experience and underdog opening combos.
+export const BATTLE_PROTOCOL_VERSION = 6;
 
 const levelScale = (l: number): number => (l + 49) / 50;
 
@@ -477,12 +478,18 @@ export function simulateBattle(a: MonSnapshot, b: MonSnapshot, seed: string): Ba
         (setup === 'burn' && foeState.burnTurns > 0));
     if (followThrough) openingSetup[me] = null;
 
+    // Experience matters even late in the level curve. Keep the gap bounded to matchmaking.
+    const levelGap = Math.max(-3, Math.min(3, M.level - mons[foe].level));
+    const experience = 1 + Math.sign(levelGap) * (0.1 + 0.02 * Math.abs(levelGap));
+    // A prepared opening gives an underdog one chance to overcome the experience gap.
+    const combo = FOLLOW_THROUGH_MULT + 0.5 * Math.max(0, -levelGap);
     const raw =
       ((power * meStats.atk) / defTerm) *
       scale *
       0.25 *
       moveEff *
-      (followThrough ? FOLLOW_THROUGH_MULT : 1) *
+      experience *
+      (followThrough ? combo : 1) *
       critMultiplier *
       variance *
       (counters[me] ? STANCE_COUNTER_DEALT_MULT : 1) *

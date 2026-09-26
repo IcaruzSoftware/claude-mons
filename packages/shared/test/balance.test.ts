@@ -84,7 +84,7 @@ describe('balance (cross-nation round-robin)', () => {
     });
   }
 
-  it('a 3-level advantage wins roughly 70-80 % of the time', () => {
+  it('a 3-level advantage usually wins, with room for lucky upsets', () => {
     let wins = 0;
     const N = 600;
     for (let i = 0; i < N; i++) {
@@ -106,19 +106,19 @@ describe('balance (cross-nation round-robin)', () => {
       });
       if (simulateBattle(a, b, `lvl-${i}`).winner === 'a') wins++;
     }
-    expect(wins / N).toBeGreaterThan(0.6);
-    expect(wins / N).toBeLessThan(0.9);
+    expect(wins / N).toBeGreaterThan(0.9);
+    expect(wins / N).toBeLessThan(1);
   });
 
   // Boundary matchups either side of a stage transition (baby/teen at 10, teen/adult at 25).
   //
-  // Protocol 5 intentionally favors the higher-level side (60-75% at these boundaries).
+  // Protocol 6 intentionally makes easier default encounters reliable wins (90-97%).
   // With the smaller elemental swing, weaker defaults no longer win via a 4x type swing.
   // Keep the stat growth/stage multipliers unchanged; preparation is tested separately.
   it.each([
     ['L9 vs L11 (baby/teen boundary)', 9, 11] as const,
     ['L24 vs L26 (teen/adult boundary)', 24, 26] as const,
-  ])('%s: low side stays in the 25-40 %% band', (_label, lowLevel, highLevel) => {
+  ])('%s: unprepared low side stays in the 3-10 %% upset band', (_label, lowLevel, highLevel) => {
     const BATTLES_PER_PAIR = 300; // 48 cross-nation ordered pairs * 300 = 14,400 battles
     let lowWins = 0;
     let total = 0;
@@ -150,8 +150,8 @@ describe('balance (cross-nation round-robin)', () => {
     }
     const rate = lowWins / total;
     const msg = `low-level side win rate ${(rate * 100).toFixed(1)}% (n=${total})`;
-    expect(rate, msg).toBeGreaterThanOrEqual(0.25);
-    expect(rate, msg).toBeLessThanOrEqual(0.40);
+    expect(rate, msg).toBeGreaterThanOrEqual(0.03);
+    expect(rate, msg).toBeLessThanOrEqual(0.1);
   });
 
   // Stance triangle (docs/design/progression.md Stances): countering the opponent's stance should

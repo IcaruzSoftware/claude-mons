@@ -3,6 +3,7 @@ import { challengerReward, simulateBattle, snapshotFor } from '../src/battle/bat
 import { MATCHMAKING_WINDOWS, wildEncounterLevel } from '../src/battle/matchmaking.ts';
 import { effectiveness } from '../src/game/nations.ts';
 
+import { stageForLevel } from '../src/game/levels.ts';
 import { SPECIES } from '../src/game/species.ts';
 
 describe('passive fair battles', () => {
@@ -13,7 +14,9 @@ describe('passive fair battles', () => {
     for (const species of Object.values(SPECIES)) {
       const setup = species.movePool.find((m) => m.effect === 'def_down' || m.effect === 'burn')!;
       const hit = species.movePool.find((m) => m.effect === 'priority')!;
-      const third = species.movePool.find((m) => m.id !== setup.id && m.id !== hit.id)!;
+      const third = species.movePool
+        .filter((m) => m.id !== setup.id && m.id !== hit.id && m.unlocksAt <= 10)
+        .sort((a, b) => b.power - a.power)[0]!;
       for (const foe of Object.values(SPECIES)) {
         if (foe.nation === species.nation) continue;
         const a = snapshotFor({
@@ -49,7 +52,8 @@ describe('passive fair battles', () => {
 
   it('searches weaker players first and never extends beyond three levels either way', () => {
     expect(MATCHMAKING_WINDOWS).toEqual([
-      { min: -3, max: -1 },
+      { min: -3, max: -2 },
+      { min: -1, max: -1 },
       { min: 0, max: 0 },
       { min: 1, max: 3 },
     ]);
@@ -67,6 +71,59 @@ describe('passive fair battles', () => {
       expect(elite).toBe(100);
       if (level >= 10) expect(weaker).toBe(900);
     }
+  });
+
+  it('makes weaker neutral wild opponents reliable wins throughout the Ottlet line', () => {
+    let upsets = 0;
+    for (const level of [5, 10, 20, 30, 50]) {
+      for (const foe of ['puffle', 'wispit']) {
+        for (const gap of [-1, -2, -3]) {
+          const a = snapshotFor({
+            monId: 'a',
+            playerId: 'a',
+            nickname: 'a',
+            speciesId: 'ottlet',
+            level,
+            stage: stageForLevel(level) as 'baby' | 'teen' | 'adult',
+          });
+          const b = snapshotFor({
+            monId: 'b',
+            playerId: null,
+            nickname: 'b',
+            speciesId: foe,
+            level: level + gap,
+            stage: stageForLevel(level + gap) as 'baby' | 'teen' | 'adult',
+          });
+          let wins = 0;
+          for (let i = 0; i < 1000; i++) {
+            wins += Number(
+              simulateBattle(a, b, `audit-${level}-${gap}-${foe}-${i}`).winner === 'a',
+            );
+          }
+          expect(wins / 1000, `L${level} Ottlet vs ${foe} ${gap}`).toBeGreaterThan(
+            gap === -3 ? 0.85 : 0.7,
+          );
+          upsets += 1000 - wins;
+        }
+      }
+    }
+    expect(upsets).toBeGreaterThan(0);
+  });
+
+  it('mostly selects clearly weaker wild mons and varies harder encounters', () => {
+    const counts = new Map<number, number>();
+    for (let i = 0; i < 3000; i++) {
+      const gap = wildEncounterLevel(20, i / 3000).level - 20;
+      counts.set(gap, (counts.get(gap) ?? 0) + 1);
+    }
+    expect(Object.fromEntries(counts)).toEqual({
+      1: 100,
+      2: 100,
+      3: 100,
+      '-1': 150,
+      '-2': 750,
+      '-3': 1800,
+    });
   });
 
   it('pays +15 XP per harder level only on wins and the same 10 XP on every loss', () => {

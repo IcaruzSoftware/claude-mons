@@ -364,9 +364,10 @@ function LoadoutEditor({
           </p>
         )}
         <p class="hint">
-          Automatic combo: open with Burn or DEF down, then follow with Priority, True hit,
-          Crit up or Charge while the effect lasts for +{Math.round((FOLLOW_THROUGH_MULT - 1) * 100)}%
-          damage once per battle. Prepare the order in Edit loadout; battles play themselves.
+          Automatic combo: open with Burn or DEF down, then follow with Priority, True hit, Crit up
+          or Charge while the effect lasts for +{Math.round((FOLLOW_THROUGH_MULT - 1) * 100)}%
+          damage once per battle, with a larger bonus against higher-level opponents. Prepare the
+          order in Edit loadout; battles play themselves.
         </p>
         <div class="slots">
           {([0, 1, 2] as const).map((i) => {
@@ -749,9 +750,10 @@ export function BattlesView({ s }: { s: UiSnapshot }) {
       <div class="section">
         <h3>Loadout</h3>
         <p class="hint">
-          Automatic combo: open with Burn or DEF down, then follow with Priority, True hit,
-          Crit up or Charge while the effect lasts for +{Math.round((FOLLOW_THROUGH_MULT - 1) * 100)}%
-          damage once per battle. Prepare the order in Edit loadout; battles play themselves.
+          Automatic combo: open with Burn or DEF down, then follow with Priority, True hit, Crit up
+          or Charge while the effect lasts for +{Math.round((FOLLOW_THROUGH_MULT - 1) * 100)}%
+          damage once per battle, with a larger bonus against higher-level opponents. Prepare the
+          order in Edit loadout; battles play themselves.
         </p>
         <div class="slots">
           {moves.map((m, i) => (

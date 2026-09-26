@@ -2,8 +2,8 @@
 doc_type: design
 purpose: "Read this when changing battle math, matchmaking, rewards, or the battle log shape."
 audience: agent
-last_verified: 2026-09-24
-last_verified_commit: bf1f338
+last_verified: 2026-09-26
+last_verified_commit: 1c03a6e
 related_files:
   - packages/shared/src/battle/battle.ts
   - packages/shared/src/battle/effects.ts
@@ -66,17 +66,20 @@ For a turn where mon `M` acts on mon `F`, in `packages/shared/src/battle/battle.
 
 ```
 scale   = (avgLevel + 49) / 50            // avgLevel = (a.level + b.level) / 2, same curve as statAtLevel
-raw     = (power * M.atk / F.def) * scale / 4 * effectiveness * followThrough * (crit ? 2 : 1) * variance
+raw     = (power * M.atk / F.def) * scale / 4 * effectiveness * experience * followThrough * (crit ? 2 : 1) * variance
 damage  = max(1, floor(raw))
 variance = 0.7 + rng() * 0.6              // uniform in [0.7, 1.3)
 ```
 
 - **`power`**: the chosen move's own `power` (docs/design/progression.md Move pool and effects), not
-  a fixed per-kind table — every species has its own 6-move pool (`packages/shared/src/game/
+  a fixed per-kind table — every species has its own 8-move pool (`packages/shared/src/game/
   species.ts:Move`) as of Phase B (`BATTLE_PROTOCOL_VERSION` 3). A `charge` move's release turn
   multiplies `power` by `CHARGE_MULTIPLIER` (2.2), see progression.md.
 - **Effectiveness**: a `type: 'nation'` move uses `effectiveness(M.nation, F.nation)` (0.9, 1, or 1.2 —
   see `packages/shared/src/game/nations.ts:effectiveness`); `type: 'neutral'` always uses `1`.
+- **Experience** (protocol 6): equal levels use 1. Higher levels deal 1.12 / 1.14 / 1.16x
+  damage at gaps +1 / +2 / +3; the lower side deals 0.88 / 0.86 / 0.84x. Gaps cap at 3.
+  This supplements the small relative stat increase at high levels; it never decides a winner.
 - **Follow-through**: one automatic opening combo per side; its multiplier and eligibility live
   in `docs/design/progression.md`. Optional `followThrough` marks the boosted action in protocol 5;
   historical logs remain stored and are never recomputed.
@@ -159,7 +162,7 @@ and effects.
 
 | Situation | Challenger XP | Defender XP |
 |---|---|---|
-| Win vs. player | `30 + 5 * clamp(oppLevel - myLevel, -3, 3)` (15–45) | 3 |
+| Win vs. player | `30 + (diff > 0 ? 15 : 5) * diff`, `diff = clamp(oppLevel - myLevel, -3, 3)` (15–75) | 3 |
 | Loss vs. player | 10 | 8 |
 | Win vs. Wild Mon (bot) | 20 plus 15 per higher level (20-65, difference capped at 3) | — (bots never pay) |
 | Loss vs. Wild Mon (bot) | 10 | — |

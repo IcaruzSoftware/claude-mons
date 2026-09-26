@@ -2,8 +2,8 @@
 doc_type: design
 purpose: "Read this when adding/changing a nation, species, hatch rarity, stage threshold, or sprite id, and need every place that must stay in sync."
 audience: agent
-last_verified: 2026-09-25
-last_verified_commit: 76a7435
+last_verified: 2026-09-26
+last_verified_commit: 1c03a6e
 related_files:
   - packages/shared/src/game/nations.ts
   - packages/shared/src/game/species.ts
@@ -47,23 +47,28 @@ Nine species, defined in `packages/shared/src/game/species.ts` and mirrored in `
 
 | Nation | Id | Rarity | Baby → Teen → Adult | HP/ATK/DEF/SPD |
 |---|---|---|---|---|
-| Water | dripple | common | Dripple → Pipefin → Torrentide | 85/45/50/30 |
-| Water | bubblit | rare | Bubblit → Cachecoral → Deepseaquel | 76/50/53/36 |
-| Water | ottlet | rare | Ottlet → Brookfin → Tidewhisker | 75/60/40/40 |
-| Fire | sparkit | common | Sparkit → Blazebit → Infernode | 70/60/42/38 |
-| Fire | cinderpup | rare | Emberkit → Emberfox → Twinflare | 75/60/40/40 |
+| Water | dripple | common | Dripple → Pipefin → Torrentide | 88/45/50/30 |
+| Water | bubblit | rare | Bubblit → Cachecoral → Deepseaquel | 78/50/53/36 |
+| Water | ottlet | rare | Ottlet → Brookfin → Tidewhisker | 79/61/42/40 |
+| Fire | sparkit | common | Sparkit → Blazebit → Infernode | 71/60/42/38 |
+| Fire | cinderpup | rare | Emberkit → Emberfox → Twinflare | 77/60/40/40 |
 | Earth | pebblet | common | Pebblet → Boulderbyte → Monolithor | 90/45/55/20 |
-| Earth | mossling | rare | Mossling → Rootling → Terraformer | 91/46/55/23 |
+| Earth | mossling | rare | Mossling → Rootling → Terraformer | 93/47/55/23 |
 | Air | puffle | common | Puffle → Gustling → Nimbyte | 61/52/48/49 |
-| Air | wispit | rare | Wispit → Zephyrix → Stratosphinx | 70/48/42/55 |
+| Air | wispit | rare | Wispit → Zephyrix → Stratosphinx | 76/49/43/55 |
 
 The `Id` column is a stable database key (`species_base_stats`, `mons.species_id`, battle
 snapshots) and never changes; the baby/teen/adult names in the table above are display names only
 and can be renamed without a migration -- `cinderpup`'s baby form displays as "Emberkit" while its
 id stays `cinderpup`.
 
-Each species also carries a 6-move pool (`Species.movePool`, unlocked progressively from level 2 to
-level 20) used by battle; the full per-species move table (power, type, effect, unlock level) lives
+Rare species have larger base-stat budgets (217–223 versus 210–213 for commons), tuned so each
+rare wins 52–75% across cross-nation common matchups at levels 2/5/10/30/50. Rarity is an edge,
+not a guaranteed win; types, preparation and levels still matter. Ottlet remains rare with its
+existing hatch weight. SQL parity lives in `supabase/migrations/20260926070000_rarity_stats.sql`.
+
+Each species also carries an 8-move pool (`Species.movePool`, unlocked progressively from level 2 to
+level 25) used by battle; the full per-species move table (power, type, effect, unlock level) lives
 in `docs/design/progression.md` Move pool and effects — not restated here since a fact has one home.
 
 `speciesOf(id)` throws on an unknown id; `speciesForNation(nation)` filters `SPECIES` by nation; `displayName(speciesId, stage)` returns `'Egg'` for stage `'egg'`, else the per-stage name above.
