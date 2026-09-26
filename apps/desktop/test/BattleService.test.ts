@@ -30,6 +30,26 @@ function setup(opts: { hatched?: boolean; level?: number } = {}) {
 }
 
 describe('BattleService (offline / wild mon)', () => {
+  it('reports readiness only for an eligible hatched mon, recovering after cooldown and day reset', async () => {
+    expect(setup({ hatched: false }).service.isReady()).toBe(false);
+    const { service, state, advance } = setup();
+    expect(service.isReady()).toBe(true);
+    state.profile.nation = null;
+    expect(service.isReady()).toBe(false);
+    state.profile.nation = 'fire';
+    const result = await service.request();
+    expect(result.ok).toBe(true);
+    expect(service.isReady()).toBe(false);
+    if (result.ok) service.finish(result.play.id);
+    expect(service.isReady()).toBe(false);
+    advance(BATTLE_RULES.cooldownMs);
+    expect(service.isReady()).toBe(true);
+    state.battles.today.count = BATTLE_RULES.challengesPerDay;
+    expect(service.isReady()).toBe(false);
+    advance(24 * 3600_000);
+    expect(service.isReady()).toBe(true);
+  });
+
   it('refuses eggs', async () => {
     const { service } = setup({ hatched: false });
     expect(await service.request()).toEqual({ ok: false, reason: 'egg' });
