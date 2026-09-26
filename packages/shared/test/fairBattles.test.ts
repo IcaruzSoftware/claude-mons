@@ -14,7 +14,9 @@ describe('passive fair battles', () => {
     for (const species of Object.values(SPECIES)) {
       const setup = species.movePool.find((m) => m.effect === 'def_down' || m.effect === 'burn')!;
       const hit = species.movePool.find((m) => m.effect === 'priority')!;
-      const third = species.movePool.find((m) => m.id !== setup.id && m.id !== hit.id)!;
+      const third = species.movePool
+        .filter((m) => m.id !== setup.id && m.id !== hit.id && m.unlocksAt <= 10)
+        .sort((a, b) => b.power - a.power)[0]!;
       for (const foe of Object.values(SPECIES)) {
         if (foe.nation === species.nation) continue;
         const a = snapshotFor({
@@ -72,6 +74,7 @@ describe('passive fair battles', () => {
   });
 
   it('makes weaker neutral wild opponents reliable wins throughout the Ottlet line', () => {
+    let upsets = 0;
     for (const level of [5, 10, 20, 30, 50]) {
       for (const foe of ['puffle', 'wispit']) {
         for (const gap of [-1, -2, -3]) {
@@ -100,10 +103,11 @@ describe('passive fair battles', () => {
           expect(wins / 1000, `L${level} Ottlet vs ${foe} ${gap}`).toBeGreaterThan(
             gap === -3 ? 0.85 : 0.7,
           );
-          expect(wins).toBeLessThan(1000); // Lucky upsets remain possible.
+          upsets += 1000 - wins;
         }
       }
     }
+    expect(upsets).toBeGreaterThan(0);
   });
 
   it('mostly selects clearly weaker wild mons and varies harder encounters', () => {

@@ -2,7 +2,7 @@
 doc_type: design
 purpose: "Read this when changing battle math, matchmaking, rewards, or the battle log shape."
 audience: agent
-last_verified: 2026-09-25
+last_verified: 2026-09-26
 last_verified_commit: 1c03a6e
 related_files:
   - packages/shared/src/battle/battle.ts
@@ -72,7 +72,7 @@ variance = 0.7 + rng() * 0.6              // uniform in [0.7, 1.3)
 ```
 
 - **`power`**: the chosen move's own `power` (docs/design/progression.md Move pool and effects), not
-  a fixed per-kind table — every species has its own 6-move pool (`packages/shared/src/game/
+  a fixed per-kind table — every species has its own 8-move pool (`packages/shared/src/game/
   species.ts:Move`) as of Phase B (`BATTLE_PROTOCOL_VERSION` 3). A `charge` move's release turn
   multiplies `power` by `CHARGE_MULTIPLIER` (2.2), see progression.md.
 - **Effectiveness**: a `type: 'nation'` move uses `effectiveness(M.nation, F.nation)` (0.9, 1, or 1.2 —

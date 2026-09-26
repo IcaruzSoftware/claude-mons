@@ -2,7 +2,7 @@
 doc_type: design
 purpose: "Read this when changing moves, stances, talents, matchmaking windows, streaks or evolution stat multipliers, or building the loadout editor."
 audience: agent
-last_verified: 2026-09-25
+last_verified: 2026-09-26
 last_verified_commit: 1c03a6e
 related_files:
   - packages/shared/src/battle/battle.ts
@@ -28,7 +28,7 @@ related_files:
 
 # Progression system
 
-The battle itself stays a deterministic autobattle (`packages/shared/src/battle/battle.ts:simulateBattle`, see `docs/design/battle.md`); this doc adds the skill players exercise *before* a battle: which 6 moves a mon knows, which 3 it brings, its stance, and its talent tree. Phases A–D (see Phases) have all shipped; several magnitudes below were **retuned by simulation on 2026-09-13**, after shipping, to hit their balance targets (see each section's tuning note).
+The battle itself stays a deterministic autobattle (`packages/shared/src/battle/battle.ts:simulateBattle`, see `docs/design/battle.md`); this doc adds the skill players exercise *before* a battle: which 8 moves a mon knows, which 3 it brings, its stance, and its talent tree. Phases A–D (see Phases) have all shipped; several magnitudes below were **retuned by simulation on 2026-09-13**, after shipping, to hit their balance targets (see each section's tuning note).
 
 ## Goals
 
@@ -39,7 +39,7 @@ The battle itself stays a deterministic autobattle (`packages/shared/src/battle/
 
 ## Move pool and effects
 
-Every species gets a 6-move pool. Each move has a `power`, a `type` of `neutral` (never affected by nation matchups) or `nation` (uses `effectiveness()` from `packages/shared/src/game/nations.ts` like today's `typed`/`special` kinds), and exactly one effect:
+Every species gets six core moves and two evolution signature moves. Each move has a `power`, a `type` of `neutral` (never affected by nation matchups) or `nation` (uses `effectiveness()` from `packages/shared/src/game/nations.ts` like today's `typed`/`special` kinds), and exactly one effect:
 
 | Effect | Meaning |
 |---|---|
@@ -56,7 +56,7 @@ Every species gets a 6-move pool. Each move has a `power`, a `type` of `neutral`
 burn/drain against direct offense (`crit_up` +30pp, ceiling 60%). Five species redistribute the
 same rarity stat budget; the shared balance harness retains its equal-level acceptance bands.
 
-Unlock schedule (by mon level): 2 moves at hatch (level 2), 3rd at 5, 4th at 10, 5th at 15, 6th at 20. Slots 1–3 are each species' current `normal`/`typed`/`special` move, kept as-is (unlock 2/2/5); slots 4–6 are new (unlock 10/15/20). Slot 1 is always `priority` — it doubles as the loadout's fixed opener (see Loadout policy). Renaming the existing moves to the new convention is a possible follow-up, not part of this design.
+Core unlock schedule (by mon level): 2 moves at hatch (level 2), 3rd at 5, 4th at 10, 5th at 15, 6th at 20. Slots 1–3 are each species' current `normal`/`typed`/`special` move, kept as-is (unlock 2/2/5); slots 4–6 are new (unlock 10/15/20). Slot 1 is always `priority` — it doubles as the loadout's fixed opener (see Loadout policy). Renaming the existing moves to the new convention is a possible follow-up, not part of this design.
 
 | Species | Slot | Move | Power | Type | Effect | Unlocks |
 |---|---|---|---|---|---|---|
@@ -114,6 +114,14 @@ Unlock schedule (by mon level): 2 moves at hatch (level 2), 3rd at 5, 4th at 10,
 | wispit | 4 | Windburn | 50 | nation | burn | 10 |
 | wispit | 5 | Foretold Squall | 58 | nation | true_hit | 15 |
 | wispit | 6 | Gathering Storm | 60 | nation | charge | 20 |
+
+Evolution signatures append to the pool without changing any existing move id. At level 10 the
+teen form learns a new 80-power attack; at level 25 the adult learns a new 85-power attack. Both
+use the species' original finisher effect and nation type. These exceed the 75-power core
+finisher and automatically fill slot 3 of the default loadout. Saved custom move selections remain
+intact and can equip the unlocked signatures through the existing editor. Ottlet learns **Fish
+Breaker** and **Torrent Fish Slam**, respectively. The existing stage stat multipliers below
+apply at the same thresholds; no XP or hatch-odds changes are required.
 
 ## Loadout policy
 

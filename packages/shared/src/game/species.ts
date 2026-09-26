@@ -2,7 +2,7 @@ import type { EffectId } from '../battle/effects.ts';
 import type { Nation, Rarity, Stage, Stats } from '../types.ts';
 
 /**
- * One of a species' 6 moves (docs/design/progression.md Move pool and effects). `type: 'nation'`
+ * One of a species' eight moves (docs/design/progression.md Move pool and effects). `type: 'nation'`
  * uses `effectiveness()` from `./nations.ts` like the old `typed`/`special` move kinds did;
  * `'neutral'` never does. `unlocksAt` is the mon level this move joins the loadout pool
  * (`unlockedMoves` below); it always matches this move's position in `movePool` via
@@ -21,9 +21,10 @@ export interface Move {
 
 /**
  * Unlock schedule by mon level (docs/design/progression.md Move pool and effects): 2 moves at
- * hatch (level 2), 3rd at 5, 4th at 10, 5th at 15, 6th at 20. Index-aligned with `movePool`.
+ * hatch (level 2), core moves at 5/10/15/20, then signatures at evolutions 10/25.
+ * Index-aligned with `movePool`; existing core move ids and unlocks remain stable.
  */
-export const MOVE_UNLOCK_LEVELS: readonly number[] = [2, 2, 5, 10, 15, 20] as const;
+export const MOVE_UNLOCK_LEVELS: readonly number[] = [2, 2, 5, 10, 15, 20, 10, 25] as const;
 
 export interface Species {
   /** Baby name, lowercased. Sprite ids are `${id}-${stage}`. */
@@ -33,8 +34,8 @@ export interface Species {
   /** display names per stage */
   names: { baby: string; teen: string; adult: string };
   baseStats: Stats;
-  /** Exactly 6 moves, in unlock order (see `MOVE_UNLOCK_LEVELS`). */
-  movePool: [Move, Move, Move, Move, Move, Move];
+  /** Six core moves, then teen/adult signature moves (see `MOVE_UNLOCK_LEVELS`). */
+  movePool: [Move, Move, Move, Move, Move, Move, Move, Move];
   flavor: string;
 }
 
@@ -42,7 +43,7 @@ export const RARITY_WEIGHT: Record<Rarity, number> = { common: 75, rare: 25 };
 
 function pool(
   moves: ReadonlyArray<[name: string, power: number, type: Move['type'], effect: EffectId]>,
-): [Move, Move, Move, Move, Move, Move] {
+): [Move, Move, Move, Move, Move, Move, Move, Move] {
   return moves.map(([name, power, type, effect], i) => ({
     id: slugify(name),
     name,
@@ -50,7 +51,7 @@ function pool(
     type,
     effect,
     unlocksAt: MOVE_UNLOCK_LEVELS[i]!,
-  })) as [Move, Move, Move, Move, Move, Move];
+  })) as [Move, Move, Move, Move, Move, Move, Move, Move];
 }
 
 function slugify(name: string): string {
@@ -66,7 +67,7 @@ export const SPECIES: Record<string, Species> = {
     nation: 'water',
     rarity: 'common',
     names: { baby: 'Dripple', teen: 'Pipefin', adult: 'Torrentide' },
-    baseStats: { hp: 85, atk: 45, def: 50, spd: 30 },
+    baseStats: { hp: 88, atk: 45, def: 50, spd: 30 },
     movePool: pool([
       ['Drip Tap', 45, 'neutral', 'priority'],
       ['Stream Splash', 40, 'nation', 'def_down'],
@@ -74,6 +75,8 @@ export const SPECIES: Record<string, Species> = {
       ['Ripple Step', 50, 'neutral', 'priority'],
       ['Pressure Jet', 55, 'nation', 'crit_up'],
       ['Deep Current', 65, 'nation', 'drain'],
+      ['Pressure Burst', 80, 'nation', 'shield_first'],
+      ['Ocean Break', 85, 'nation', 'shield_first'],
     ]),
     flavor: 'A single drop that insists it is a pipeline.',
   },
@@ -82,7 +85,7 @@ export const SPECIES: Record<string, Species> = {
     nation: 'water',
     rarity: 'rare',
     names: { baby: 'Bubblit', teen: 'Cachecoral', adult: 'Deepseaquel' },
-    baseStats: { hp: 76, atk: 50, def: 53, spd: 36 },
+    baseStats: { hp: 78, atk: 50, def: 53, spd: 36 },
     movePool: pool([
       ['Bubble Pop', 45, 'neutral', 'priority'],
       ['Cache Wave', 40, 'nation', 'drain'],
@@ -90,6 +93,8 @@ export const SPECIES: Record<string, Species> = {
       ['Foam Barrier', 50, 'nation', 'shield_first'],
       ['Brine Corrode', 55, 'nation', 'def_down'],
       ['Scalding Current', 65, 'nation', 'burn'],
+      ['Coral Crash', 80, 'nation', 'true_hit'],
+      ['Abyss Bloom', 85, 'nation', 'true_hit'],
     ]),
     flavor: 'Remembers every query you ever ran. Forgives none of them.',
   },
@@ -98,7 +103,7 @@ export const SPECIES: Record<string, Species> = {
     nation: 'water',
     rarity: 'rare',
     names: { baby: 'Ottlet', teen: 'Brookfin', adult: 'Tidewhisker' },
-    baseStats: { hp: 75, atk: 60, def: 40, spd: 40 },
+    baseStats: { hp: 79, atk: 61, def: 42, spd: 40 },
     movePool: pool([
       ['Splash Dash', 45, 'neutral', 'priority'],
       ['Fish Flick', 40, 'nation', 'crit_up'],
@@ -106,6 +111,8 @@ export const SPECIES: Record<string, Species> = {
       ['Whisker Sense', 50, 'nation', 'true_hit'],
       ['Undertow', 55, 'nation', 'drain'],
       ['Tidal Tumble', 65, 'nation', 'burn'],
+      ['Fish Breaker', 80, 'nation', 'def_down'],
+      ['Torrent Fish Slam', 85, 'nation', 'def_down'],
     ]),
     flavor: 'Never lets go of its fish, not even mid-somersault down the rapids.',
   },
@@ -114,7 +121,7 @@ export const SPECIES: Record<string, Species> = {
     nation: 'fire',
     rarity: 'common',
     names: { baby: 'Sparkit', teen: 'Blazebit', adult: 'Infernode' },
-    baseStats: { hp: 70, atk: 60, def: 42, spd: 38 },
+    baseStats: { hp: 71, atk: 60, def: 42, spd: 38 },
     movePool: pool([
       ['Spark Nip', 45, 'neutral', 'priority'],
       ['Hot Reload', 40, 'nation', 'crit_up'],
@@ -122,6 +129,8 @@ export const SPECIES: Record<string, Species> = {
       ['Brushfire', 50, 'nation', 'true_hit'],
       ['Kindling Surge', 58, 'nation', 'charge'],
       ['Flash Ignite', 50, 'neutral', 'priority'],
+      ['Flare Pounce', 80, 'nation', 'def_down'],
+      ['Inferno Impact', 85, 'nation', 'def_down'],
     ]),
     flavor: 'Hatched from a hot reload. Has never waited for a build.',
   },
@@ -130,7 +139,7 @@ export const SPECIES: Record<string, Species> = {
     nation: 'fire',
     rarity: 'rare',
     names: { baby: 'Emberkit', teen: 'Emberfox', adult: 'Twinflare' },
-    baseStats: { hp: 75, atk: 60, def: 40, spd: 40 },
+    baseStats: { hp: 77, atk: 60, def: 40, spd: 40 },
     movePool: pool([
       ['Ember Bite', 45, 'neutral', 'priority'],
       ['Hotfix Howl', 40, 'nation', 'burn'],
@@ -138,6 +147,8 @@ export const SPECIES: Record<string, Species> = {
       ['Ashfang Strike', 50, 'nation', 'crit_up'],
       ['Cinder Feast', 55, 'nation', 'drain'],
       ['Soot Ward', 50, 'nation', 'shield_first'],
+      ['Ember Maul', 80, 'nation', 'crit_up'],
+      ['Twin Flare Rush', 85, 'nation', 'crit_up'],
     ]),
     flavor: 'Deploys on Friday. Sleeps like a baby.',
   },
@@ -154,6 +165,8 @@ export const SPECIES: Record<string, Species> = {
       ['Fault Line', 50, 'nation', 'def_down'],
       ['Magma Vein', 55, 'nation', 'burn'],
       ['Landslide', 65, 'nation', 'true_hit'],
+      ['Boulder Crash', 80, 'nation', 'crit_up'],
+      ['Monolith Quake', 85, 'nation', 'crit_up'],
     ]),
     flavor: 'Has 100% test coverage and will tell you about it.',
   },
@@ -162,7 +175,7 @@ export const SPECIES: Record<string, Species> = {
     nation: 'earth',
     rarity: 'rare',
     names: { baby: 'Mossling', teen: 'Rootling', adult: 'Terraformer' },
-    baseStats: { hp: 91, atk: 46, def: 55, spd: 23 },
+    baseStats: { hp: 93, atk: 47, def: 55, spd: 23 },
     movePool: pool([
       ['Moss Pat', 45, 'neutral', 'priority'],
       ['Root Bind', 40, 'nation', 'def_down'],
@@ -170,6 +183,8 @@ export const SPECIES: Record<string, Species> = {
       ['Taproot Surge', 58, 'nation', 'charge'],
       ['Spore Burst', 50, 'neutral', 'priority'],
       ['Ironwood Strike', 60, 'nation', 'crit_up'],
+      ['Root Crush', 80, 'nation', 'drain'],
+      ['Forest Surge', 85, 'nation', 'drain'],
     ]),
     flavor: 'Grows a small data center on its back. Zero downtime.',
   },
@@ -186,6 +201,8 @@ export const SPECIES: Record<string, Species> = {
       ['Vortex Pull', 50, 'nation', 'drain'],
       ['Windbreak', 50, 'nation', 'shield_first'],
       ['Pressure Drop', 55, 'nation', 'def_down'],
+      ['Cyclone Burst', 80, 'nation', 'true_hit'],
+      ['Skybreaker', 85, 'nation', 'true_hit'],
     ]),
     flavor: 'Mostly vapor, mostly ideas, entirely uncontainable.',
   },
@@ -194,7 +211,7 @@ export const SPECIES: Record<string, Species> = {
     nation: 'air',
     rarity: 'rare',
     names: { baby: 'Wispit', teen: 'Zephyrix', adult: 'Stratosphinx' },
-    baseStats: { hp: 70, atk: 48, def: 42, spd: 55 },
+    baseStats: { hp: 76, atk: 49, def: 43, spd: 55 },
     movePool: pool([
       ['Wisp Flick', 45, 'neutral', 'priority'],
       ['Zephyr Cut', 40, 'nation', 'crit_up'],
@@ -202,6 +219,8 @@ export const SPECIES: Record<string, Species> = {
       ['Windburn', 50, 'nation', 'burn'],
       ['Foretold Squall', 58, 'nation', 'true_hit'],
       ['Gathering Storm', 60, 'nation', 'charge'],
+      ['Tempest Cut', 80, 'nation', 'def_down'],
+      ['Stratosphere Dive', 85, 'nation', 'def_down'],
     ]),
     flavor: 'Answers every question with a better question.',
   },
@@ -249,7 +268,8 @@ export function findMove(species: Species, moveId: string): Move | undefined {
 }
 
 /**
- * Default loadout (3 move ids) for a mon with no `loadout.moves` set: the first three unlocked
+ * Default loadout (3 move ids) for a mon with no `loadout.moves` set. Evolution signatures
+ * replace slot 3 automatically once unlocked; custom saved loadouts stay unchanged. Below 10: the first three unlocked
  * moves in pool order (docs/design/progression.md Loadout policy) -- for species whose pool keeps
  * the old `normal`/`typed`/`special` moves in slots 1-3, this reproduces the pre-Phase-B mapping
  * (normal in slot 1/opener, typed in slot 2/default, special in slot 3/finisher). Below level 5 a
@@ -263,6 +283,11 @@ export function defaultLoadoutMoveIds(species: Species, level: number): [string,
   const unlocked = unlockedMoves(species, level);
   const source = unlocked.length > 0 ? unlocked : species.movePool.slice(0, 1);
   const picks = source.slice(0, 3).map((m) => m.id);
+  const signature = species.movePool
+    .slice(6)
+    .filter((m) => level >= m.unlocksAt)
+    .at(-1);
+  if (signature) picks[2] = signature.id;
   while (picks.length < 3) picks.push(source[source.length - 1]!.id);
   return [picks[0]!, picks[1]!, picks[2]!];
 }
