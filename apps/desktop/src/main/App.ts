@@ -55,7 +55,12 @@ import {
 import { HookServer } from './hooks/HookServer.ts';
 import { SpoolDrainer } from './hooks/SpoolDrainer.ts';
 import { ensureHookBinary } from './hooks/binary.ts';
-import { computeEffectiveMode, needsReinstall, probeBinary, type ProbeResult } from './hooks/mode.ts';
+import {
+  computeEffectiveMode,
+  needsReinstall,
+  probeBinary,
+  type ProbeResult,
+} from './hooks/mode.ts';
 import {
   authActionOnLostSession,
   buildAdoptedProfile,
@@ -159,8 +164,7 @@ export class App {
           },
         },
         {
-          hasKnownAccount: () =>
-            authActionOnLostSession(this.store.get().profile) === 'signed-out',
+          hasKnownAccount: () => authActionOnLostSession(this.store.get().profile) === 'signed-out',
           onAuthEvent: (line) => this.authLog(line),
         },
       );
@@ -433,6 +437,7 @@ export class App {
   }
 
   private pushSnapshot(): void {
+    this.host.setBattleReady(this.battles.isReady());
     const snap = this.snapshot();
     this.panel.send(IPC.uiSnapshot, snap);
     this.hoverCard.send(IPC.uiSnapshot, snap);
@@ -837,6 +842,8 @@ export class App {
     this.game.on('progress', () => this.pushSnapshot());
     // keep the hover card's "state" line fresh while it is visible
     setInterval(() => {
+      // Refresh even with all panels closed: cooldown expiry and midnight need no user input.
+      this.host.setBattleReady(this.battles.isReady());
       if (this.hoverCard.isVisible() || this.panel.isVisible()) this.pushSnapshot();
     }, 1000);
   }
