@@ -2,7 +2,7 @@
 doc_type: design
 purpose: "Read this when adding/changing a nation, species, hatch rarity, stage threshold, or sprite id, and need every place that must stay in sync."
 audience: agent
-last_verified: 2026-09-26
+last_verified: 2026-09-27
 last_verified_commit: 1c03a6e
 related_files:
   - packages/shared/src/game/nations.ts
@@ -49,12 +49,12 @@ Nine species, defined in `packages/shared/src/game/species.ts` and mirrored in `
 |---|---|---|---|---|
 | Water | dripple | common | Dripple → Pipefin → Torrentide | 88/45/50/30 |
 | Water | bubblit | rare | Bubblit → Cachecoral → Deepseaquel | 78/50/53/36 |
-| Water | ottlet | rare | Ottlet → Brookfin → Tidewhisker | 79/61/42/40 |
+| Water | ottlet | rare | Ottlet → Brookfin → Tidewhisker | 76/57/44/40 |
 | Fire | sparkit | common | Sparkit → Blazebit → Infernode | 71/60/42/38 |
-| Fire | cinderpup | rare | Emberkit → Emberfox → Twinflare | 77/60/40/40 |
+| Fire | cinderpup | rare | Emberkit → Emberfox → Twinflare | 77/56/44/40 |
 | Earth | pebblet | common | Pebblet → Boulderbyte → Monolithor | 90/45/55/20 |
 | Earth | mossling | rare | Mossling → Rootling → Terraformer | 93/47/55/23 |
-| Air | puffle | common | Puffle → Gustling → Nimbyte | 61/52/48/49 |
+| Air | puffle | common | Puffle → Gustling → Nimbyte | 64/52/48/49 |
 | Air | wispit | rare | Wispit → Zephyrix → Stratosphinx | 76/49/43/55 |
 
 The `Id` column is a stable database key (`species_base_stats`, `mons.species_id`, battle

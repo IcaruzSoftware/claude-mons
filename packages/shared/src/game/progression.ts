@@ -6,7 +6,7 @@ import { findMove, speciesOf, unlockedMoves } from './species.ts';
 import { isRespec, validateTree } from './tree.ts';
 import type { Nation, Stats } from '../types.ts';
 
-/** Battle stance: a rock-paper-scissors triangle of +-18% stat trade-offs. */
+/** Battle stance: a rock-paper-scissors triangle of +-2% stat trade-offs. */
 export type Stance = 'fury' | 'bulwark' | 'gale';
 export const STANCES: readonly Stance[] = ['fury', 'bulwark', 'gale'] as const;
 
@@ -35,7 +35,7 @@ interface StanceInfo {
  * find a much smaller, working pair instead of the original +-18%.
  */
 const STANCE_GRANT = 1.02; // +2% to the stance's boosted stat
-const STANCE_COST = 0.94; // -6% to the stance's traded-off stat
+const STANCE_COST = 0.98; // -2% to the stance's traded-off stat
 
 /**
  * docs/design/progression.md Stances table. Bulwark's cost stat was moved from SPD to ATK (Gale's

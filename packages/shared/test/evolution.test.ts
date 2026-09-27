@@ -20,12 +20,15 @@ it('unlocks stronger signatures and boosted stats at each evolution, retaining o
       expect(defaultLoadoutMoveIds(species, level)[2]).toBe(special.id);
       for (const base of Object.values(species.baseStats)) {
         expect(statAtLevel(base, level)).toBeGreaterThanOrEqual(
-          Math.floor((base * (level + 49)) / 50),
+          Math.floor(base + (level - 1) * Math.max(1, base / 25)),
         );
       }
       const bases = Object.values(species.baseStats);
       expect(bases.reduce((sum, base) => sum + statAtLevel(base, level), 0)).toBeGreaterThan(
-        bases.reduce((sum, base) => sum + Math.floor((base * (level + 49)) / 50), 0),
+        bases.reduce(
+          (sum, base) => sum + Math.floor(base + (level - 1) * Math.max(1, base / 25)),
+          0,
+        ),
       );
       const saved = defaultLoadoutMoveIds(species, 5);
       expect(
@@ -82,7 +85,7 @@ it('keeps migrated base stats identical to client and Edge Function species stat
     'utf8',
   );
   const rows = [...sql.matchAll(/\('([a-z]+)', (\d+), (\d+), (\d+), (\d+)\)/g)];
-  expect(rows).toHaveLength(7);
+  expect(rows).toHaveLength(8);
   for (const row of rows) {
     expect(Object.values(SPECIES[row[1]!]!.baseStats)).toEqual(row.slice(2).map(Number));
   }

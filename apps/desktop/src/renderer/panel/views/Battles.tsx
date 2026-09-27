@@ -39,9 +39,9 @@ import { BRANCH_X, TIER_Y, treeNodePosition } from './battleTreeLayout.ts';
  * (`packages/shared/src/game/progression.ts`).
  */
 const STANCE_INFO: Record<Stance, { name: string; description: string; beats: string }> = {
-  fury: { name: 'Fury', description: 'ATK +2% / DEF -6%.', beats: 'Gale' },
-  bulwark: { name: 'Bulwark', description: 'DEF +2% / ATK -6%.', beats: 'Fury' },
-  gale: { name: 'Gale', description: 'SPD +2% / ATK -6%.', beats: 'Bulwark' },
+  fury: { name: 'Fury', description: 'ATK +2% / DEF -2%.', beats: 'Gale' },
+  bulwark: { name: 'Bulwark', description: 'DEF +2% / ATK -2%.', beats: 'Fury' },
+  gale: { name: 'Gale', description: 'SPD +2% / ATK -2%.', beats: 'Bulwark' },
 };
 
 /** Triangle corner layout: Fury top, Bulwark bottom-left, Gale bottom-right. */

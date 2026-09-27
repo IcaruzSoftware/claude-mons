@@ -223,8 +223,8 @@ const BRANCHES: BranchSpec[] = [
     tier5: 'Jetstream Coupling',
     tier6: {
       name: 'Maelstrom',
-      description: "This mon's nation-type crits deal 2.5x instead of 2x.",
-      capstone: { kind: 'critMultiplier', multiplier: 2.15 },
+      description: "This mon's nation-type crits deal 1.9x instead of 1.75x.",
+      capstone: { kind: 'critMultiplier', multiplier: 1.9 },
     },
   },
   {

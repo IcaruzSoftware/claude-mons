@@ -103,7 +103,7 @@ export const SPECIES: Record<string, Species> = {
     nation: 'water',
     rarity: 'rare',
     names: { baby: 'Ottlet', teen: 'Brookfin', adult: 'Tidewhisker' },
-    baseStats: { hp: 79, atk: 61, def: 42, spd: 40 },
+    baseStats: { hp: 76, atk: 57, def: 44, spd: 40 },
     movePool: pool([
       ['Splash Dash', 45, 'neutral', 'priority'],
       ['Fish Flick', 40, 'nation', 'crit_up'],
@@ -139,10 +139,10 @@ export const SPECIES: Record<string, Species> = {
     nation: 'fire',
     rarity: 'rare',
     names: { baby: 'Emberkit', teen: 'Emberfox', adult: 'Twinflare' },
-    baseStats: { hp: 77, atk: 60, def: 40, spd: 40 },
+    baseStats: { hp: 77, atk: 56, def: 44, spd: 40 },
     movePool: pool([
       ['Ember Bite', 45, 'neutral', 'priority'],
-      ['Hotfix Howl', 40, 'nation', 'burn'],
+      ['Hotfix Howl', 38, 'nation', 'burn'],
       ['Overclock', 75, 'nation', 'crit_up'],
       ['Ashfang Strike', 50, 'nation', 'crit_up'],
       ['Cinder Feast', 55, 'nation', 'drain'],
@@ -193,7 +193,7 @@ export const SPECIES: Record<string, Species> = {
     nation: 'air',
     rarity: 'common',
     names: { baby: 'Puffle', teen: 'Gustling', adult: 'Nimbyte' },
-    baseStats: { hp: 61, atk: 52, def: 48, spd: 49 },
+    baseStats: { hp: 64, atk: 52, def: 48, spd: 49 },
     movePool: pool([
       ['Puff', 45, 'neutral', 'priority'],
       ['Gust Draft', 40, 'nation', 'crit_up'],
