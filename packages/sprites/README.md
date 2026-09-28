@@ -2,8 +2,8 @@
 doc_type: reference
 purpose: "Read this when authoring sprite definitions (SpriteDef), understanding the grid format, or running the preview script."
 audience: agent
-last_verified: 2026-09-25
-last_verified_commit: 76a7435
+last_verified: 2026-09-26
+last_verified_commit: 1c03a6e
 related_files:
   - packages/sprites/src/types.ts
   - packages/sprites/src/palette.ts
@@ -146,6 +146,13 @@ stable database keys; display names and sprite form names can change without a m
 form displays as "Emberkit").
 
 ## Rasterization
+
+The Ottlet → Brookfin → Tidewhisker line uses side-facing brown otters with cream
+muzzles, rounded ears, whiskers, and curved tails. Their blue-and-silver fish grows
+with each evolution and stays visible in all seven animations. Attacks use four
+frames: ready, wind-up, fish-first impact with a water splash, and recovery.
+`test/otter.test.ts` checks fish visibility, unclipped attack motion, and increasing
+fish size across the three stages. Species ids, grid sizes, and anchors stay stable.
 
 `packages/sprites/src/raster.ts` converts SpriteDef frames to RGBA pixel buffers:
 
