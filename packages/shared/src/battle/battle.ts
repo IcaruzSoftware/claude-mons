@@ -124,7 +124,7 @@ export const FOLLOW_THROUGH_MULT = 1.2;
  * Phoenix Reborn/Second Breath KO interceptions -- none of which add or remove an `rng()` call by
  * themselves, but the golden log's *values* change because the formula does).
  */
-// v7: guaranteed stat growth, diminishing-return armor, bounded crits and double strikes.
+// v7: guaranteed stat growth, diminishing-return defense, bounded crits and double strikes.
 export const BATTLE_PROTOCOL_VERSION = 7;
 
 const levelScale = (l: number): number => (l + 24) / 25;
@@ -132,11 +132,11 @@ export const DOUBLE_STRIKE_CHANCE = 0.08;
 export const DOUBLE_STRIKE_POWER = 0.4;
 export const CRIT_MULTIPLIER = 1.75;
 
-/** DEF / (DEF + K) damage reduction. K scales with encounter level to preserve armor value. */
-export function armorReduction(defense: number, encounterLevel: number): number {
-  const armor = Math.max(0, defense);
+/** DEF / (DEF + K) damage reduction. K scales with encounter level to preserve DEF value. */
+export function defenseReduction(defense: number, encounterLevel: number): number {
+  const def = Math.max(0, defense);
   const k = 25 * levelScale(Math.min(50, Math.max(1, encounterLevel)));
-  return armor / (armor + k);
+  return def / (def + k);
 }
 
 export function statsAtLevel(base: Stats, level: number): Stats {
@@ -508,7 +508,7 @@ export function simulateBattle(a: MonSnapshot, b: MonSnapshot, seed: string): Ba
     const raw =
       power *
       (meStats.atk / 50) *
-      (1 - armorReduction(defTerm, (a.level + b.level) / 2)) *
+      (1 - defenseReduction(defTerm, (a.level + b.level) / 2)) *
       0.75 *
       (doubleStrike ? DOUBLE_STRIKE_POWER : 1) *
       moveEff *

@@ -2,8 +2,8 @@
 doc_type: reference
 purpose: "Release notes and version history; check this when seeing claude-mons updates or deciding what version to expect features in."
 audience: both
-last_verified: 2026-09-25
-last_verified_commit: 08cd894
+last_verified: 2026-09-28
+last_verified_commit: 258acff
 related_files:
   - docs/history/v1-handoff-2026-09-04.md
   - docs/README.md
@@ -19,7 +19,7 @@ related_files:
 
 All notable changes to claude-mons are documented here. See [Keep a Changelog](https://keepachangelog.com/) for format details.
 
-## [Unreleased]
+## [0.2.5] - 2026-09-28
 
 ### Added
 
@@ -32,6 +32,24 @@ All notable changes to claude-mons are documented here. See [Keep a Changelog](h
   animation and earns no XP, matching Claude Code's silent user interrupt. See
   [ADR 0021](docs/decisions/0021-codex-hook-integration.md). Requires redeploying the `ingest-xp`
   Edge Function, since the shared tool classifier it copies changed.
+
+### Changed
+
+- Every level grants HP, ATK, DEF and SPD, with next-level gains shown in the Mon panel.
+  Existing DEF reduces direct damage by `DEF / (DEF + K)`; no separate armor stat is added.
+  Crit damage and random variance are bounded, with occasional reduced-power double strikes.
+- Passive battles prefer weaker opponents within three levels. Prepared opening combos help
+  against stronger foes; rare species have a measured advantage without guaranteed wins.
+- Evolution unlocks stronger signature attacks at levels 10 and 25, alongside stat bonuses.
+  Ottlet learns Fish Breaker and Torrent Fish Slam; saved custom loadouts remain intact.
+- Ottlet, Brookfin and Tidewhisker carry a fish weapon that grows across stages and swings
+  through their attacks, retaining their established silhouettes.
+- Battle-ready mons briefly shuffle and hop while idle, respecting other activities and limits.
+
+### Deployment
+
+- Battle protocol 7. Deploy database migrations and Edge Functions before the client release;
+  existing XP, species identities and stored battle logs are preserved.
 
 ## [0.2.4] - 2026-09-25
 

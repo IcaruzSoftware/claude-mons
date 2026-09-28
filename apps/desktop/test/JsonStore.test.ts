@@ -1,7 +1,7 @@
 import { promises as fs, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { JsonStore } from '../src/main/persistence/JsonStore.ts';
 
 interface V1 {
@@ -72,8 +72,13 @@ describe('JsonStore', () => {
     const store = make();
     await store.load();
     for (let i = 0; i < 50; i++) store.update((st) => (st.name = `n${i}`));
-    await new Promise((r) => setTimeout(r, 30));
-    expect(JSON.parse(await fs.readFile(path, 'utf8')).name).toBe('n49');
+    try {
+      await vi.waitFor(async () => {
+        expect(JSON.parse(await fs.readFile(path, 'utf8')).name).toBe('n49');
+      });
+    } finally {
+      await store.flush();
+    }
   });
 
   it('flushSync persists immediately and synchronously, bypassing the debounce', async () => {
