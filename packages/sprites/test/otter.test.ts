@@ -14,7 +14,16 @@ it('keeps otter fur brown after nation tinting and the fish visible in every ani
       'walk',
       'work',
     ]);
-    for (const animation of Object.values(sprite.anims)) {
+    for (const [name, animation] of Object.entries(sprite.anims)) {
+      if (name === 'work') {
+        for (const frame of animation.frames) {
+          expect(frame).toContain('r'); // fishing rod
+          expect(frame).toContain('j'); // line
+          expect(frame).not.toMatch(/[gl]/); // no laptop
+        }
+        expect(animation.frames.at(-1)).toContain('f'); // successful catch
+        continue;
+      }
       for (const frame of animation.frames) {
         expect(frame).toContain('f'); // teal fish body, including work/sleep/hurt
         expect(frame).toContain('o'); // contrasting coral fins

@@ -2,8 +2,8 @@
 doc_type: reference
 purpose: "Read this when authoring sprite definitions (SpriteDef), understanding the grid format, or running the preview script."
 audience: agent
-last_verified: 2026-09-26
-last_verified_commit: 1c03a6e
+last_verified: 2026-09-28
+last_verified_commit: 2418c0b
 related_files:
   - packages/sprites/src/types.ts
   - packages/sprites/src/palette.ts
@@ -147,9 +147,11 @@ form displays as "Emberkit").
 
 ## Rasterization
 
-The Ottlet → Brookfin → Tidewhisker line uses side-facing brown otters with cream
-muzzles, rounded ears, whiskers, and curved tails. Their blue-and-silver fish grows
-with each evolution and stays visible in all seven animations. Attacks use four
+The Ottlet → Brookfin → Tidewhisker line uses front-facing brown otters with paired
+low rounded ears, broad cream muzzles, whiskers, tapered bodies, and curved tails.
+Both front paws grip the fish. Their blue-and-silver fish grows
+with each evolution. Work replaces the laptop with a rod, bobbing float and caught fish;
+walk alternates lifted rear paws with counterbalancing tail movement. Attacks use four
 frames: ready, wind-up, fish-first impact with a water splash, and recovery.
 `test/otter.test.ts` checks fish visibility, unclipped attack motion, and increasing
 fish size across the three stages. Species ids, grid sizes, and anchors stay stable.

@@ -1,7 +1,7 @@
 import type { SpriteDef } from '../types.ts';
-import { compose, frame, recolor, shift, squashTop, withRows, type Layer } from '../util.ts';
+import { compose, frame, recolor, squashTop, withRows, type Layer } from '../util.ts';
 
-/** Tidewhisker: side-facing river otter, cream whiskered muzzle, long tail and a fish weapon. */
+/** Tidewhisker: front-facing river otter with paired ears, a broad whiskered muzzle and a fish weapon. */
 const PALETTE = {
   d: '#38272e',
   p: '#98624a',
@@ -13,102 +13,128 @@ const PALETTE = {
   v: '#b9dbe6',
   o: '#ef9869',
   k: '#19282d',
-  n: '#26353b',
+  n: '#35242a',
   w: '#fff0d4',
   h: '#ffffff',
   t: '#61c5e8',
   i: '#c5f2ff',
-  g: '#9e9e9e',
-  l: '#b3e5fc',
+  r: '#bb8650', // bamboo rod
+  j: '#d2e3df', // fishing line
 };
 
 const HEAD = [
-  '......dddddddd........',
-  '....ddppccccppdd......',
-  '...dapccccccccppd.....',
-  '..dapppccccccppppd....',
-  '..dppppppppppppppd....',
-  '.dppppcccppppppppd....',
-  '.dppppkhhppppppppdd...',
-  'dpppppkkkppppppaaaad..',
-  'dppppppppppaaaaaaannnd',
-  'dppppppppaaaaaahaaannn',
-  '.dpppppaaaaawaaaaannn.',
-  '..dpppaaaaawaaaaaaaad.',
-  '...dppaaaawaaaaaaadd..',
-  '...dppaaaaaaaaadd.....',
-  '...dsppaaaaaaad.......',
-  '....dsppaaaaad........',
-  '.....dddddddd.........',
+  '........dddddddddd........',
+  '.....dddccccccccccddd.....',
+  '...ddacccpccccccpcccadd...',
+  '..dppapccppcppcppccpappd..',
+  '..dppppppppppppppppppppd..',
+  '..dppaaaappppppppaaaappd..',
+  '..dpaakhhhpaaaaphhhkaapd..',
+  '..dpaakhkkpaaaapkkhkaapd..',
+  '..dpaakkkkpaaaapkkkkaapd..',
+  '..dppakkkpaaaaaapkkkappd..',
+  '..dppaaaaannnnnnaaaaappd..',
+  '.dppaaaaaannnnnnaaaaaappd.',
+  'wwwwaaawaaaannaaaawaaawwww',
+  '..dpaaswaaaaddaaaawsaapd..',
+  '..wwwaaaaddaaaaddaaaawww..',
+  '...dpaawaaaawwaaaawaapd...',
+  '....dppaaawaaaawaaappd....',
+  '.....dddddddddddddddd.....',
 ];
 
 const BODY = [
-  '........dddddddd.........',
-  '.......dppccccppdd.......',
-  '......dppccccpppaad......',
-  '.....dpppppppppaaad......',
-  '.....dpppppppppaaaad.....',
-  '.....dpppppppppaaaad.....',
-  '.....dpppppppppaaaad.....',
-  '.....dsspppppppaaaaad....',
-  '.....dsspppppppaaaaad....',
-  '.....dsspppppppaaaaad....',
-  '.....dsspppppppaaaaad....',
-  '.....dsspppppppaaaaad....',
-  '......dssppppppaaaad.....',
-  '......dssppppppaaaad.....',
-  '......dsspppppaaaad......',
-  '......dsspppppaaaad......',
-  '......dsspppppaaaad......',
-  '......dssppppppppd.......',
-  '......dppppddppppd.......',
-  '......dpppd..dpppd.......',
-  '......dpppd..dpppd.......',
-  '.....dppppd..dppppd......',
-  '.....dppppd..dpppppd.....',
-  '.....dddddd..ddddddd.....',
+  '.....dddddddddddd.....',
+  '.....dpaaawwaaapd.....',
+  '.....dpcwaaaawcpd.....',
+  '.....dppaaaaaappd.....',
+  '.....dpcawaawacpd.....',
+  '.....dppaaaaaappd.....',
+  '.....dpaaawwaaapd.....',
+  '....dppaaawwaaappd....',
+  '....dpcwaaaaaawcpd....',
+  '....dppaaawwaaappd....',
+  '...dpppaaawwaaapppd...',
+  '...dpcpaaawwaaapcpd...',
+  '...dppspaaaaaapsppd...',
+  '..dppcpsaaaaaaspcppd..',
+  '..dpcppsaaaaaasppcpd..',
+  '..dpppspaaaaaapspppd..',
+  '.dppcpsppaaaappspcppd.',
+  '.dpcpppspaaaapspppcpd.',
+  '.dppspcpppaapppcpsppd.',
+  'dppcpsppssppssppspcppd',
+  'dpcppspppsppspppsppcpd',
+  '.dsppsssppppppsssppsd.',
+  '..dpcppssddddssppcpd..',
+  '...dsssddddddddsssd...',
+  '....dddddddddddddd....',
 ];
 
 const TAIL = [
-  '..dd..............',
-  '.dppd.............',
-  'dpppd.............',
-  'dpppd.............',
-  'dpppd.............',
-  'dpppd.............',
-  'dpppd.............',
-  '.dpppd............',
-  '.dppppd...........',
-  '..dppppd..........',
-  '...dppppdd........',
-  '....dpppppdd......',
-  '.....dppppppdd....',
-  '......dpppppppdd..',
-  '.......dssppppppdd',
-  '........dssppppppd',
-  '.........dsspppppd',
-  '..........ddddddd.',
+  'dd................',
+  'dppdd.............',
+  'dpcppdd...........',
+  'dspppcpdddd.......',
+  '.dsppppcpppdddd...',
+  '..dssppppppppppddd',
+  '...dddssssssssddd.',
 ];
 
 const FISH = [
   '.............oooo.......',
   '........qqqqffffffqq....',
-  '......qqffffffffffffq...',
+  '......qqffvffvffffffq...',
   'oo...qfffffffffhfffffq..',
   '.ooqqffffffffffkkfffffq.',
-  'oooqfffffffffffffffffq..',
+  'oooqffvffvffvffffffffq..',
   '..qvvvvvvvvvvvvvvvvvq...',
   '...qqvvvvvvvvvvvvvqq....',
   '.....qqooooqqqqqqq......',
 ];
 
-const CLOSED_EYE = withRows(HEAD, { 6: '.dppppkkkppppppppdd...' });
+const CLOSED_EYE = withRows(HEAD, {
+  6: '..dpaaaaaapaaaapaaaaaapd..',
+  7: '..dpaaaaaapaaaapaaaaaapd..',
+  8: '..dpaaaaaapaaaapaaaaaapd..',
+  9: '..dppakkkpaaaaaapkkkappd..',
+});
 const PAW = ['.dd.', 'dppd', 'dppd', '.dd.'];
 const SPLASH = ['..i....i...', '.it....ti..', 'itt..t..tti', '.iittttii..', '...iiii....'];
-const LAPTOP = ['.dddddddd.', '.dlllllld.', '.dlllllld.', '.dddddddd.', 'dggggggggd', 'dddddddddd'];
+const ROD = [
+  '......rrr..',
+  '.....r...j.',
+  '.....r...j.',
+  '....r....j.',
+  '....r....j.',
+  '...r.....j.',
+  '...r.....j.',
+  '..r......j.',
+  '..r......j.',
+  '.r.......j.',
+  '.r.......j.',
+  'r........j.',
+  'r........j.',
+  'r........j.',
+  '.........j.',
+  '.........j.',
+  '.........j.',
+  '.........j.',
+  '.........j.',
+  '.........j.',
+  '.........j.',
+  '.........o.',
+  '........ooo',
+  '.........j.',
+];
+const CATCH = ['.qfq.', 'qfhfq', '.qvq.', '.ooo.'];
+const WATER = ['.tt.tt.', 't..tt.t'];
 
 interface Pose {
   head?: string[];
+  body?: string[];
+  tailDx?: number;
+  showFish?: boolean;
   dx?: number;
   dy?: number;
   fishDx?: number;
@@ -117,6 +143,9 @@ interface Pose {
 }
 function figure({
   head = HEAD,
+  body = BODY,
+  tailDx = 0,
+  showFish = true,
   dx = 0,
   dy = 0,
   fishDx = 0,
@@ -124,27 +153,67 @@ function figure({
   extra = [],
 }: Pose = {}): string[] {
   return compose(48, [
-    { art: TAIL, x: 2 + dx, y: 25 + dy },
-    { art: BODY, x: 12 + dx, y: 24 + dy },
-    { art: head, x: 22 + dx, y: 9 + dy },
-    { art: FISH, x: 19 + dx + fishDx, y: 31 + dy + fishDy },
-    { art: PAW, x: 25 + dx + fishDx, y: 38 + dy + fishDy },
+    { art: TAIL, x: 25 + dx + tailDx, y: 41 + dy },
+    { art: body, x: 13 + dx, y: 23 + dy },
+    { art: head, x: 11 + dx, y: 8 + dy },
+    ...(showFish
+      ? [
+          { art: FISH, x: 12 + dx + fishDx, y: 30 + dy + fishDy },
+          { art: PAW, x: 17 + dx + fishDx, y: 36 + dy + fishDy },
+          { art: PAW, x: 27 + dx + fishDx, y: 36 + dy + fishDy },
+        ]
+      : []),
     ...extra,
   ]);
 }
 
+const STEP_LEFT = withRows(BODY, {
+  22: '....dpppd....dpppd....',
+  23: '....ddddd....dpppd....',
+  24: '.............ddddd....',
+});
+const STEP_RIGHT = withRows(BODY, {
+  22: '....dpppd....dpppd....',
+  23: '....dpppd....ddddd....',
+  24: '....ddddd.............',
+});
+
 const idle = [figure(), squashTop(figure(), 41), figure({ head: CLOSED_EYE })];
 const walk = [
-  shift(figure(), -1, 0),
-  shift(figure(), 0, -1),
-  shift(figure(), 1, 0),
-  shift(squashTop(figure(), 41), 0, -1),
+  figure({ body: STEP_LEFT, dx: -1, tailDx: 2, fishDy: -1 }),
+  figure({ body: STEP_LEFT, dy: -1, tailDx: 1 }),
+  figure({ body: STEP_RIGHT, dx: 1, tailDx: -2, fishDy: -1 }),
+  figure({ body: STEP_RIGHT, dy: -1, tailDx: -1 }),
 ];
 const curled = squashTop(squashTop(figure({ head: CLOSED_EYE }), 40), 42);
 const sleep = [curled, squashTop(curled, 43)];
 const work = [
-  figure({ extra: [{ art: LAPTOP, x: 5, y: 40 }] }),
-  figure({ fishDy: -1, extra: [{ art: withRows(LAPTOP, { 4: 'dghgghgghd' }), x: 5, y: 40 }] }),
+  figure({
+    showFish: false,
+    extra: [
+      { art: ROD, x: 32, y: 23 },
+      { art: PAW, x: 31, y: 34 },
+      { art: WATER, x: 36, y: 46 },
+    ],
+  }),
+  figure({
+    showFish: false,
+    head: CLOSED_EYE,
+    extra: [
+      { art: ROD, x: 32, y: 22 },
+      { art: PAW, x: 31, y: 33 },
+      { art: WATER, x: 35, y: 46 },
+    ],
+  }),
+  figure({
+    showFish: false,
+    extra: [
+      { art: ROD, x: 32, y: 20 },
+      { art: PAW, x: 31, y: 31 },
+      { art: CATCH, x: 39, y: 40 },
+      { art: WATER, x: 36, y: 46 },
+    ],
+  }),
 ];
 const happy = [
   figure({ head: CLOSED_EYE }),
@@ -171,7 +240,7 @@ export const TIDEWHISKER_ADULT: SpriteDef = {
     idle: { fps: 3, loop: true, frames: idle.map(frame) },
     walk: { fps: 8, loop: true, frames: walk.map(frame) },
     sleep: { fps: 1, loop: true, frames: sleep.map(frame) },
-    work: { fps: 6, loop: true, frames: work.map(frame) },
+    work: { fps: 2, loop: true, frames: work.map(frame) },
     happy: { fps: 8, loop: true, frames: happy.map(frame) },
     hurt: { fps: 8, loop: true, frames: hurt.map(frame) },
     attack: { fps: 10, loop: false, frames: attack.map(frame) },
