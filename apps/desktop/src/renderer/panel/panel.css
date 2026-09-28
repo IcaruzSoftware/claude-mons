@@ -990,11 +990,19 @@
 .slot-card select.mv-select {
   width: 100%;
   font-size: 11.5px;
-  background: transparent;
-  border: 0;
+  background: var(--bg-3);
+  border: 1px solid var(--line-lite);
   box-shadow: none;
-  padding: 0;
+  padding: 5px 6px;
   color: var(--fg);
+  color-scheme: dark;
+}
+.slot-card select.mv-select option {
+  background: var(--bg-3);
+  color: var(--fg);
+}
+.slot-card select.mv-select option:disabled {
+  color: var(--fg-dim);
 }
 .reorder {
   display: flex;
@@ -1232,34 +1240,13 @@
   flex: none;
 }
 
-/* The loadout editor is rendered inline at the end of the Battles view, so without these rules it
-   lays out as a plain block below the fold -- with `.view`'s scrollbar hidden, "Edit loadout" looks
-   like a dead button. It must stay a fixed, stacked overlay above the game-menu bar. */
-.loadout-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.55);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: var(--sp-4);
-  z-index: 10;
-}
+/* Draft controls live directly in the Battles tab; only Save persists changes. */
 .loadout-card {
+  min-width: 0;
   width: 100%;
-  max-height: 100%;
-  overflow: auto;
-  background: var(--bg-2);
-  border: 2px solid var(--line);
-  border-radius: var(--radius);
-  box-shadow: var(--bevel);
-  padding: var(--sp-3);
-  /* The talent tree can push this overlay past the panel's 440x660 size; keep scrolling available
-     but never show the bar, same treatment as .onboard-content. */
-  scrollbar-width: none;
-}
-.loadout-card::-webkit-scrollbar {
-  display: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
 }
 .loadout-card h3 {
   font-family: var(--font-display);

@@ -2,8 +2,8 @@
 doc_type: runbook
 purpose: "Read this before shipping any change to the panel, onboarding, hover card or reminder UI: how to prove it works without touching your real pet."
 audience: both
-last_verified: 2026-09-25
-last_verified_commit: 2ccd329
+last_verified: 2026-09-28
+last_verified_commit: 2418c0b
 related_files:
   - scripts/ui-probe.mjs
   - apps/desktop/test/styleContract.test.ts
@@ -89,8 +89,8 @@ survives a redesign that renames every class.
 
 ```bash
 node scripts/ui-probe.mjs click panel "text=BATTLE"
-node scripts/ui-probe.mjs click panel "text=Edit loadout"
-node scripts/ui-probe.mjs eval panel "(()=>{const r=document.querySelector('.loadout-overlay').getBoundingClientRect();return {top:r.top,onScreen:r.top<innerHeight&&r.bottom>0};})()"
+node scripts/ui-probe.mjs eval panel "document.querySelector('.loadout-card').scrollIntoView()"
+node scripts/ui-probe.mjs eval panel "(()=>{const r=document.querySelector('.loadout-card').getBoundingClientRect();return {top:r.top,onScreen:r.top<innerHeight&&r.bottom>0};})()"
 node scripts/ui-probe.mjs text panel ".loadout-card h3"
 ```
 
