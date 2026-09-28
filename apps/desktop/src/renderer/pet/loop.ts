@@ -30,6 +30,7 @@ export class PetLoop {
         speciesId: config.speciesId,
         nation: config.nation,
         debug: config.debug,
+        battleReady: config.battleReady ?? false,
       },
       config.windowGeometry,
     );
@@ -49,6 +50,7 @@ export class PetLoop {
       speciesId: config.speciesId,
       nation: config.nation,
       debug: config.debug,
+      battleReady: config.battleReady ?? false,
     });
     if (config.stage !== this.model.stage)
       this.queue.push({ type: 'stage:set', stage: config.stage });
@@ -149,13 +151,20 @@ export class PetLoop {
       const shape = this.renderer.getShape();
       // Send when the opaque hitbox OR the draw/input shape changes (FX can appear/disappear
       // without moving the hitbox); the shape is what Linux feeds BrowserWindow.setShape.
-      if (this.renderer.hitboxChanged(hitbox, this.lastHitbox) || this.renderer.hitboxChanged(shape, this.lastShape)) {
+      if (
+        this.renderer.hitboxChanged(hitbox, this.lastHitbox) ||
+        this.renderer.hitboxChanged(shape, this.lastShape)
+      ) {
         this.lastHitbox = hitbox;
         this.lastShape = shape;
         // Tagged with the geometry version this hitbox was computed against (see PetRenderer's
         // `geometry` field), so the main process can discard it if a hop/mode switch/resize has
         // moved the window on since — see docs/architecture/overlay-and-input.md.
-        window.mons.sendHitbox({ hitbox, geometryVersion: this.renderer.getGeometryVersion(), shape });
+        window.mons.sendHitbox({
+          hitbox,
+          geometryVersion: this.renderer.getGeometryVersion(),
+          shape,
+        });
       }
     }
 

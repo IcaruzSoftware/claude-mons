@@ -2,8 +2,8 @@
 doc_type: design
 purpose: "Read this when you need to change pet behavior states, priorities, stimuli, or how hook/input events drive the pet."
 audience: agent
-last_verified: 2026-09-13
-last_verified_commit: 8a24ac9
+last_verified: 2026-09-26
+last_verified_commit: 1c03a6e
 related_files:
   - packages/shared/src/behavior/states.ts
   - packages/shared/src/behavior/priorities.ts
@@ -39,6 +39,16 @@ Each call to `stepBehavior` runs, in order: apply each queued stimulus, `handleE
 and drains the queue once per `requestAnimationFrame` tick.
 
 ## States
+
+The desktop renderer also shows a brief battle-ready footwork gesture without changing the
+behavior state or saved anchor. `BattleService.isReady()` checks the same hatch/nation,
+cooldown, daily-limit and pending-battle conditions used by battle requests. The main process
+refreshes the flag once per second, even with panels closed, and sends config only when it
+changes. During `idle` or `sit`, a ready mon plays its walk clip while shifting two grid pixels
+sideways and hopping up to two pixels, for 2.4 seconds every 12 seconds. Other states (including
+sleep, work, drag, evolution and combat) suppress it. The render key, hitbox and Linux shape
+include the actual displaced sprite. No reminder, battle request or XP event is emitted.
+Tests: `apps/desktop/test/readyMotion.test.ts` and `apps/desktop/test/BattleService.test.ts`.
 
 `PetState` (`packages/shared/src/behavior/states.ts`) has 21 values, grouped by the exported
 group arrays:

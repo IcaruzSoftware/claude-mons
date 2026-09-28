@@ -97,6 +97,7 @@ export class PetHost {
   private petVisible = true;
   /** True while a battle is animating in the renderer; see `playBattle`/`IPC.petBattleDone`. */
   private inBattle = false;
+  private battleReady = false;
   /** True once the renderer has fired `ready-to-show`; gates the first reveal alongside a nation. */
   private windowReady = false;
   private trackerStarted = false;
@@ -321,9 +322,16 @@ export class PetHost {
     return remembered ?? screen.getPrimaryDisplay();
   }
 
+  setBattleReady(ready: boolean): void {
+    if (ready === this.battleReady) return;
+    this.battleReady = ready;
+    this.sendConfig();
+  }
+
   private sendConfig(): void {
     const world = this.world();
     const config: PetConfig = {
+      battleReady: this.battleReady,
       spriteScale: this.state.spriteScale,
       version: app.getVersion(),
       stage: this.state.stage,
@@ -514,7 +522,14 @@ export class PetHost {
     const world = { x: g.x + msg.x, y: g.y + msg.y };
     const overSprite = !!this.lastHitbox && pointInRect(msg, this.lastHitbox, HITBOX_INFLATE);
     if (DEBUG && msg.type !== 'move')
-      console.info('[pet] pointer', msg.type, msg.button, JSON.stringify(world), 'over', overSprite);
+      console.info(
+        '[pet] pointer',
+        msg.type,
+        msg.button,
+        JSON.stringify(world),
+        'over',
+        overSprite,
+      );
     if (msg.type === 'move') {
       if (this.drag) this.onDragMove(world, performance.now());
       else this.updateLinuxHover(overSprite);

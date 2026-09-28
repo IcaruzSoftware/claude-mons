@@ -77,6 +77,8 @@ export const IPC = {
 } as const;
 
 export interface PetConfig {
+  /** True only when a new battle is available (including cooldown and daily limit). */
+  battleReady?: boolean;
   /** Integer pixel scale for the sprite (2, 3 or 4). */
   spriteScale: number;
   version: string;
