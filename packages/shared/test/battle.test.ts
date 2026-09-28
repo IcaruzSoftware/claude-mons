@@ -67,7 +67,8 @@ describe('species table', () => {
     const LEGACY_IDS: Record<string, string> = { cinderpup: 'Emberkit' };
     for (const s of Object.values(SPECIES)) {
       const total = s.baseStats.hp + s.baseStats.atk + s.baseStats.def + s.baseStats.spd;
-      expect(total).toBe(s.rarity === 'common' ? 210 : 215);
+      expect(total).toBeGreaterThanOrEqual(s.rarity === 'common' ? 210 : 217);
+      expect(total).toBeLessThanOrEqual(s.rarity === 'common' ? 213 : 223);
       if (s.id in LEGACY_IDS) {
         expect(s.names.baby).toBe(LEGACY_IDS[s.id]);
       } else {

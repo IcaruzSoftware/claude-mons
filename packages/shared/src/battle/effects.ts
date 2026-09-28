@@ -25,11 +25,11 @@ export function isEffectId(value: unknown): value is EffectId {
 
 // --- magnitudes (docs/design/progression.md Move pool and effects) ----------------------------
 
-/** `crit_up`: +30pp, capped at 60%; tuned with reduced burn/drain for protocol 5. */
-export const CRIT_UP_BONUS = 0.3;
+/** `crit_up`: +20pp, capped at 60%; tuned alongside armor and reduced crit damage in protocol 7. */
+export const CRIT_UP_BONUS = 0.2;
 export const CRIT_UP_MAX = 0.6;
 /** `drain`: heals the user this fraction of the damage dealt. */
-export const DRAIN_FRACTION = 0.35;
+export const DRAIN_FRACTION = 0.3;
 /** `shield_first`: reduces the first hit taken by this fraction. */
 export const SHIELD_FIRST_REDUCTION = 0.5;
 /**
@@ -46,7 +46,7 @@ export const DEF_DOWN_MULT = 0.88;
 /** `def_down` duration in turns; reapplying refreshes rather than stacking. */
 export const DEF_DOWN_TURNS = 3;
 /** `burn`: end-of-turn damage as a fraction of the burned mon's max HP. */
-export const BURN_FRACTION = 0.03;
+export const BURN_FRACTION = 0.025;
 /** `burn` duration in turns; a second application while active is ignored (no stacking). */
 export const BURN_TURNS = 3;
 /** `charge`: the release turn's power multiplier. */
@@ -62,7 +62,7 @@ export const EFFECT_DESCRIPTIONS: Record<EffectId, string> = {
   drain: `Heals the user ${Math.round(DRAIN_FRACTION * 100)}% of the damage this move deals.`,
   shield_first: `The first hit this mon takes in the battle is reduced ${Math.round(SHIELD_FIRST_REDUCTION * 100)}% (once per battle).`,
   def_down: `Target's DEF -${Math.round((1 - DEF_DOWN_MULT) * 100)}% for ${DEF_DOWN_TURNS} turns; reapplying refreshes the duration, does not stack.`,
-  burn: `Target loses ${Math.round(BURN_FRACTION * 100)}% max HP at the end of each turn for ${BURN_TURNS} turns (one instance at a time).`,
+  burn: `Target loses ${BURN_FRACTION * 100}% max HP at the end of each turn for ${BURN_TURNS} turns (one instance at a time).`,
   true_hit: "Ignores the target's dodge chance.",
   charge: `Telegraphs for 0 damage this turn, then auto-releases at ${CHARGE_MULTIPLIER}x power next turn.`,
 };

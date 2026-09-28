@@ -73,31 +73,21 @@ export function levelProgress(totalXp: number): LevelProgress {
   };
 }
 
-/**
- * Per-stage multiplier layered on top of the linear level scaling (docs/design/progression.md
- * Evolution multipliers). Keyed off `stageForLevel(level)`, not a snapshot's own `stage` field, so
- * it always reflects the level actually passed in. Mirrored in SQL by `recompute_mon`
- * (`supabase/migrations/20260904000000_init.sql`, multiplier added in
- * `supabase/migrations/20260913020000_progression_phase_a.sql`, retuned in
- * `supabase/migrations/20260913030000_progression_tuning.sql`) -- keep the two in sync.
- *
- * Tuned by simulation on 2026-09-13 (down from 1.15/1.30; see docs/design/progression.md Evolution
- * multipliers and Balance targets): the original values made the low-level side of a stage-boundary
- * matchup (level 9 vs. 11, level 24 vs. 26) win only ~27-28% of the time, well outside the 35-65%
- * band the design doc asks for. These smaller multipliers land both boundary matchups at ~40%.
- */
+/** Evolution boosts, on top of guaranteed level gains. SQL mirror:
+ * supabase/migrations/20260927120000_level_stat_growth.sql. */
 export const STAGE_STAT_MULTIPLIER: Record<Exclude<Stage, 'egg'>, number> = {
   baby: 1.0,
   teen: 1.03,
   adult: 1.06,
 };
 
-/** Linear stat growth (2 % of base per level) times the evolution-stage multiplier above. */
+/** Each level adds 4% of the base stat (at least one point), before evolution bonuses. */
 export function statAtLevel(base: number, level: number): number {
   const lvl = clampLevel(level);
   const stage = stageForLevel(lvl);
   const mult = stage === 'egg' ? 1 : STAGE_STAT_MULTIPLIER[stage];
-  return Math.floor((base * (lvl + 49) * mult) / 50);
+  // Integer arithmetic matches PostgreSQL numeric rounding at exact stat boundaries.
+  return Math.floor(((base * 25 + (lvl - 1) * Math.max(25, base)) * Math.round(mult * 100)) / 2500);
 }
 
 function clampLevel(level: number): number {

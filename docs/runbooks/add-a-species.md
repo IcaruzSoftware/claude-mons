@@ -2,8 +2,8 @@
 doc_type: runbook
 purpose: "Read this when adding a new species to a nation."
 audience: both
-last_verified: 2026-09-25
-last_verified_commit: 76a7435
+last_verified: 2026-09-26
+last_verified_commit: 1c03a6e
 related_files:
   - packages/shared/src/game/species.ts
   - packages/shared/src/battle/effects.ts
@@ -102,11 +102,12 @@ Review output in `packages/sprites/preview/sheet.png` and per-animation PNG stri
 
 ## 5. Add species to shared table
 
-Edit `packages/shared/src/game/species.ts`: add a new entry to `SPECIES` with the id, nation, rarity, stage names, base stats (HP/ATK/DEF/SPD), a 6-move `movePool`, and flavor text.
+Edit `packages/shared/src/game/species.ts`: add a new entry to `SPECIES` with the id, nation, rarity, stage names, base stats (HP/ATK/DEF/SPD), an 8-move `movePool`, and flavor text.
 
-Every species needs exactly 6 moves (`docs/design/progression.md` Move pool and effects): slot 1 is
+Every species needs exactly 8 moves (`docs/design/progression.md` Move pool and effects): slot 1 is
 always the `priority` effect (it doubles as the loadout's fixed opener) and unlocks at level 2 along
-with slot 2; slots 3/4/5/6 unlock at 5/10/15/20. Each move gets exactly one of the 8 effects
+with slot 2; core slots 3/4/5/6 unlock at 5/10/15/20. Append teen/adult signature
+moves in pool slots 7/8 (unlocks 10/25, power 80/85, same effect as core slot 3). Each move gets exactly one of the 8 effects
 (`priority`, `crit_up`, `drain`, `shield_first`, `def_down`, `burn`, `true_hit`, `charge` —
 `packages/shared/src/battle/effects.ts`) and a `type` of `neutral` or `nation`. Use the `pool()`
 helper already in `packages/shared/src/game/species.ts` to build the array and derive each move's `id` (a slug of its name)
@@ -129,6 +130,8 @@ export const SPECIES: Record<string, Species> = {
       ['<Move 4>', 50, 'nation', 'true_hit'],
       ['<Move 5>', 55, 'nation', 'burn'],
       ['<Move 6>', 65, 'nation', 'drain'],
+      ['<Teen signature>', 80, 'nation', 'crit_up'],
+      ['<Adult signature>', 85, 'nation', 'crit_up'],
     ]),
     flavor: '<Flavor text>',
   },
@@ -217,7 +220,7 @@ Fix any lint or type errors. Then follow [docs/runbooks/deploy-backend.md](./dep
 - [ ] `pnpm check` and `pnpm deno:check` report 0 errors.
 - [ ] `pnpm test` passes, including the new species in the balance suite's archetype matrix.
 - [ ] Sprite preview shows the mon at all three stages with correct anchor placement.
-- [ ] `packages/shared/src/game/species.ts` SPECIES entry has id, nation, rarity, baseStats, and a 6-move `movePool`.
+- [ ] `packages/shared/src/game/species.ts` SPECIES entry has id, nation, rarity, baseStats, and an 8-move `movePool`.
 - [ ] `EVOLUTION_LINES` in `packages/sprites/src/index.ts` maps the species id to its three stage-form names.
 - [ ] New migration file inserts the species into `species_base_stats` with matching stats.
 - [ ] `speciesOf('<id>')` and `speciesForNation('<nation>')` return the new species; `spriteIdFor('<id>', 'teen')` and `'adult'` resolve to a registered sprite.

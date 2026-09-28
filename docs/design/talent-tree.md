@@ -2,8 +2,8 @@
 doc_type: design
 purpose: "Read this when changing talent-tree nodes, budgets, respec rules, or the loadout editor's Talents section."
 audience: agent
-last_verified: 2026-09-13
-last_verified_commit: 8a24ac9
+last_verified: 2026-09-27
+last_verified_commit: 1c03a6e
 related_files:
   - packages/shared/src/game/tree.ts
   - packages/shared/src/battle/battle.ts
@@ -49,7 +49,7 @@ tuned down from the design's original +25%/+10% (see Balance targets below).
 | water | Current | slot 2 | 3 | Pressure Head | Nation-type moves deal +5% vs. targets above 50% HP |
 | water | Current | slot 2 | 4 | Spillway | This mon's `def_down` also cuts target SPD 10% for its duration |
 | water | Current | slot 2 | 5 | Jetstream Coupling | Slot 2 move: move-upgrade |
-| water | Current | slot 2 | 6 | Maelstrom | This mon's nation-type crits deal 2.15x instead of 2x |
+| water | Current | slot 2 | 6 | Maelstrom | This mon's nation-type crits deal 1.9x instead of 1.75x |
 | water | Undertow | slot 3 | 1 | Backwash | +DEF/rank, 3 ranks |
 | water | Undertow | slot 3 | 2 | Riptide Step | +DEF/rank, 3 ranks |
 | water | Undertow | slot 3 | 3 | Silt Cloud | This mon's `def_down` lasts 1 extra turn |

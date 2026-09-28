@@ -2,8 +2,8 @@
 doc_type: design
 purpose: "Read this when changing moves, stances, talents, matchmaking windows, streaks or evolution stat multipliers, or building the loadout editor."
 audience: agent
-last_verified: 2026-09-24
-last_verified_commit: bf1f338
+last_verified: 2026-09-27
+last_verified_commit: 1c03a6e
 related_files:
   - packages/shared/src/battle/battle.ts
   - packages/shared/src/battle/effects.ts
@@ -28,7 +28,7 @@ related_files:
 
 # Progression system
 
-The battle itself stays a deterministic autobattle (`packages/shared/src/battle/battle.ts:simulateBattle`, see `docs/design/battle.md`); this doc adds the skill players exercise *before* a battle: which 6 moves a mon knows, which 3 it brings, its stance, and its talent tree. Phases A–D (see Phases) have all shipped; several magnitudes below were **retuned by simulation on 2026-09-13**, after shipping, to hit their balance targets (see each section's tuning note).
+The battle itself stays a deterministic autobattle (`packages/shared/src/battle/battle.ts:simulateBattle`, see `docs/design/battle.md`); this doc adds the skill players exercise *before* a battle: which 8 moves a mon knows, which 3 it brings, its stance, and its talent tree. Phases A–D (see Phases) have all shipped; several magnitudes below were **retuned by simulation on 2026-09-13**, after shipping, to hit their balance targets (see each section's tuning note).
 
 ## Goals
 
@@ -39,24 +39,24 @@ The battle itself stays a deterministic autobattle (`packages/shared/src/battle/
 
 ## Move pool and effects
 
-Every species gets a 6-move pool. Each move has a `power`, a `type` of `neutral` (never affected by nation matchups) or `nation` (uses `effectiveness()` from `packages/shared/src/game/nations.ts` like today's `typed`/`special` kinds), and exactly one effect:
+Every species gets six core moves and two evolution signature moves. Each move has a `power`, a `type` of `neutral` (never affected by nation matchups) or `nation` (uses `effectiveness()` from `packages/shared/src/game/nations.ts` like today's `typed`/`special` kinds), and exactly one effect:
 
 | Effect | Meaning |
 |---|---|
 | `priority` | Acts first this turn, overriding the normal speed-probability roll |
-| `crit_up` | +30pp critical-hit chance on this move, up to its own 60% ceiling (not the shared 30% crit cap) |
-| `drain` | Heals the user 35% of damage dealt |
+| `crit_up` | +20pp critical-hit chance on this move, up to its own 60% ceiling (not the shared 30% crit cap) |
+| `drain` | Heals the user 30% of damage dealt |
 | `shield_first` | The first hit this mon takes in the battle is reduced 50% (once per battle) |
 | `def_down` | Target's DEF −12% for 3 turns; reapplying refreshes the duration, does not stack |
-| `burn` | Target loses 3% max HP at the end of each turn for 3 turns (one instance active at a time) |
+| `burn` | Target loses 2.5% max HP at the end of each turn for 3 turns (one instance active at a time) |
 | `true_hit` | Ignores the target's dodge chance |
 | `charge` | Turn 1 telegraphs for 0 damage; turn 2 auto-releases at 2.2× power |
 
 **Tuned by simulation on 2026-09-24**: protocol 5 reduces the elemental swing and rebalances
-burn/drain against direct offense (`crit_up` +30pp, ceiling 60%). Five species redistribute the
+burn/drain against direct offense (`crit_up` +20pp, ceiling 60%). Five species redistribute the
 same rarity stat budget; the shared balance harness retains its equal-level acceptance bands.
 
-Unlock schedule (by mon level): 2 moves at hatch (level 2), 3rd at 5, 4th at 10, 5th at 15, 6th at 20. Slots 1–3 are each species' current `normal`/`typed`/`special` move, kept as-is (unlock 2/2/5); slots 4–6 are new (unlock 10/15/20). Slot 1 is always `priority` — it doubles as the loadout's fixed opener (see Loadout policy). Renaming the existing moves to the new convention is a possible follow-up, not part of this design.
+Core unlock schedule (by mon level): 2 moves at hatch (level 2), 3rd at 5, 4th at 10, 5th at 15, 6th at 20. Slots 1–3 are each species' current `normal`/`typed`/`special` move, kept as-is (unlock 2/2/5); slots 4–6 are new (unlock 10/15/20). Slot 1 is always `priority` — it doubles as the loadout's fixed opener (see Loadout policy). Renaming the existing moves to the new convention is a possible follow-up, not part of this design.
 
 | Species | Slot | Move | Power | Type | Effect | Unlocks |
 |---|---|---|---|---|---|---|
@@ -85,7 +85,7 @@ Unlock schedule (by mon level): 2 moves at hatch (level 2), 3rd at 5, 4th at 10,
 | sparkit | 5 | Kindling Surge | 58 | nation | charge | 15 |
 | sparkit | 6 | Flash Ignite | 50 | neutral | priority | 20 |
 | cinderpup | 1 | Ember Bite | 45 | neutral | priority | 2 |
-| cinderpup | 2 | Hotfix Howl | 40 | nation | burn | 2 |
+| cinderpup | 2 | Hotfix Howl | 38 | nation | burn | 2 |
 | cinderpup | 3 | Overclock | 75 | nation | crit_up | 5 |
 | cinderpup | 4 | Ashfang Strike | 50 | nation | crit_up | 10 |
 | cinderpup | 5 | Cinder Feast | 55 | nation | drain | 15 |
@@ -115,6 +115,13 @@ Unlock schedule (by mon level): 2 moves at hatch (level 2), 3rd at 5, 4th at 10,
 | wispit | 5 | Foretold Squall | 58 | nation | true_hit | 15 |
 | wispit | 6 | Gathering Storm | 60 | nation | charge | 20 |
 
+Evolution signatures append to the pool without changing any existing move id. At level 10 the teen form learns a new 80-power attack; at level 25 the adult learns a new 85-power attack. Both
+use the species' original finisher effect and nation type. These exceed the 75-power core
+finisher and automatically fill slot 3 of the default loadout. Saved custom move selections remain
+intact and can equip the unlocked signatures through the existing editor. Ottlet learns **Fish
+Breaker** and **Torrent Fish Slam**, respectively. The existing stage stat multipliers below
+apply at the same thresholds; no XP or hatch-odds changes are required.
+
 ## Loadout policy
 
 A loadout is 3 of the mon's unlocked moves plus a stance. Selection each turn (one RNG draw, replacing the current `normal`/`typed`/`special` choice in `simulateBattle`):
@@ -130,21 +137,23 @@ This supersedes `docs/design/battle.md`'s `special`-at-≤50%-own-HP rule once P
 
 Combat remains passive. Arrange a Burn or DEF-down move in slot 1 before battle. While that
 landed opening effect is active, the first different landed Priority, True-hit, Crit-up or Charge
-release gets -1.2 direct damage, once per side per battle. Dodges and charge telegraphs do not
+release gets 1.2x direct damage, once per side per battle. Against a higher-level foe,
+add 0.7 per higher level (gap capped at 3): 1.9x / 2.6x / 3.3x for this one hit.
+The underdog bonus makes a prepared challenge winnable without boosting equal-level combos. Dodges and charge telegraphs do not
 consume it; expiry discards it. Healing and further status moves cannot trigger it. Existing
 slot selection and combat timing are unchanged; no clicks or timing inputs are added.
 
 ## Stances
 
-Three stances in a rock-paper-scissors triangle: each grants +2% to one stat and costs −6% on
+Three stances in a rock-paper-scissors triangle: each grants +2% to one stat and costs −2% on
 another (independently tunable, not opposed-and-equal). Countering the opponent's stance grants +2%
 damage dealt and −2% damage taken for the whole battle.
 
 | Stance | Grants | Costs | Beats | Loses to |
 |---|---|---|---|---|
-| Fury | ATK +2% | DEF −6% | Gale | Bulwark |
-| Bulwark | DEF +2% | ATK −6% | Fury | Gale |
-| Gale | SPD +2% | ATK −6% | Bulwark | Fury |
+| Fury | ATK +2% | DEF −2% | Gale | Bulwark |
+| Bulwark | DEF +2% | ATK −2% | Fury | Gale |
+| Gale | SPD +2% | ATK −2% | Bulwark | Fury |
 
 **Tuned by simulation on 2026-09-13** (`packages/shared/src/game/progression.ts`; original spec was
 ±18% grant/cost, ±10% counter bonus): two of three counter pairings won 80-97% of the time (Fury
@@ -162,19 +171,22 @@ just the pointer so this doc stays under its length budget.
 
 ## Evolution multipliers
 
-`packages/shared/src/game/levels.ts:statAtLevel` gains a per-stage multiplier on top of its existing linear level scaling: Baby ×1.00, Teen ×1.03, Adult ×1.06, keyed off `stageForLevel(level)` (same file). This changes the stat curve `docs/design/battle.md` describes without changing its `(level + 49) / 50` shape; the balance test must be re-verified against the new curve (see Balance targets).
+`packages/shared/src/game/levels.ts:statAtLevel` gains a per-stage multiplier on top of its existing linear level scaling: Baby ×1.00, Teen ×1.03, Adult ×1.06, keyed off `stageForLevel(level)` (same file). Each level now adds 4% of the base stat, with a minimum one-point gain before evolution: `floor((base + (level - 1) * max(1, base / 25)) * stageMultiplier)`. Integer arithmetic matches PostgreSQL numeric rounding. Every level adds at least one HP, ATK, DEF and SPD; XP thresholds stay unchanged. The Mon panel previews next-level gains. Server mirror: `supabase/migrations/20260927120000_level_stat_growth.sql`.
 
-The stage multipliers remain unchanged. Protocol 5 deliberately targets a 60-75% win rate for
+The stage multipliers remain unchanged. Protocol 6 deliberately targets a 90-97% win rate for
 the higher-level default at the evolution boundaries (9/11 and 24/26): easier encounters should
-usually be wins. The lower-level target is now 25-40%, superseding the former 38-48% target.
+usually be wins. The unprepared lower-level target is 3-10%; prepared +3 challenges still win 30-60%
+in the opening-combo matrix. A bounded experience multiplier keeps level differences relevant
+late in the game (see battle.md Damage formula).
 All equal-level species, archetype, stance and talent balance bounds remain unchanged.
 
 ## Matchmaking and streaks
 
-Real opponents are searched in level bands `[-3, -1]`, `[0, 0]`, then `[+1, +3]`, stopping at the
+Real opponents are searched in level bands `[-3, -2]`, `[-1, -1]`, `[0, 0]`, then `[+1, +3]`, stopping at the
 first candidate. Within each band, recent opponents are excluded first, then allowed. Both sides
 are protected by a SQL absolute-gap limit of three. Wild encounters (online and offline) are 90%
-one to three levels weaker, equally distributed, and 10% elite at +3; levels clamp to [2, 50].
+weaker (-3: 60%, -2: 25%, -1: 5%) and 10% elite, split equally across +1/+2/+3;
+levels clamp to [2, 50]. Clearer level gaps make ordinary battles more forgiving.
 At the hatch floor, weaker enemies may therefore be equal. Elite is a label, not an extra XP multiplier;
 win rewards use the actual level difference, and all challenger losses pay the same amount
 (`docs/design/battle.md` Rewards). No real-player pool can guarantee weaker candidates exist.

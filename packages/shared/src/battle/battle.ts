@@ -88,6 +88,8 @@ export interface BattleAction {
   charge?: 'telegraph' | 'release';
   /** Optional so pre-v5 logs remain readable. */
   followThrough?: boolean;
+  /** A reduced-power second strike; cannot crit, combo, chain or apply move effects. */
+  doubleStrike?: boolean;
 }
 
 export interface BattleTurn {
@@ -122,9 +124,20 @@ export const FOLLOW_THROUGH_MULT = 1.2;
  * Phoenix Reborn/Second Breath KO interceptions -- none of which add or remove an `rng()` call by
  * themselves, but the golden log's *values* change because the formula does).
  */
-export const BATTLE_PROTOCOL_VERSION = 5;
+// v7: guaranteed stat growth, diminishing-return armor, bounded crits and double strikes.
+export const BATTLE_PROTOCOL_VERSION = 7;
 
-const levelScale = (l: number): number => (l + 49) / 50;
+const levelScale = (l: number): number => (l + 24) / 25;
+export const DOUBLE_STRIKE_CHANCE = 0.08;
+export const DOUBLE_STRIKE_POWER = 0.4;
+export const CRIT_MULTIPLIER = 1.75;
+
+/** DEF / (DEF + K) damage reduction. K scales with encounter level to preserve armor value. */
+export function armorReduction(defense: number, encounterLevel: number): number {
+  const armor = Math.max(0, defense);
+  const k = 25 * levelScale(Math.min(50, Math.max(1, encounterLevel)));
+  return armor / (armor + k);
+}
 
 export function statsAtLevel(base: Stats, level: number): Stats {
   return {
@@ -377,13 +390,14 @@ export function simulateBattle(a: MonSnapshot, b: MonSnapshot, seed: string): Ba
     move: Move,
     charge: 'telegraph' | 'release' | null,
     turnNum: number,
+    doubleStrike = false,
   ): BattleAction => {
     const M = mons[me];
     const nationEff = effectiveness(M.nation, mons[foe].nation);
     const meStats = liveStats(me);
     const foeStats = liveStats(foe);
     const moveEff = move.type === 'neutral' ? 1 : nationEff;
-    const upgrade = moveUpgradeFor(me, move);
+    const upgrade = doubleStrike ? undefined : moveUpgradeFor(me, move);
 
     if (charge === 'telegraph') {
       return {
@@ -403,34 +417,41 @@ export function simulateBattle(a: MonSnapshot, b: MonSnapshot, seed: string): Ba
     // `true_hit` ignores the target's dodge chance entirely -- no roll is made for it, same as no
     // roll is made for a battle that never reaches this action.
     let dodged = false;
-    if (move.effect !== 'true_hit') {
-      const dodge = Math.min(0.2, Math.max(0, (foeStats.spd - meStats.spd) / 250));
+    if (doubleStrike || move.effect !== 'true_hit') {
+      const dodge = Math.min(
+        0.15,
+        Math.max(0.02, 0.04 + (foeStats.spd - meStats.spd) / (160 * scale)),
+      );
       dodged = rng() < dodge;
     }
     if (dodged) {
       return {
         actor: me,
-        move: move.name,
+        move: doubleStrike ? `${move.name} (double strike)` : move.name,
         moveId: move.id,
         dodged: true,
         damage: 0,
         crit: false,
         effectiveness: moveEff,
         targetHpAfter: hp[foe],
-        effect: move.effect,
+        effect: doubleStrike ? null : move.effect,
+        ...(doubleStrike ? { doubleStrike: true } : {}),
         ...(charge ? { charge } : {}),
       };
     }
 
-    let critChance = Math.min(0.3, Math.max(0.03, 0.08 + (meStats.spd - foeStats.spd) / 250));
-    if (move.effect === 'crit_up') {
+    let critChance = Math.min(
+      0.3,
+      Math.max(0.03, 0.08 + (meStats.spd - foeStats.spd) / (250 * scale)),
+    );
+    if (!doubleStrike && move.effect === 'crit_up') {
       critChance = Math.min(
         CRIT_UP_MAX,
         critChance + CRIT_UP_BONUS * (upgrade ? upgrade.effectMult : 1),
       );
     }
     // Ember Heart (shared passive): armed bonus applies to this mon's very next move, one-shot.
-    if (fx[me].emberHeartPending) {
+    if (!doubleStrike && fx[me].emberHeartPending) {
       critChance = Math.min(1, critChance + EMBER_HEART_CRIT_BONUS);
       fx[me].emberHeartPending = false;
     }
@@ -440,7 +461,8 @@ export function simulateBattle(a: MonSnapshot, b: MonSnapshot, seed: string): Ba
     // Tailwind (shared passive): this mon's own slot-1 move always crits.
     if (!crit && hasPassive(me, 'tailwind') && slotOf[me][move.id] === 1) crit = true;
 
-    const variance = 0.7 + rng() * 0.6;
+    if (doubleStrike) crit = false;
+    const variance = 0.8 + rng() * 0.4;
     let power = move.power;
     if (charge === 'release') {
       power = move.power * CHARGE_MULTIPLIER * (upgrade ? upgrade.effectMult : 1);
@@ -463,11 +485,12 @@ export function simulateBattle(a: MonSnapshot, b: MonSnapshot, seed: string): Ba
     const critMultiplier = crit
       ? move.type === 'nation' && maelstrom
         ? maelstrom.multiplier
-        : 2
+        : CRIT_MULTIPLIER
       : 1;
 
     const setup = openingSetup[me];
     const followThrough =
+      !doubleStrike &&
       move.id !== loadoutMoves[me][0].id &&
       (move.effect === 'priority' ||
         move.effect === 'true_hit' ||
@@ -477,12 +500,20 @@ export function simulateBattle(a: MonSnapshot, b: MonSnapshot, seed: string): Ba
         (setup === 'burn' && foeState.burnTurns > 0));
     if (followThrough) openingSetup[me] = null;
 
+    // Experience matters even late in the level curve. Keep the gap bounded to matchmaking.
+    const levelGap = Math.max(-3, Math.min(3, M.level - mons[foe].level));
+    const experience = 1 + Math.sign(levelGap) * (0.09 + 0.02 * Math.abs(levelGap));
+    // A prepared opening gives an underdog one chance to overcome the experience gap.
+    const combo = FOLLOW_THROUGH_MULT + 0.7 * Math.max(0, -levelGap);
     const raw =
-      ((power * meStats.atk) / defTerm) *
-      scale *
-      0.25 *
+      power *
+      (meStats.atk / 50) *
+      (1 - armorReduction(defTerm, (a.level + b.level) / 2)) *
+      0.75 *
+      (doubleStrike ? DOUBLE_STRIKE_POWER : 1) *
       moveEff *
-      (followThrough ? FOLLOW_THROUGH_MULT : 1) *
+      experience *
+      (followThrough ? combo : 1) *
       critMultiplier *
       variance *
       (counters[me] ? STANCE_COUNTER_DEALT_MULT : 1) *
@@ -557,46 +588,51 @@ export function simulateBattle(a: MonSnapshot, b: MonSnapshot, seed: string): Ba
     }
     checkThresholdPassives(foe);
 
-    if (move.effect === 'drain') {
-      const heal = Math.floor(damage * DRAIN_FRACTION * (upgrade ? upgrade.effectMult : 1));
-      hp[me] = Math.min(M.stats.hp, hp[me] + heal);
-    }
-    if (turnNum === 1 && (move.effect === 'def_down' || move.effect === 'burn')) {
-      openingSetup[me] = move.effect;
-    }
-    if (move.effect === 'def_down') applyDefDown(me, foe, upgrade);
-    if (crit && hasPassive(me, 'aftershock') && move.effect !== 'def_down') {
-      applyDefDown(me, foe, undefined);
-    }
-    if (crit && hasPassive(me, 'tidal-recovery')) {
-      hp[me] = Math.min(M.stats.hp, hp[me] + Math.floor(M.stats.hp * TIDAL_RECOVERY_HEAL_FRACTION));
-    }
-    if (move.effect === 'burn') {
-      const wildfire = hasPassive(me, 'wildfire');
-      const fraction =
-        BURN_FRACTION * (upgrade ? upgrade.effectMult : 1) +
-        (wildfire ? WILDFIRE_BURN_BONUS_FRACTION : 0);
-      const turnsFor = BURN_TURNS + (wildfire ? WILDFIRE_BURN_EXTRA_TURNS : 0);
-      if (foeState.burnTurns === 0) {
-        foeState.burnTurns = turnsFor;
-        foeState.burnFraction = fraction;
-      } else if (hasCapstone(me, 'burnStacks') && foeState.burnStackTurns === 0) {
-        // Ashen Cascade (Fire capstone): a second, independent instance instead of a no-op.
-        foeState.burnStackTurns = turnsFor;
-        foeState.burnStackFraction = fraction;
+    if (!doubleStrike) {
+      if (move.effect === 'drain') {
+        const heal = Math.floor(damage * DRAIN_FRACTION * (upgrade ? upgrade.effectMult : 1));
+        hp[me] = Math.min(M.stats.hp, hp[me] + heal);
+      }
+      if (turnNum === 1 && (move.effect === 'def_down' || move.effect === 'burn')) {
+        openingSetup[me] = move.effect;
+      }
+      if (move.effect === 'def_down') applyDefDown(me, foe, upgrade);
+      if (crit && hasPassive(me, 'aftershock') && move.effect !== 'def_down') {
+        applyDefDown(me, foe, undefined);
+      }
+      if (crit && hasPassive(me, 'tidal-recovery')) {
+        hp[me] = Math.min(
+          M.stats.hp,
+          hp[me] + Math.floor(M.stats.hp * TIDAL_RECOVERY_HEAL_FRACTION),
+        );
+      }
+      if (move.effect === 'burn') {
+        const wildfire = hasPassive(me, 'wildfire');
+        const fraction =
+          BURN_FRACTION * (upgrade ? upgrade.effectMult : 1) +
+          (wildfire ? WILDFIRE_BURN_BONUS_FRACTION : 0);
+        const turnsFor = BURN_TURNS + (wildfire ? WILDFIRE_BURN_EXTRA_TURNS : 0);
+        if (foeState.burnTurns === 0) {
+          foeState.burnTurns = turnsFor;
+          foeState.burnFraction = fraction;
+        } else if (hasCapstone(me, 'burnStacks') && foeState.burnStackTurns === 0) {
+          // Ashen Cascade (Fire capstone): a second, independent instance instead of a no-op.
+          foeState.burnStackTurns = turnsFor;
+          foeState.burnStackFraction = fraction;
+        }
       }
     }
-
     return {
       actor: me,
-      move: move.name,
+      move: doubleStrike ? `${move.name} (double strike)` : move.name,
       moveId: move.id,
       dodged: false,
       damage,
       crit,
       effectiveness: moveEff,
       targetHpAfter: hp[foe],
-      effect: move.effect,
+      effect: doubleStrike ? null : move.effect,
+      ...(doubleStrike ? { doubleStrike: true } : {}),
       ...(followThrough ? { followThrough: true } : {}),
       ...(charge ? { charge } : {}),
     };
@@ -644,12 +680,24 @@ export function simulateBattle(a: MonSnapshot, b: MonSnapshot, seed: string): Ba
     const firstPick = first === 'a' ? pickA : pickB;
     const secondPick = second === 'a' ? pickA : pickB;
 
-    const actions = [act(first, second, firstPick.move, firstPick.charge, t)];
-    if (firstPick.charge === 'telegraph') fx[first].chargePending = firstPick.move;
-    if (hp[second] > 0) {
-      actions.push(act(second, first, secondPick.move, secondPick.charge, t));
-      if (secondPick.charge === 'telegraph') fx[second].chargePending = secondPick.move;
-    }
+    const actions: BattleAction[] = [];
+    const takeAction = (actor: Side, target: Side, pick: typeof firstPick) => {
+      const hit = act(actor, target, pick.move, pick.charge, t);
+      actions.push(hit);
+      if (pick.charge === 'telegraph') fx[actor].chargePending = pick.move;
+      // One short follow-up, never on a charge/combo or after a KO/miss. No recursive roll.
+      if (
+        !pick.charge &&
+        !hit.dodged &&
+        !hit.followThrough &&
+        hp[target] > 0 &&
+        rng() < DOUBLE_STRIKE_CHANCE
+      ) {
+        actions.push(act(actor, target, pick.move, null, t, true));
+      }
+    };
+    takeAction(first, second, firstPick);
+    if (hp[second] > 0) takeAction(second, first, secondPick);
 
     // End-of-turn burn ticks (primary instance, then Ashen Cascade's stacked second instance),
     // then decrement the timed effects. A tick that KOs a mon ends the battle at the top of the

@@ -2,8 +2,8 @@
 doc_type: design
 purpose: "Read this when changing battle math, matchmaking, rewards, or the battle log shape."
 audience: agent
-last_verified: 2026-09-24
-last_verified_commit: bf1f338
+last_verified: 2026-09-27
+last_verified_commit: 1c03a6e
 related_files:
   - packages/shared/src/battle/battle.ts
   - packages/shared/src/battle/effects.ts
@@ -65,29 +65,40 @@ For a turn where mon `M` acts on mon `F`, in `packages/shared/src/battle/battle.
 `act`):
 
 ```
-scale   = (avgLevel + 49) / 50            // avgLevel = (a.level + b.level) / 2, same curve as statAtLevel
-raw     = (power * M.atk / F.def) * scale / 4 * effectiveness * followThrough * (crit ? 2 : 1) * variance
+scale   = (avgLevel + 24) / 25
+K       = 25 * scale                     // equivalently avgLevel + 24
+reduction = F.def / (F.def + K)
+raw     = power * (M.atk / 50) * (1 - reduction) * 0.75 * effectiveness * experience * followThrough * (crit ? 1.75 : 1) * variance
 damage  = max(1, floor(raw))
-variance = 0.7 + rng() * 0.6              // uniform in [0.7, 1.3)
+variance = 0.8 + rng() * 0.4              // uniform in [0.8, 1.2)
+
 ```
 
 - **`power`**: the chosen move's own `power` (docs/design/progression.md Move pool and effects), not
-  a fixed per-kind table — every species has its own 6-move pool (`packages/shared/src/game/
+  a fixed per-kind table — every species has its own 8-move pool (`packages/shared/src/game/
   species.ts:Move`) as of Phase B (`BATTLE_PROTOCOL_VERSION` 3). A `charge` move's release turn
   multiplies `power` by `CHARGE_MULTIPLIER` (2.2), see progression.md.
 - **Effectiveness**: a `type: 'nation'` move uses `effectiveness(M.nation, F.nation)` (0.9, 1, or 1.2 —
   see `packages/shared/src/game/nations.ts:effectiveness`); `type: 'neutral'` always uses `1`.
+- **Experience** (protocol 7): equal levels use 1. Higher levels deal 1.11 / 1.13 / 1.15x
+  damage at gaps +1 / +2 / +3; the lower side deals 0.89 / 0.87 / 0.85x. Gaps cap at 3.
+  This supplements the small relative stat increase at high levels; it never decides a winner.
 - **Follow-through**: one automatic opening combo per side; its multiplier and eligibility live
   in `docs/design/progression.md`. Optional `followThrough` marks the boosted action in protocol 5;
   historical logs remain stored and are never recomputed.
-- **Crit**: chance `clamp(0.08 + (M.spd - F.spd) / 250, 0.03, 0.30)`; a crit doubles `raw` before
-  flooring. A move with the `crit_up` effect adds a further bonus, capped by its own higher ceiling
-  rather than the 0.30 above (docs/design/progression.md Move pool and effects has the tuned
-  numbers).
-- **Dodge**: checked before crit/variance are rolled. Chance `clamp((F.spd - M.spd) / 250, 0, 0.20)` — i.e.
-  clamped to `min(0.2, max(0, ...))` in code. A dodge deals 0 damage and skips the crit/variance rolls
-  entirely (they are not rolled on a dodged attack). A move with the `true_hit` effect skips this roll
-  entirely (never dodged; no `rng()` call is made for it).
+- **Armor**: the DEF reduction curve has diminishing returns. DEF = K prevents 50% of
+  direct damage; DEF = 2K prevents about 67%; it never grants immunity. Effective DEF includes
+  stance, defense-down and Deep Roots. Burn remains a max-HP effect, independent of armor.
+- **Crit**: chance `clamp(0.08 + (M.spd - F.spd) / (250 * scale), 0.03, 0.30)`; ordinary crits
+  multiply damage by 1.75. Crit-up adds 20 percentage points (ceiling 60%); talent overrides
+  remain explicit. Maelstrom increases nation crits to 1.9x.
+- **Dodge**: chance `clamp(0.04 + (F.spd - M.spd) / (160 * scale), 0.02, 0.15)`.
+  It rolls before crit and variance; true-hit primary moves skip it.
+- **Double strike**: an eligible landed primary attack has an 8% chance of a second action at
+  40% power. It cannot crit, combo, chain or apply move effects; it can be dodged and still obeys
+  defender shields/KO protections. Charges, combo hits, misses and defeated targets cannot trigger
+  it. Its optional `doubleStrike` log field and move label let existing playback animate the second
+  swing. Protocol 7 records the new RNG sequence; old logs are replayed unchanged.
 - **`def_down`, `burn`, `drain`, `shield_first`, `priority`, `charge`**: the remaining 5 of the 8
   move effects. Numbers, per-battle state, and the loadout policy that picks a move each turn all
   live in docs/design/progression.md Move pool and effects / Loadout policy — this doc only notes
@@ -131,7 +142,7 @@ Fields only — see `packages/shared/src/battle/battle.ts` for exact types.
 | `maxHp` | `Record<Side, number>` | |
 
 `BattleAction`: `{ actor, move, moveId, dodged, damage, crit, effectiveness, targetHpAfter, effect,
-charge?, followThrough? }` — one per mon that acted that turn (the second actor's entry is omitted if the first
+charge?, followThrough?, doubleStrike? }` — one primary action per mon that acted that turn, with at most one additional double strike (the second actor's entry is omitted if the first
 action already reduced it to 0 HP), plus a synthetic entry (`moveId: null`, `move: 'Burn'`,
 `effect: 'burn'`) appended at the end of a turn for each side with an active burn tick. `effect` is
 the effect the chosen move carries (`null` if none applied that action); `charge` is present only
@@ -159,7 +170,7 @@ and effects.
 
 | Situation | Challenger XP | Defender XP |
 |---|---|---|
-| Win vs. player | `30 + 5 * clamp(oppLevel - myLevel, -3, 3)` (15–45) | 3 |
+| Win vs. player | `30 + (diff > 0 ? 15 : 5) * diff`, `diff = clamp(oppLevel - myLevel, -3, 3)` (15–75) | 3 |
 | Loss vs. player | 10 | 8 |
 | Win vs. Wild Mon (bot) | 20 plus 15 per higher level (20-65, difference capped at 3) | — (bots never pay) |
 | Loss vs. Wild Mon (bot) | 10 | — |

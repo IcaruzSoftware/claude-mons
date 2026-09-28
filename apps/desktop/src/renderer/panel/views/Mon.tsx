@@ -1,5 +1,6 @@
 import {
   HATCH_XP,
+  MAX_LEVEL,
   NATION_INFO,
   RARITY_WEIGHT,
   SPECIES,
@@ -27,6 +28,8 @@ export function MonView({ s }: { s: UiSnapshot }) {
   const total = p.xpIntoLevel + p.xpToNext;
   const pct = total > 0 ? Math.round((p.xpIntoLevel / total) * 100) : 100;
   const stats = species ? statsAtLevel(species.baseStats, p.level) : null;
+  const nextStats =
+    species && p.level < MAX_LEVEL ? statsAtLevel(species.baseStats, p.level + 1) : null;
   const shortPersonality = info.personality.split('.')[0]!.toLowerCase();
 
   return (
@@ -54,7 +57,9 @@ export function MonView({ s }: { s: UiSnapshot }) {
           <div class="xp-caption">
             {isEgg
               ? `${p.totalXp} / ${HATCH_XP} XP to hatch`
-              : `${p.xpIntoLevel} / ${total} XP to level ${p.level + 1}`}
+              : p.level >= MAX_LEVEL
+                ? 'Max level'
+                : `${p.xpIntoLevel} / ${total} XP to level ${p.level + 1}`}
           </div>
         </div>
       </div>
@@ -67,6 +72,12 @@ export function MonView({ s }: { s: UiSnapshot }) {
             <StatGem kind="def" value={stats.def} label="DEF" />
             <StatGem kind="spd" value={stats.spd} label="SPD" />
           </div>
+          {nextStats && (
+            <p class="hint">
+              Next level: HP +{nextStats.hp - stats.hp} · ATK +{nextStats.atk - stats.atk} · DEF +
+              {nextStats.def - stats.def} · SPD +{nextStats.spd - stats.spd}
+            </p>
+          )}
         </div>
       )}
 
