@@ -25,7 +25,7 @@ export function isEffectId(value: unknown): value is EffectId {
 
 // --- magnitudes (docs/design/progression.md Move pool and effects) ----------------------------
 
-/** `crit_up`: +20pp, capped at 60%; tuned alongside armor and reduced crit damage in protocol 7. */
+/** `crit_up`: +20pp, capped at 60%; tuned alongside defense and reduced crit damage in protocol 7. */
 export const CRIT_UP_BONUS = 0.2;
 export const CRIT_UP_MAX = 0.6;
 /** `drain`: heals the user this fraction of the damage dealt. */

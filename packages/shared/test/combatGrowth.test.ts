@@ -1,6 +1,6 @@
 import { expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { armorReduction, simulateBattle, snapshotFor } from '../src/battle/battle.ts';
+import { defenseReduction, simulateBattle, snapshotFor } from '../src/battle/battle.ts';
 import { MAX_LEVEL, statAtLevel } from '../src/game/levels.ts';
 import { SPECIES } from '../src/game/species.ts';
 
@@ -15,14 +15,14 @@ it('gives every species at least one point in every stat on every level, includi
   }
 });
 
-it('uses armor / (armor + K), with diminishing returns and no complete immunity', () => {
+it('uses DEF / (DEF + K), with diminishing returns and no complete immunity', () => {
   for (const level of [2, 10, 25, 50]) {
     const k = level + 24;
-    expect(armorReduction(0, level)).toBe(0);
-    expect(armorReduction(k, level)).toBe(0.5);
-    expect(armorReduction(2 * k, level)).toBeCloseTo(2 / 3);
-    expect(armorReduction(3 * k, level)).toBe(0.75);
-    expect(armorReduction(1_000_000, level)).toBeLessThan(1);
+    expect(defenseReduction(0, level)).toBe(0);
+    expect(defenseReduction(k, level)).toBe(0.5);
+    expect(defenseReduction(2 * k, level)).toBeCloseTo(2 / 3);
+    expect(defenseReduction(3 * k, level)).toBe(0.75);
+    expect(defenseReduction(1_000_000, level)).toBeLessThan(1);
   }
 });
 

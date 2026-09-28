@@ -2,8 +2,8 @@
 doc_type: design
 purpose: "Read this when changing battle math, matchmaking, rewards, or the battle log shape."
 audience: agent
-last_verified: 2026-09-27
-last_verified_commit: 1c03a6e
+last_verified: 2026-09-28
+last_verified_commit: 258acff
 related_files:
   - packages/shared/src/battle/battle.ts
   - packages/shared/src/battle/effects.ts
@@ -86,9 +86,9 @@ variance = 0.8 + rng() * 0.4              // uniform in [0.8, 1.2)
 - **Follow-through**: one automatic opening combo per side; its multiplier and eligibility live
   in `docs/design/progression.md`. Optional `followThrough` marks the boosted action in protocol 5;
   historical logs remain stored and are never recomputed.
-- **Armor**: the DEF reduction curve has diminishing returns. DEF = K prevents 50% of
+- **Defense (DEF)**: the DEF reduction curve has diminishing returns. DEF = K prevents 50% of
   direct damage; DEF = 2K prevents about 67%; it never grants immunity. Effective DEF includes
-  stance, defense-down and Deep Roots. Burn remains a max-HP effect, independent of armor.
+  stance, defense-down and Deep Roots. Burn remains a max-HP effect, independent of DEF.
 - **Crit**: chance `clamp(0.08 + (M.spd - F.spd) / (250 * scale), 0.03, 0.30)`; ordinary crits
   multiply damage by 1.75. Crit-up adds 20 percentage points (ceiling 60%); talent overrides
   remain explicit. Maelstrom increases nation crits to 1.9x.
