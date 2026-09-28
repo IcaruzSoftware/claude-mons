@@ -14,8 +14,10 @@ import type { Hitbox, WindowGeometry } from '../../common/ipc.ts';
 import { clamp, clampCenter, fitBanner, type MeasureText } from './bannerFit.ts';
 import { BattlePlayer } from './BattlePlayer.ts';
 import { SpriteCache } from './SpriteCache.ts';
+import { readyMotion } from './readyMotion.ts';
 
 export interface RenderOptions {
+  battleReady?: boolean;
   spriteScale: number;
   speciesId: string | null;
   nation: 'water' | 'fire' | 'earth' | 'air' | null;
@@ -144,7 +146,10 @@ export class PetRenderer {
   renderKey(model: BehaviorModel, now: number): string {
     if (this.battle) return `battle|${now}`;
     const def = this.currentSprite(model);
-    const { anim, fx } = animationFor(model.state, model.stage);
+    const motion = readyMotion(model, this.opts.battleReady === true && !this.battle, now);
+    const { anim, fx } = motion.active
+      ? { anim: 'walk' as const, fx: null }
+      : animationFor(model.state, model.stage);
     const frame = anim !== this.lastAnim ? -1 : frameAt(def, anim, now - this.animStart);
     let fxKey = '';
     if (fx) {
@@ -152,7 +157,7 @@ export class PetRenderer {
       const fxFrame = fxDef ? frameAt(fxDef, 'idle', now) : 0;
       fxKey = `${fx}:${fxFrame}:${fxBob(now)}`;
     }
-    return `${def.id}|${anim}|${frame}|${fxKey}|${Math.round(model.pos.x)}|${Math.round(model.pos.y)}|${model.facing}|${this.geometry.x}|${this.geometry.y}|${this.opts.debug ? model.state : ''}`;
+    return `${def.id}|${anim}|${frame}|${fxKey}|${Math.round(model.pos.x)}|${Math.round(model.pos.y)}|${model.facing}|${this.geometry.x}|${this.geometry.y}|${this.opts.debug ? model.state : ''}|${motion.x}|${motion.y}`;
   }
 
   draw(model: BehaviorModel, now: number): Hitbox {
@@ -164,7 +169,10 @@ export class PetRenderer {
     ctx.clearRect(0, 0, window.innerWidth, window.innerHeight);
 
     const def = this.currentSprite(model);
-    const { anim, fx } = animationFor(model.state, model.stage);
+    const motion = readyMotion(model, this.opts.battleReady === true && !this.battle, now);
+    const { anim, fx } = motion.active
+      ? { anim: 'walk' as const, fx: null }
+      : animationFor(model.state, model.stage);
     if (anim !== this.lastAnim) {
       this.lastAnim = anim;
       this.animStart = now;
@@ -177,8 +185,8 @@ export class PetRenderer {
     const img = this.cache.get(def, resolvedAnim, frame, paletteKey, palette);
 
     // anchor in window-local CSS px
-    const ax = model.pos.x - this.geometry.x;
-    const ay = model.pos.y - this.geometry.y;
+    const ax = model.pos.x - this.geometry.x + motion.x * s;
+    const ay = model.pos.y - this.geometry.y + motion.y * s;
     const left = Math.round(ax - def.anchor.x * s);
     const top = Math.round(ay - (def.anchor.y + 1) * s);
     const size = def.size * s;
@@ -195,7 +203,12 @@ export class PetRenderer {
 
     // The sprite tile is the base of the Linux draw/input shape (see getShape); union in the FX
     // glyph below so nothing drawn is clipped by the window shape.
-    let shape: { x: number; y: number; w: number; h: number } = { x: left, y: top, w: size, h: size };
+    let shape: { x: number; y: number; w: number; h: number } = {
+      x: left,
+      y: top,
+      w: size,
+      h: size,
+    };
     if (fx) {
       // anchor effects to the visible head, not the sprite grid top (babies leave ~half the grid empty)
       const bodyBBox = frameBBox(def, resolvedAnim, frame);

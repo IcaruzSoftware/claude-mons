@@ -67,6 +67,15 @@ export class BattleService {
     return Math.max(0, BATTLE_RULES.challengesPerDay - used);
   }
 
+  isReady(): boolean {
+    return (
+      !this.pending &&
+      this.cooldownUntil() === null &&
+      this.remainingToday() > 0 &&
+      this.mySnapshot() !== null
+    );
+  }
+
   mySnapshot(): MonSnapshot | null {
     const s = this.deps.state.get();
     if (!s.pet.speciesId || !s.profile.nation) return null;
