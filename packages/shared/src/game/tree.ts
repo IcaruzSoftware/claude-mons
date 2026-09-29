@@ -1,24 +1,6 @@
-/**
- * Talent tree (Phase C of docs/design/progression.md; full node tables and rules live in
- * docs/design/talent-tree.md). Pure data + pure validation only; battle-effect wiring for the
- * nodes this phase actually implements (stat nodes, the 10 shared passives, move-upgrade and
- * capstone nodes) lives in packages/shared/src/battle/battle.ts and .../effects.ts.
- *
- * Two independent point pools, both spent via the same `Record<nodeId, rank>` map
- * (`MonLoadout.tree`):
- *  - the mon's own nation's 3 branches x 6 tiers (18 nodes/nation, 72 total), id shape
- *    `${nation}:${branchSlug}:${tier}`, budget `pointsAvailable(level)`;
- *  - 10 nation-agnostic shared passives, id shape `shared:${slug}`, budget
- *    `sharedPassivePoints(level)` (docs/design/progression.md "occupying their own small pool of
- *    points... exact slotting is a Phase C implementation detail" -- this is that detail).
- *
- * Simplification, disclosed here and in docs/design/talent-tree.md: the design doc's tier-2
- * "rank 3 may instead be +2pp crit/dodge" alternative is not modeled (no per-rank choice storage
- * exists in `Record<nodeId, rank>`); tier 2's 3rd rank always grants the stat bonus. Tier-3/4
- * per-branch nodes are spendable (validated, prereq-gated, budgeted) but their unique flavor
- * effects are not wired into `simulateBattle` this phase -- same "structural now, wired later"
- * pattern already used for move renaming in docs/design/progression.md.
- */
+/** Single-purchase talent trees: three nation branches and one combination branch.
+ * Stored legacy ranks resolve as one purchase; surplus rank points become available again.
+ * Pure validation and resolution are shared by the client and server. */
 import {
   DEF_DOWN_MULT,
   MOVE_UPGRADE_EFFECT_MULT,
@@ -30,18 +12,7 @@ export type TreeNodeKind = 'stat' | 'passive' | 'moveUpgrade' | 'capstone';
 export type StatKey = 'hp' | 'atk' | 'def' | 'spd';
 export type LoadoutSlot = 1 | 2 | 3;
 
-/**
- * Per-rank stat bonus for every tier-1/2 stat node. Tuned by simulation on 2026-09-13 (down from
- * the design doc's literal 1.5%, see docs/design/talent-tree.md Balance targets): at 1.5%/rank, a
- * near-budget-maxed tree (6 ranks across the primary stat alone, all 3 branches' move-upgrade
- * nodes, and one capstone) beat an empty tree ~89% of the time at level 50 against a 60-70%
- * target for "+15-20% effective power" -- shrinking this alone only ever inched the maxed side
- * down a couple of points at a time (move-upgrade, applied to every one of the mon's 3 equipped
- * moves at once, turned out to be the dominant term); `MOVE_UPGRADE_EFFECT_MULT`/
- * `MOVE_UPGRADE_POWER_MULT` (`packages/shared/src/battle/effects.ts`) needed shrinking alongside
- * it. See `packages/shared/test/balance.test.ts`'s talent-tree matrix for the numbers that
- * confirmed the combination (~67% maxed-vs-empty, every branch pair 40-60%).
- */
+/** Stat bonus for one tier-1/2 purchase. Low because every branch also grants tactical effects. */
 export const STAT_PCT_PER_RANK = 0.0033;
 
 /** Capstone effect payloads wired into `simulateBattle`/`effects.ts`. */
@@ -69,14 +40,16 @@ export interface TreeNode {
   name: string;
   kind: TreeNodeKind;
   maxRank: number;
-  /** points per rank. */
+  /** Points for this one-time purchase. */
   cost: number;
   description: string;
   /** id of the node in the previous tier of the same branch; null for tier 1. */
   prereqId: string | null;
   /** present only for `kind: 'stat'`. */
   stat?: StatKey;
-  /** present only for `kind: 'capstone'`, and only for the ones wired into simulateBattle. */
+  /** Passive behavior key consumed by the battle simulator. */
+  passive?: string;
+  /** Present only for `kind: 'capstone'`. */
   capstone?: CapstoneEffect;
 }
 
@@ -94,10 +67,6 @@ interface BranchSpec {
   stat: StatKey;
   tier1: string;
   tier2: string;
-  /** docs/design/talent-tree.md's tier-2 rank-3 alternative, per branch (not a simple function of
-   * `stat` -- e.g. earth's Tremor is an ATK branch whose alt is dodge, not crit, unlike water's
-   * Current). Not implemented (see the module doc comment); kept only for tooltip fidelity. */
-  tier2Rank3Alt: 'crit' | 'dodge';
   tier3: { name: string; description: string };
   tier4: { name: string; description: string };
   tier5: string;
@@ -107,9 +76,6 @@ interface BranchSpec {
 function buildBranch(spec: BranchSpec): TreeNode[] {
   const branchSlug = slugify(spec.branch);
   const idFor = (tier: number) => `${spec.nation}:${branchSlug}:${tier}`;
-  const rank3AltLabel = spec.tier2Rank3Alt === 'crit' ? '+2pp crit chance' : '+2pp dodge chance';
-  const statDesc = (rank3Alt: string) =>
-    `+${(STAT_PCT_PER_RANK * 100).toFixed(2)}%/rank ${spec.stat.toUpperCase()}, 3 ranks (rank 3 may instead be ${rank3Alt} -- deferred, see docs/design/talent-tree.md).`;
   const nodes: TreeNode[] = [
     {
       id: idFor(1),
@@ -119,9 +85,9 @@ function buildBranch(spec: BranchSpec): TreeNode[] {
       tier: 1,
       name: spec.tier1,
       kind: 'stat',
-      maxRank: 3,
+      maxRank: 1,
       cost: 1,
-      description: `+${(STAT_PCT_PER_RANK * 100).toFixed(2)}%/rank ${spec.stat.toUpperCase()}, 3 ranks.`,
+      description: `+${(STAT_PCT_PER_RANK * 100).toFixed(2)}% ${spec.stat.toUpperCase()}. Buy once.`,
       prereqId: null,
       stat: spec.stat,
     },
@@ -133,9 +99,9 @@ function buildBranch(spec: BranchSpec): TreeNode[] {
       tier: 2,
       name: spec.tier2,
       kind: 'stat',
-      maxRank: 3,
+      maxRank: 1,
       cost: 1,
-      description: statDesc(rank3AltLabel),
+      description: `+${(STAT_PCT_PER_RANK * 100).toFixed(2)}% ${spec.stat.toUpperCase()}. Buy once.`,
       prereqId: idFor(1),
       stat: spec.stat,
     },
@@ -149,7 +115,8 @@ function buildBranch(spec: BranchSpec): TreeNode[] {
       kind: 'passive',
       maxRank: 1,
       cost: 2,
-      description: `${spec.tier3.description} (not yet wired into battle simulation -- see docs/design/talent-tree.md).`,
+      description: spec.tier3.description,
+      passive: slugify(spec.tier3.name),
       prereqId: idFor(2),
     },
     {
@@ -162,7 +129,8 @@ function buildBranch(spec: BranchSpec): TreeNode[] {
       kind: 'passive',
       maxRank: 1,
       cost: 2,
-      description: `${spec.tier4.description} (not yet wired into battle simulation -- see docs/design/talent-tree.md).`,
+      description: spec.tier4.description,
+      passive: slugify(spec.tier4.name),
       prereqId: idFor(3),
     },
     {
@@ -211,14 +179,13 @@ const BRANCHES: BranchSpec[] = [
     stat: 'atk',
     tier1: 'Riverrun',
     tier2: 'Millrace',
-    tier2Rank3Alt: 'crit',
     tier3: {
       name: 'Pressure Head',
-      description: 'Nation-type moves deal +5% vs. targets above 50% HP',
+      description: 'Nation-type moves deal +3% vs. targets above 50% HP',
     },
     tier4: {
       name: 'Spillway',
-      description: "This mon's def_down also cuts target SPD 10% for its duration",
+      description: "This mon's def_down also cuts target SPD 5% for its duration",
     },
     tier5: 'Jetstream Coupling',
     tier6: {
@@ -234,11 +201,10 @@ const BRANCHES: BranchSpec[] = [
     stat: 'def',
     tier1: 'Backwash',
     tier2: 'Riptide Step',
-    tier2Rank3Alt: 'dodge',
     tier3: { name: 'Silt Cloud', description: "This mon's def_down lasts 1 extra turn" },
     tier4: {
       name: 'Undercurrent',
-      description: "+5pp dodge chance while target is under this mon's def_down",
+      description: "+2.5pp dodge chance while target is under this mon's def_down",
     },
     tier5: 'Drift Anchor',
     tier6: {
@@ -254,15 +220,14 @@ const BRANCHES: BranchSpec[] = [
     stat: 'hp',
     tier1: 'Cistern',
     tier2: 'Aquifer',
-    tier2Rank3Alt: 'dodge',
     tier3: {
       name: 'Slow Leak',
-      description: "This mon's drain moves heal +10% more of damage dealt",
+      description: "This mon's drain moves heal +4% more of damage dealt",
     },
     tier4: {
       name: 'Watershed',
       description:
-        'Once/battle, damage that would drop this mon below 20% HP heals 10% max HP first',
+        'Once/battle, damage that would drop this mon below 20% HP heals 3% max HP first',
     },
     tier5: 'Sluice Control',
     tier6: {
@@ -279,9 +244,8 @@ const BRANCHES: BranchSpec[] = [
     stat: 'atk',
     tier1: 'Flarelight',
     tier2: 'Firebrand',
-    tier2Rank3Alt: 'crit',
-    tier3: { name: 'Scorchmark', description: 'Crits vs. a burning target deal +10% damage' },
-    tier4: { name: 'Detonation', description: "This mon's crit_up moves gain +5pp crit chance" },
+    tier3: { name: 'Scorchmark', description: 'Crits vs. a burning target deal +5% damage' },
+    tier4: { name: 'Detonation', description: "This mon's crit_up moves gain +3pp crit chance" },
     tier5: 'Forge Temper',
     tier6: {
       name: 'Supernova',
@@ -296,10 +260,9 @@ const BRANCHES: BranchSpec[] = [
     stat: 'atk',
     tier1: 'Spark Catch',
     tier2: 'Smolder',
-    tier2Rank3Alt: 'crit',
     tier3: {
       name: 'Ashfall',
-      description: "This mon's burn deals +2% max HP per tick (10% total)",
+      description: "This mon's burn deals +0.25% max HP per tick",
     },
     tier4: { name: 'Slow Burn', description: "This mon's burn duration +1 turn" },
     tier5: 'Tinder Box',
@@ -316,14 +279,13 @@ const BRANCHES: BranchSpec[] = [
     stat: 'def',
     tier1: 'Firebreak',
     tier2: 'Ember Ward',
-    tier2Rank3Alt: 'dodge',
     tier3: {
       name: 'Flashover',
-      description: "This mon's shield_first reduces the first hit 60% instead of 50%",
+      description: "This mon's shield_first reduces the first hit 55% instead of 50%",
     },
     tier4: {
       name: 'Rekindle Surge',
-      description: "The turn after taking a crit, this mon's next hit deals +15%",
+      description: "The turn after taking a crit, this mon's next hit deals +3%",
     },
     tier5: 'Heat Shield',
     tier6: {
@@ -345,8 +307,7 @@ const BRANCHES: BranchSpec[] = [
     stat: 'atk',
     tier1: 'Fault Crack',
     tier2: 'Shockwave Step',
-    tier2Rank3Alt: 'dodge',
-    tier3: { name: 'Ground Shatter', description: "This mon's def_down cuts an extra 5pp DEF" },
+    tier3: { name: 'Ground Shatter', description: "This mon's def_down cuts an extra 2.5pp DEF" },
     tier4: {
       name: 'Resonant Crack',
       description: "Landing a crit refreshes this mon's active def_down on the target",
@@ -365,10 +326,9 @@ const BRANCHES: BranchSpec[] = [
     stat: 'hp',
     tier1: 'Undergrowth',
     tier2: 'Root Lattice',
-    tier2Rank3Alt: 'crit',
     tier3: {
       name: 'Canopy Cover',
-      description: "This mon's drain moves heal +10% more of damage dealt",
+      description: "This mon's drain moves heal +2% more of damage dealt",
     },
     tier4: {
       name: 'Mulch Layer',
@@ -395,10 +355,9 @@ const BRANCHES: BranchSpec[] = [
     stat: 'def',
     tier1: 'Stoneframe',
     tier2: 'Ironvein',
-    tier2Rank3Alt: 'crit',
     tier3: {
       name: 'Load Bearing',
-      description: "This mon's shield_first reduces the first hit 60% instead of 50%",
+      description: "This mon's shield_first reduces the first hit 55% instead of 50%",
     },
     tier4: {
       name: 'Reinforced Crust',
@@ -419,11 +378,10 @@ const BRANCHES: BranchSpec[] = [
     stat: 'atk',
     tier1: 'Squall Line',
     tier2: 'Downburst',
-    tier2Rank3Alt: 'crit',
-    tier3: { name: 'Wind Shear', description: "This mon's true_hit moves deal +10% damage" },
+    tier3: { name: 'Wind Shear', description: "This mon's true_hit moves deal +5% damage" },
     tier4: {
       name: 'Funnel Force',
-      description: "This mon's charge release deals +15% additional damage",
+      description: "This mon's charge release deals +7% additional damage",
     },
     tier5: 'Vortex Edge',
     tier6: {
@@ -439,14 +397,13 @@ const BRANCHES: BranchSpec[] = [
     stat: 'spd',
     tier1: 'Windrise',
     tier2: 'Jetstream Wing',
-    tier2Rank3Alt: 'dodge',
     tier3: {
       name: 'Slipstream',
-      description: "This mon's priority moves also grant +5% SPD that turn",
+      description: "This mon's priority moves also grant +3% SPD that turn",
     },
     tier4: {
       name: 'Thermal Lift',
-      description: 'When this mon acts first in a turn, its damage +5%',
+      description: 'When this mon acts first in a turn, its damage +2.5%',
     },
     tier5: 'Wingtip Trim',
     tier6: {
@@ -462,14 +419,13 @@ const BRANCHES: BranchSpec[] = [
     stat: 'def',
     tier1: 'Cloudbank',
     tier2: 'High Pressure',
-    tier2Rank3Alt: 'dodge',
     tier3: {
       name: 'Fog Bank',
-      description: "This mon's shield_first reduces the first hit 60% instead of 50%",
+      description: "This mon's shield_first reduces the first hit 55% instead of 50%",
     },
     tier4: {
       name: 'Static Charge',
-      description: 'Being crit grants this mon +10% dodge chance for 1 turn',
+      description: 'Being crit grants this mon +5pp dodge chance for 1 turn',
     },
     tier5: 'Overcast Veil',
     tier6: {
@@ -481,10 +437,59 @@ const BRANCHES: BranchSpec[] = [
   },
 ];
 
-/** All 72 nation nodes (18/nation), keyed by id. Built once at module load. */
-export const TREE_NODES: Record<string, TreeNode> = Object.fromEntries(
-  BRANCHES.flatMap(buildBranch).map((n) => [n.id, n]),
+/** Combo branch uses the same nation-point budget and single-purchase prerequisites. */
+const COMBO_BRANCHES = [
+  {
+    branch: 'Flow',
+    slot: 2 as const,
+    nodes: [
+      [
+        'Quick Setup',
+        'Once/battle, a different Burn or DEF-down move after Priority cannot miss and deals +5% damage.',
+      ],
+      ['Expose Weakness', 'Once/battle, True hit against a DEF-down target deals +4% damage.'],
+      ['Kindled Recovery', 'Once/battle, Drain against a burning target heals an extra 3% max HP.'],
+      ['Rhythm', 'Once/battle, the third different consecutive landed move deals +5% damage.'],
+      [
+        'Patient Followup',
+        'Once/battle, Charge release against Burn or DEF down deals +5% damage.',
+      ],
+      ['Flow State', 'Once/battle, landing three different consecutive moves heals 4% max HP.'],
+    ],
+  },
+] as const;
+const comboNodes: TreeNode[] = (['water', 'fire', 'earth', 'air'] as const).flatMap((nation) =>
+  COMBO_BRANCHES.flatMap(({ branch, slot, nodes }) =>
+    nodes.map(([name, description], i) => ({
+      id: `${nation}:${slugify(branch)}:${i + 1}`,
+      nation,
+      branch,
+      slot,
+      tier: (i + 1) as TreeNode['tier'],
+      name,
+      description,
+      kind: 'passive' as const,
+      maxRank: 1,
+      cost: [1, 1, 2, 2, 3, 5][i]!,
+      passive: slugify(name),
+      prereqId: i === 0 ? null : `${nation}:${slugify(branch)}:${i}`,
+    })),
+  ),
 );
+
+/** 24 single-purchase nodes per nation, costing 56 points against a budget of 47. */
+export const TREE_NODES: Record<string, TreeNode> = Object.fromEntries(
+  [...BRANCHES.flatMap(buildBranch), ...comboNodes].map((n) => [n.id, n]),
+);
+
+/** Read old saved trees without discarding purchases or charging a respec for rank consolidation. */
+export function singlePurchaseTree(ranks: Record<string, number> = {}): Record<string, number> {
+  return Object.fromEntries(
+    Object.entries(ranks)
+      .filter(([, rank]) => rank > 0)
+      .map(([id]) => [id, 1]),
+  );
+}
 
 export function nationNodes(nation: Nation): TreeNode[] {
   return Object.values(TREE_NODES).filter((n) => n.nation === nation);
@@ -565,11 +570,11 @@ export function treeSpent(
     if (!rank || rank < 1) continue;
     if (isSharedPassiveId(id)) {
       const node = SHARED_PASSIVE_BY_ID[id];
-      if (node) sharedSpent += rank * node.cost;
+      if (node) sharedSpent += node.cost;
       continue;
     }
     const node = TREE_NODES[id];
-    if (node && node.nation === nation) nationSpent += rank * node.cost;
+    if (node && node.nation === nation) nationSpent += node.cost;
   }
   return { nation: nationSpent, shared: sharedSpent };
 }
@@ -623,8 +628,8 @@ export function validateTree(
         };
       }
     }
-    if (isSharedPassiveId(id)) sharedSpent += rank * node.cost;
-    else nationSpent += rank * node.cost;
+    if (isSharedPassiveId(id)) sharedSpent += node.cost;
+    else nationSpent += node.cost;
   }
   const nationBudget = pointsAvailable(level);
   if (nationSpent > nationBudget) {
@@ -652,7 +657,7 @@ export function validateTree(
  */
 export function isRespec(prev: Record<string, number>, next: Record<string, number>): boolean {
   for (const [id, prevRank] of Object.entries(prev)) {
-    if ((next[id] ?? 0) < prevRank) return true;
+    if (prevRank > 0 && (next[id] ?? 0) < 1) return true;
   }
   return false;
 }
@@ -668,7 +673,7 @@ export function treeSummary(
     const node = findNode(nation, id);
     if (!node) continue;
     const branch = isSharedPassiveId(id) ? 'Shared' : (node as TreeNode).branch;
-    (out[branch] ??= {})[node.name] = rank;
+    (out[branch] ??= {})[node.name] = 1;
   }
   return out;
 }
@@ -694,13 +699,13 @@ export type SharedPassiveSlug =
   | 'second-breath'
   | 'ember-heart';
 
-/** A mon's tree, reduced to exactly what `simulateBattle` needs: summed stat bonuses, at most one
- * move-upgrade per loadout slot, the active capstone(s), and the set of active shared passives. */
+/** A mon's purchased stats, upgrades, capstones and nation/shared passives for battle. */
 export interface ResolvedTree {
   statBonusPct: Partial<Record<StatKey, number>>;
   moveUpgradeBySlot: Partial<Record<LoadoutSlot, MoveUpgrade>>;
   capstones: CapstoneEffect[];
   sharedPassives: ReadonlySet<SharedPassiveSlug>;
+  passives: ReadonlySet<string>;
 }
 
 const EMPTY_RESOLVED_TREE: ResolvedTree = {
@@ -708,6 +713,7 @@ const EMPTY_RESOLVED_TREE: ResolvedTree = {
   moveUpgradeBySlot: {},
   capstones: [],
   sharedPassives: new Set(),
+  passives: new Set(),
 };
 
 /**
@@ -725,6 +731,7 @@ export function resolveTree(
   const moveUpgradeBySlot: Partial<Record<LoadoutSlot, MoveUpgrade>> = {};
   const capstones: CapstoneEffect[] = [];
   const sharedPassives = new Set<SharedPassiveSlug>();
+  const passives = new Set<string>();
   for (const [id, rank] of Object.entries(ranks)) {
     if (!rank || rank < 1) continue;
     if (isSharedPassiveId(id)) {
@@ -735,24 +742,22 @@ export function resolveTree(
     const node = TREE_NODES[id];
     if (!node || node.nation !== nation) continue;
     if (node.kind === 'stat' && node.stat) {
-      statBonusPct[node.stat] = (statBonusPct[node.stat] ?? 0) + rank * STAT_PCT_PER_RANK;
+      statBonusPct[node.stat] = (statBonusPct[node.stat] ?? 0) + STAT_PCT_PER_RANK;
     } else if (node.kind === 'moveUpgrade') {
       moveUpgradeBySlot[node.slot] = {
         effectMult: MOVE_UPGRADE_EFFECT_MULT,
         powerMult: MOVE_UPGRADE_POWER_MULT,
       };
+    } else if (node.kind === 'passive' && node.passive) {
+      passives.add(node.passive);
     } else if (node.kind === 'capstone' && node.capstone) {
       capstones.push(node.capstone);
     }
   }
-  return { statBonusPct, moveUpgradeBySlot, capstones, sharedPassives };
+  return { statBonusPct, moveUpgradeBySlot, capstones, sharedPassives, passives };
 }
 
-/**
- * A plausible default tree for a Wild Mon (bot) at `level`, so bots scale like players instead of
- * always fighting bare: spend points down the mon's first branch (by tier) until the budget is
- * exhausted, respecting prereqs by construction (this walks tiers 1-6 in order).
- */
+/** Wild Mons invest in one identity branch; their unspent points keep fallback fights forgiving. */
 export function defaultBotTree(nation: Nation, level: number): Record<string, number> {
   const budget = pointsAvailable(level);
   const ranks: Record<string, number> = {};

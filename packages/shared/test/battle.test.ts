@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  BATTLE_PROTOCOL_VERSION,
   MAX_TURNS,
   challengerReward,
   simulateBattle,
@@ -100,6 +101,22 @@ describe('species table', () => {
 });
 
 describe('simulateBattle', () => {
+  it('uses the finisher slot regularly in battles that last beyond the opener', () => {
+    const a = snap('dripple', 20, 'a');
+    const b = snap('pebblet', 20, 'b');
+    const finisher = a.loadout!.moves![2];
+    let used = 0;
+    for (let i = 0; i < 400; i++) {
+      const result = simulateBattle(a, b, `finisher-variety-${i}`);
+      if (
+        result.turns.some((turn) =>
+          turn.actions.some((action) => action.actor === 'a' && action.moveId === finisher),
+        )
+      )
+        used++;
+    }
+    expect(used / 400).toBeGreaterThan(0.2);
+  });
   it('is deterministic for the same seed and differs across seeds', () => {
     const a = snap('sparkit', 10, 'a');
     const b = snap('dripple', 10, 'b');
@@ -128,6 +145,7 @@ describe('simulateBattle', () => {
   });
 
   it('golden log: pins the protocol so client and server cannot drift', () => {
+    expect(BATTLE_PROTOCOL_VERSION).toBe(9);
     const res = simulateBattle(snap('sparkit', 10, 'a'), snap('puffle', 10, 'b'), 'golden-1');
     // If this test fails after an intentional formula change, update the fixture AND bump the
     // battle protocol version in the Edge Function; old logs keep replaying from stored snapshots.
