@@ -19,6 +19,28 @@ related_files:
 
 All notable changes to claude-mons are documented here. See [Keep a Changelog](https://keepachangelog.com/) for format details.
 
+## [0.2.8] - 2026-09-29
+
+### Added
+
+- Wind acts sooner through higher speed; Fire can ignite, Water can briefly slow, and Earth takes less direct damage. The nation traits are bounded so level and move choice still matter.
+- A fourth Flow talent path adds six once-per-battle combos based on the order of prepared attacks. Existing tier-three and tier-four talents now affect combat, and finishers can appear earlier in longer fights.
+- Battle playback names triggered combos and nation traits.
+
+### Changed
+
+- Matchmaking avoids the most recent human opponent. When the player pool is sparse, wild opponents provide more species and element variety instead of repeating the same trainer.
+- Each talent is a single purchase; surplus points from older multi-rank trees become available for other choices. Loadout changes are made directly and applied only after Save.
+
+### Fixed
+
+- Move choices in the loadout editor remain readable without hovering, and the same attack cannot occupy multiple slots.
+- A delayed state write can no longer overwrite a newer synchronous save of the login session.
+
+### Deployment
+
+- Battle protocol 9. Deploy the Edge Functions before the desktop release. Stored battle logs and existing talent trees remain readable; no database migration is required.
+
 ## [0.2.5] - 2026-09-28
 
 ### Added
