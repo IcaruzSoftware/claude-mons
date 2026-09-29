@@ -101,14 +101,13 @@ describe('talent editor adds ranks and saves for every nation', () => {
       render(h(BattlesView, { s: snapshotFor(nation, {}) }), container);
       await flush();
 
-      const editBtn = Array.from(container.querySelectorAll('button')).find(
-        (b) => b.textContent?.trim() === 'Edit loadout',
-      );
-      expect(editBtn, `${nation}: Edit loadout button`).toBeTruthy();
-      fire(editBtn!, 'click');
-      await flush();
-      const overlay = container.querySelector('.loadout-overlay');
-      expect(overlay, `${nation}: editor overlay`).toBeTruthy();
+      expect(
+        Array.from(container.querySelectorAll('button')).some(
+          (b) => b.textContent?.trim() === 'Edit loadout',
+        ),
+      ).toBe(false);
+      const overlay = container.querySelector('.loadout-card');
+      expect(overlay, `${nation}: inline editor`).toBeTruthy();
 
       // Hover + click every node; DOM order is tier 1..6 per branch, so prereqs are met as we go.
       const nodeGroups = Array.from(overlay!.querySelectorAll('.tree-svg g'));
@@ -126,6 +125,7 @@ describe('talent editor adds ranks and saves for every nation', () => {
         await flush();
       }
 
+      expect(setLoadout).not.toHaveBeenCalled();
       const saveBtn = Array.from(overlay!.querySelectorAll('button')).find(
         (b) => b.textContent?.trim() === 'Save',
       );
@@ -137,9 +137,70 @@ describe('talent editor adds ranks and saves for every nation', () => {
       expect(setLoadout, `${nation}: setLoadout called`).toHaveBeenCalled();
       const payload = setLoadout.mock.calls.at(-1)![0] as { tree?: Record<string, number> };
       expect(payload.tree, `${nation}: tree in payload`).toBeTruthy();
-      expect(Object.values(payload.tree!).some((r) => r > 0), `${nation}: non-empty tree`).toBe(
-        true,
-      );
+      expect(
+        Object.values(payload.tree!).some((r) => r > 0),
+        `${nation}: non-empty tree`,
+      ).toBe(true);
     });
   }
+});
+
+it('keeps move edits local across snapshots, blocks duplicate picks, and discards explicitly', async () => {
+  const snapshot = snapshotFor('water', {});
+  render(h(BattlesView, { s: snapshot }), container);
+  await flush();
+  const selects = Array.from(container.querySelectorAll<HTMLSelectElement>('.mv-select'));
+  const first = selects[0]!;
+  expect(
+    first.querySelector<HTMLOptionElement>(`option[value="${selects[1]!.value}"]`)?.disabled,
+  ).toBe(true);
+  const before = first.value;
+  const replacement = Array.from(first.options).find(
+    (option) => !option.disabled && option.value !== before,
+  )!.value;
+  first.value = replacement;
+  fire(first, 'change');
+  await flush();
+  render(h(BattlesView, { s: { ...snapshot } }), container);
+  await flush();
+  expect(container.querySelector<HTMLSelectElement>('.mv-select')!.value).toBe(replacement);
+  expect(setLoadout).not.toHaveBeenCalled();
+  fire(
+    Array.from(container.querySelectorAll('button')).find(
+      (b) => b.textContent === 'Discard changes',
+    )!,
+    'click',
+  );
+  await flush();
+  expect(container.querySelector<HTMLSelectElement>('.mv-select')!.value).toBe(before);
+  expect(setLoadout).not.toHaveBeenCalled();
+});
+
+it('retains a draft after a failed save and permits retry without reopening an editor', async () => {
+  render(h(BattlesView, { s: snapshotFor('water', {}) }), container);
+  await flush();
+  const first = container.querySelector<HTMLSelectElement>('.mv-select')!;
+  const replacement = Array.from(first.options).find(
+    (option) => !option.disabled && option.value !== first.value,
+  )!.value;
+  first.value = replacement;
+  fire(first, 'change');
+  await flush();
+  setLoadout.mockRejectedValueOnce(new Error('offline'));
+  fire(
+    Array.from(container.querySelectorAll('button')).find((b) => b.textContent === 'Save')!,
+    'click',
+  );
+  await flush();
+  expect(container.querySelector('.loadout-error')?.textContent).toContain('draft is still here');
+  expect(container.querySelector<HTMLSelectElement>('.mv-select')!.value).toBe(replacement);
+  fire(
+    Array.from(container.querySelectorAll('button')).find((b) => b.textContent === 'Save')!,
+    'click',
+  );
+  await flush();
+  expect(setLoadout).toHaveBeenLastCalledWith(
+    expect.objectContaining({ moves: expect.arrayContaining([replacement]) }),
+  );
+  expect(container.querySelector('.loadout-error')).toBeNull();
 });

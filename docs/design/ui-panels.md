@@ -2,8 +2,8 @@
 doc_type: design
 purpose: "Read this when redesigning a specific panel tab (Mon, Leaderboard, Battles, Settings) or planning the order of work for the panel reskin."
 audience: agent
-last_verified: 2026-09-24
-last_verified_commit: 0c357ff
+last_verified: 2026-09-28
+last_verified_commit: 2418c0b
 related_files:
   - docs/design/ui-style.md
   - docs/design/progression.md
@@ -30,19 +30,11 @@ the shared components and the game-menu bar landed; see
 `docs/decisions/0019-game-style-panel-ui.md` for the decision record. Deviations found during the
 build-order's visual-capture step, still accurate against the shipped code:
 
-- **Battles: stance triangle and talent tree are read-only previews on the main tab, interactive
-  only inside the loadout editor overlay.** This doc's ASCII sketch shows the triangle and tree
-  directly on the Battles tab with no overlay; the *implementation* kept the existing
-  `LoadoutEditor` overlay (opened via "Edit loadout" or "Counter this") as the place moves, stance
-  and talent ranks are actually changed, and added a static (non-clickable) `StanceTriangle`/
-  `TalentTree` preview of the *saved* loadout directly on the main tab so the tab still reads at a
-  glance the way the sketch shows. Reason: "Keep all existing behaviour and IPC calls (set-loadout,
-  stance, tree, respec, validation messages, Saved confirmation, disabled reasons)" is a stronger
-  constraint than the sketch's exact layout, and the editor's Save/Cancel/respec-confirm state
-  machine (`apps/desktop/src/renderer/panel/views/Battles.tsx`'s `LoadoutEditor`) is exactly that
-  existing behaviour. Both the preview and the editor render through the same `StanceTriangle`/
-  `TalentTree` components (interactivity is just an optional `onPick`/`onAdd`/`onRemove` prop), so
-  there is one implementation of each, not two.
+- **Battles: loadout, stance and talents are directly editable in the tab.** Controls hold a
+  local draft. Only Save calls `set-loadout`; Discard changes restores the saved selection.
+  The arena and matchup tips continue to reflect the saved loadout until a successful save.
+  Counter this preselects a draft stance without saving or discarding other edits. Move options
+  use explicit dark backgrounds and readable text; moves equipped in another slot are disabled.
 - **Sprite bug found during this pass, fixed in the same 0.2.0 release (not by this doc).**
   Visually capturing the Mon hero, Battles arena and (by extension) the Leaderboard podium
   surfaced that every mon past baby stage rendered a blank sprite: `spriteIdFor`

@@ -21,7 +21,6 @@ import {
   topBranch,
   treeSpent,
   type MatchupExplanation,
-  type Move,
   type MonSnapshot,
   type Nation,
   type Stance,
@@ -52,10 +51,6 @@ const STANCE_CORNERS: Record<Stance, { x: number; y: number }> = {
 };
 
 const SLOT_LABELS = ['Opener', 'Default', 'Finisher'] as const;
-
-function moveLabel(m: Move | undefined): string {
-  return m ? m.name : '—';
-}
 
 /**
  * Stance picker as an SVG triangle (docs/design/ui-panels.md Battles' Stance component): one
@@ -224,18 +219,18 @@ function clearDependents(
 }
 
 /**
- * The loadout editor overlay: 3 move slots (dropdown + reorder), stance triangle, talent tree,
- * save/cancel. `initialStance` lets the Battles tab's "Counter this" button pre-select a stance
+ * Inline draft editor: 3 move slots (dropdown + reorder), stance triangle, talent tree,
+ * save/discard. `counterRequest` lets the Battles tab's "Counter this" button pre-select a stance
  * without saving it -- the player still has to hit Save for it to take effect.
  */
 function LoadoutEditor({
   s,
-  initialStance,
-  onClose,
+  counterRequest,
+  onDiscard,
 }: {
   s: UiSnapshot;
-  initialStance?: Stance | null;
-  onClose: () => void;
+  counterRequest?: { stance: Stance; sequence: number } | null;
+  onDiscard: () => void;
 }) {
   const species = speciesOf(s.pet.speciesId!);
   const unlockedIds = new Set(s.battles.unlockedMoveIds);
@@ -252,15 +247,17 @@ function LoadoutEditor({
     storedMoves !== undefined && storedMoves.length === 3 && !storedIsValid;
 
   const [moves, setMoves] = useState<[string, string, string]>(initial);
-  const [stance, setStance] = useState<Stance>(
-    initialStance ?? s.battles.loadout.stance ?? 'bulwark',
-  );
+  const [stance, setStance] = useState<Stance>(s.battles.loadout.stance ?? 'bulwark');
   const savedTree = s.battles.loadout.tree ?? {};
   const [tree, setTree] = useState<Record<string, number>>(savedTree);
   const [respecArmed, setRespecArmed] = useState(false);
   const [busy, setBusy] = useState(false);
   const [saved, setSaved] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  useEffect(() => {
+    if (counterRequest) setStance(counterRequest.stance);
+  }, [counterRequest]);
+  useEffect(() => setSaved(false), [moves, stance, tree]);
   const treeRespec = isRespec(savedTree, tree);
   const cooldownUntilMs = s.battles.lastRespecAt
     ? Date.parse(s.battles.lastRespecAt) + RESPEC_COOLDOWN_MS
@@ -302,6 +299,7 @@ function LoadoutEditor({
   };
 
   const setSlot = (i: number, id: string) => {
+    if (moves.some((moveId, slot) => slot !== i && moveId === id)) return;
     const next = [...moves] as [string, string, string];
     next[i] = id;
     setMoves(next);
@@ -334,14 +332,19 @@ function LoadoutEditor({
       payload.tree = tree;
       payload.respec = treeRespec;
     }
-    const r = await window.monsUi.setLoadout(payload);
-    setBusy(false);
-    if (r.ok) {
-      setSaved(true);
-      setTimeout(onClose, 700);
-    } else {
-      setRespecArmed(false);
-      setErr(r.error ?? 'Failed to save loadout');
+    try {
+      const r = await window.monsUi.setLoadout(payload);
+      if (r.ok) {
+        setSaved(true);
+        setRespecArmed(false);
+      } else {
+        setRespecArmed(false);
+        setErr(r.error ?? 'Failed to save loadout');
+      }
+    } catch {
+      setErr('Failed to save loadout. Your draft is still here; try again.');
+    } finally {
+      setBusy(false);
     }
   };
 
@@ -354,9 +357,10 @@ function LoadoutEditor({
   const saveDisabled = busy || saved || saveDisabledReason !== null || onCooldown;
 
   return (
-    <div class="loadout-overlay">
-      <div class="loadout-card">
-        <h3 style={{ marginTop: 0 }}>Edit loadout</h3>
+    <div class="section">
+      <fieldset class="loadout-card" disabled={busy}>
+        <h3 style={{ marginTop: 0 }}>Loadout</h3>
+        <p class="hint">Try changes freely. Only Save applies them to future battles.</p>
         {replacedLockedLoadout && (
           <p class="flavor">
             Your saved loadout included a move you haven't unlocked yet, so we swapped in your
@@ -367,7 +371,7 @@ function LoadoutEditor({
           Automatic combo: open with Burn or DEF down, then follow with Priority, True hit, Crit up
           or Charge while the effect lasts for +{Math.round((FOLLOW_THROUGH_MULT - 1) * 100)}%
           damage once per battle, with a larger bonus against higher-level opponents. Prepare the
-          order in Edit loadout; battles play themselves.
+          order below; battles play themselves.
         </p>
         <div class="slots">
           {([0, 1, 2] as const).map((i) => {
@@ -379,13 +383,28 @@ function LoadoutEditor({
                   <div class="role">{SLOT_LABELS[i]}</div>
                   <select
                     class="mv-select"
-                    value={moves[i]}
+                    value={!canPickThreeMoves && i === 2 ? '' : moves[i]}
+                    disabled={!canPickThreeMoves && i === 2}
                     onChange={(e) => setSlot(i, (e.target as HTMLSelectElement).value)}
                   >
+                    {!canPickThreeMoves && i === 2 && (
+                      <option value="">Unlock a third move to use this slot</option>
+                    )}
                     {species.movePool.map((m) => (
-                      <option key={m.id} value={m.id} disabled={!unlockedIds.has(m.id)}>
+                      <option
+                        key={m.id}
+                        value={m.id}
+                        disabled={
+                          !unlockedIds.has(m.id) ||
+                          moves.some((id, slot) => slot !== i && id === m.id)
+                        }
+                      >
                         {m.name} · {m.power} pwr
-                        {unlockedIds.has(m.id) ? '' : ` (unlocks at level ${m.unlocksAt})`}
+                        {!unlockedIds.has(m.id)
+                          ? ` (unlocks at level ${m.unlocksAt})`
+                          : moves.some((id, slot) => slot !== i && id === m.id)
+                            ? ' (equipped in another slot)'
+                            : ''}
                       </option>
                     ))}
                   </select>
@@ -506,11 +525,11 @@ function LoadoutEditor({
           <button
             onClick={() => {
               if (respecArmed) setRespecArmed(false);
-              else onClose();
+              else onDiscard();
             }}
             disabled={busy}
           >
-            {respecArmed ? 'Back' : 'Cancel'}
+            {respecArmed ? 'Back' : 'Discard changes'}
           </button>
           <button
             class="primary"
@@ -521,7 +540,7 @@ function LoadoutEditor({
             {saved ? 'Saved' : busy ? 'Saving…' : respecArmed ? 'Confirm respec' : 'Save'}
           </button>
         </div>
-      </div>
+      </fieldset>
     </div>
   );
 }
@@ -637,8 +656,10 @@ function RecentOpponentStrip({
 }
 
 export function BattlesView({ s }: { s: UiSnapshot }) {
-  const [editing, setEditing] = useState(false);
-  const [counterStance, setCounterStance] = useState<Stance | null>(null);
+  const [editorKey, setEditorKey] = useState(0);
+  const [counterRequest, setCounterRequest] = useState<{ stance: Stance; sequence: number } | null>(
+    null,
+  );
   const [, setTick] = useState(0);
   useEffect(() => {
     const id = setInterval(() => setTick((t) => t + 1), 1000);
@@ -650,9 +671,6 @@ export function BattlesView({ s }: { s: UiSnapshot }) {
   const cdLeft = cd ? Math.max(0, cd - Date.now()) : 0;
   const hatched = s.pet.speciesId !== null;
   const species = hatched ? speciesOf(s.pet.speciesId!) : null;
-  const moves = species
-    ? (s.battles.loadout.moves ?? []).map((id) => species.movePool.find((m) => m.id === id))
-    : [];
   const stance = s.battles.loadout.stance ?? DEFAULT_STANCE;
   const me = species
     ? matchupSnapshot({
@@ -747,52 +765,15 @@ export function BattlesView({ s }: { s: UiSnapshot }) {
         </div>
       </div>
 
-      <div class="section">
-        <h3>Loadout</h3>
-        <p class="hint">
-          Automatic combo: open with Burn or DEF down, then follow with Priority, True hit, Crit up
-          or Charge while the effect lasts for +{Math.round((FOLLOW_THROUGH_MULT - 1) * 100)}%
-          damage once per battle, with a larger bonus against higher-level opponents. Prepare the
-          order in Edit loadout; battles play themselves.
-        </p>
-        <div class="slots">
-          {moves.map((m, i) => (
-            <div class="slot-card" key={i}>
-              <span class="num">{i + 1}</span>
-              <div class="body">
-                <div class="role">{SLOT_LABELS[i]}</div>
-                <div class="mv">{moveLabel(m)}</div>
-              </div>
-              {m && (
-                <TypeChip
-                  nation={m.type === 'nation' ? species!.nation : 'neutral'}
-                  label={m.type === 'nation' ? species!.nation.slice(0, 3).toUpperCase() : 'NEU'}
-                />
-              )}
-            </div>
-          ))}
-        </div>
-        <button style={{ marginTop: 8 }} onClick={() => setEditing(true)}>
-          Edit loadout
-        </button>
-      </div>
-
-      <div class="section">
-        <h3>Stance</h3>
-        <StanceTriangle active={stance} />
-        <p class="stance-caption">
-          {STANCE_INFO[stance].name} beats {STANCE_INFO[stance].beats}
-        </p>
-      </div>
-
-      <div class="section">
-        <h3>Talents · {NATION_INFO[species!.nation].name}</h3>
-        <TalentTree
-          nation={species!.nation}
-          ranks={s.battles.loadout.tree ?? {}}
-          level={s.progress.level}
-        />
-      </div>
+      <LoadoutEditor
+        key={`${s.pet.speciesId}-${editorKey}`}
+        s={s}
+        counterRequest={counterRequest}
+        onDiscard={() => {
+          setCounterRequest(null);
+          setEditorKey((key) => key + 1);
+        }}
+      />
 
       <div class="section">
         <h3>Recent opponents</h3>
@@ -805,24 +786,18 @@ export function BattlesView({ s }: { s: UiSnapshot }) {
               me={me}
               key={b.id}
               onCounter={(stance) => {
-                setCounterStance(stance);
-                setEditing(true);
+                setCounterRequest((previous) => ({
+                  stance,
+                  sequence: (previous?.sequence ?? 0) + 1,
+                }));
+                document
+                  .querySelector('.loadout-card')
+                  ?.scrollIntoView({ block: 'start', behavior: 'smooth' });
               }}
             />
           ))
         )}
       </div>
-
-      {editing && (
-        <LoadoutEditor
-          s={s}
-          initialStance={counterStance}
-          onClose={() => {
-            setCounterStance(null);
-            setEditing(false);
-          }}
-        />
-      )}
     </div>
   );
 }
