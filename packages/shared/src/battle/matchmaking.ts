@@ -1,4 +1,10 @@
 import { MAX_LEVEL } from '../game/levels.ts';
+import type { Nation } from '../types.ts';
+
+/** Rotate to a wild encounter when the only available human has the last-seen element. */
+export function useWildForElementVariety(candidate: Nation, previous?: Nation | null): boolean {
+  return candidate === previous;
+}
 
 /** Prefer easier matches, then peers, then a bounded challenge. */
 export const MATCHMAKING_WINDOWS = [

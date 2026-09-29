@@ -19,6 +19,12 @@ import {
   TIDAL_RECOVERY_HEAL_FRACTION,
   WILDFIRE_BURN_BONUS_FRACTION,
   WILDFIRE_BURN_EXTRA_TURNS,
+  AIR_SPEED_MULT,
+  EARTH_DAMAGE_MULT,
+  FIRE_IGNITE_CHANCE,
+  WATER_SOAK_CHANCE,
+  WATER_SOAK_SPEED_MULT,
+  WATER_SOAK_TURNS,
   burnTickDamage,
   initSideEffectState,
   type EffectId,
@@ -90,6 +96,8 @@ export interface BattleAction {
   followThrough?: boolean;
   /** A reduced-power second strike; cannot crit, combo, chain or apply move effects. */
   doubleStrike?: boolean;
+  /** Innate elemental trait triggered by this hit. */
+  nationPassive?: 'ignite' | 'soak';
 }
 
 export interface BattleTurn {
@@ -124,8 +132,8 @@ export const FOLLOW_THROUGH_MULT = 1.2;
  * Phoenix Reborn/Second Breath KO interceptions -- none of which add or remove an `rng()` call by
  * themselves, but the golden log's *values* change because the formula does).
  */
-// v7: guaranteed stat growth, diminishing-return defense, bounded crits and double strikes.
-export const BATTLE_PROTOCOL_VERSION = 7;
+// v8: four automatic elemental traits affect order, damage or short-lived statuses.
+export const BATTLE_PROTOCOL_VERSION = 8;
 
 const levelScale = (l: number): number => (l + 24) / 25;
 export const DOUBLE_STRIKE_CHANCE = 0.08;
@@ -313,7 +321,9 @@ export function simulateBattle(a: MonSnapshot, b: MonSnapshot, seed: string): Ba
     const st = fx[side];
     const atkMult = st.defDownTurns > 0 ? 1 - st.defDownExtraAtkFrac : 1;
     const spdMult = st.defDownTurns > 0 ? 1 - st.defDownExtraSpdFrac : 1;
-    return { atk: base.atk * atkMult, spd: base.spd * spdMult };
+    const airMult = mons[side].nation === 'air' ? AIR_SPEED_MULT : 1;
+    const soakMult = st.soakTurns > 0 ? WATER_SOAK_SPEED_MULT : 1;
+    return { atk: base.atk * atkMult, spd: base.spd * spdMult * airMult * soakMult };
   };
 
   /** Deep Roots (shared passive) latches on once `side` first drops below the threshold; Ember
@@ -519,6 +529,9 @@ export function simulateBattle(a: MonSnapshot, b: MonSnapshot, seed: string): Ba
       (counters[me] ? STANCE_COUNTER_DEALT_MULT : 1) *
       (counters[foe] ? STANCE_COUNTER_TAKEN_MULT : 1);
     let damage = Math.max(1, Math.floor(raw));
+    if (mons[foe].nation === 'earth') {
+      damage = Math.max(1, Math.floor(damage * EARTH_DAMAGE_MULT));
+    }
 
     // `shield_first` / Stone Skin: the first hit this mon takes in the whole battle is reduced,
     // once each per battle (independent sources, so they stack multiplicatively); a Supernova crit
@@ -588,6 +601,7 @@ export function simulateBattle(a: MonSnapshot, b: MonSnapshot, seed: string): Ba
     }
     checkThresholdPassives(foe);
 
+    let nationPassive: BattleAction['nationPassive'];
     if (!doubleStrike) {
       if (move.effect === 'drain') {
         const heal = Math.floor(damage * DRAIN_FRACTION * (upgrade ? upgrade.effectMult : 1));
@@ -621,6 +635,27 @@ export function simulateBattle(a: MonSnapshot, b: MonSnapshot, seed: string): Ba
           foeState.burnStackFraction = fraction;
         }
       }
+      if (
+        move.type === 'nation' &&
+        M.nation === 'fire' &&
+        move.effect !== 'burn' &&
+        foeState.burnTurns === 0 &&
+        rng() < FIRE_IGNITE_CHANCE
+      ) {
+        foeState.burnTurns = BURN_TURNS;
+        foeState.burnFraction = BURN_FRACTION;
+        nationPassive = 'ignite';
+      }
+      if (
+        move.type === 'nation' &&
+        M.nation === 'water' &&
+        foeState.soakTurns === 0 &&
+        rng() < WATER_SOAK_CHANCE
+      ) {
+        // +1 because active timers tick down at the end of the application turn.
+        foeState.soakTurns = WATER_SOAK_TURNS + 1;
+        nationPassive = 'soak';
+      }
     }
     return {
       actor: me,
@@ -635,6 +670,7 @@ export function simulateBattle(a: MonSnapshot, b: MonSnapshot, seed: string): Ba
       ...(doubleStrike ? { doubleStrike: true } : {}),
       ...(followThrough ? { followThrough: true } : {}),
       ...(charge ? { charge } : {}),
+      ...(nationPassive ? { nationPassive } : {}),
     };
   };
 
@@ -743,6 +779,7 @@ export function simulateBattle(a: MonSnapshot, b: MonSnapshot, seed: string): Ba
         checkThresholdPassives(side);
       }
       if (state.defDownTurns > 0) state.defDownTurns--;
+      if (state.soakTurns > 0) state.soakTurns--;
     }
     // A later reapplication must not revive an unused opening combo.
     for (const side of ['a', 'b'] as const) {

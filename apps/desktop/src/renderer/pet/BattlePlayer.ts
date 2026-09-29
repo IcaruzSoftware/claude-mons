@@ -145,6 +145,8 @@ export class BattlePlayer {
     const target: Side = action.actor === 'a' ? 'b' : 'a';
     const actor = this.name(action.actor);
     const foe = this.name(target);
+    if (action.nationPassive === 'ignite') return `${actor}'s Fire trait ignites ${foe}`;
+    if (action.nationPassive === 'soak') return `${actor}'s Water trait slows ${foe}`;
     switch (action.effect) {
       case 'burn':
         return action.moveId === null
@@ -180,11 +182,7 @@ export class BattlePlayer {
       if (action.crit) text += ' crit!';
       if (action.followThrough) text += ' combo!';
       const color =
-        action.effectiveness > 1
-          ? '#ffd740'
-          : action.effectiveness < 1
-            ? '#9aa0ad'
-            : '#ff5252';
+        action.effectiveness > 1 ? '#ffd740' : action.effectiveness < 1 ? '#9aa0ad' : '#ff5252';
       this.view.popups.push({ side: target, text, color, bornAt: now });
       if (action.effectiveness > 1)
         this.view.popups.push({

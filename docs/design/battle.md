@@ -99,6 +99,12 @@ variance = 0.8 + rng() * 0.4              // uniform in [0.8, 1.2)
   defender shields/KO protections. Charges, combo hits, misses and defeated targets cannot trigger
   it. Its optional `doubleStrike` log field and move label let existing playback animate the second
   swing. Protocol 7 records the new RNG sequence; old logs are replayed unchanged.
+- **Innate element traits (protocol 8)**: Wind has 12% more effective speed (turn order, dodge,
+  crit); Earth takes 4% less direct damage after the DEF calculation; Fire's landed nation-type
+  hits have a 12% chance to ignite an unburned foe; Water's have a 28% chance to slow the foe's
+  speed by 28% for the next two turns. Soak refreshes only after expiry and neither trait applies
+  on a miss, neutral move or double strike. Fire uses the ordinary non-stacking burn. Logs mark
+  triggered traits in `nationPassive`; previous protocol logs remain stored unchanged.
 - **`def_down`, `burn`, `drain`, `shield_first`, `priority`, `charge`**: the remaining 5 of the 8
   move effects. Numbers, per-battle state, and the loadout policy that picks a move each turn all
   live in docs/design/progression.md Move pool and effects / Loadout policy — this doc only notes
@@ -215,7 +221,10 @@ inactive > 30 days, `suspicion >= 10`, the requester themselves, and the request
 `last_opponent_id`.
 
 `findOpponent` searches the shared `MATCHMAKING_WINDOWS` in order: weaker, equal, stronger.
-Within each band it first excludes recent opponents, then relaxes recency. The SQL RPC also
+Within each band it excludes opponents fought in the last 24 hours. When no fresh human is
+available, or the candidate has the same element as the immediately preceding opponent, the
+server chooses a Wild Mon from a different element if possible. Offline Wild Mons also rotate
+away from the last opponent's element. The SQL RPC also
 independently enforces an absolute level gap of at most three, including for older callers.
 The new guard and stat mirror live in `supabase/migrations/20260924120000_fair_matchmaking.sql`.
 If no player qualifies, `wildEncounterLevel` supplies the same bounded distribution used offline.

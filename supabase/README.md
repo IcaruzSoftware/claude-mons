@@ -133,15 +133,11 @@ All error bodies are `{ error: { code, message, details? } }` (`ApiError` in `pa
 
 ## Matchmaking, Wild Mons and streaks
 
-`battle-request` calls `findOpponent()` with three asymmetric, widening passes relative to the
-challenger's own level (`LEVEL_WINDOWS` in `supabase/functions/battle-request/index.ts`):
-`[-2, +1]`, then `[-4, +2]`, then any level (`pick_opponent`'s `p_min_level`/`p_max_level`, both
-`null` on the last pass). Each pass tries once excluding recent 24-h repeats, then again without the
-recency filter, stopping at the first candidate. If no opponent is found, the challenger faces
-`wildMon()`: a random species from a random other nation at `challenger_level + rng(-3, +1)`
-(clamped ≥ 2), nicknamed `Wild <BabyName>`, `playerId: null`. 10 % of these roll **elite** instead:
-fixed `+3` levels and `isElite: true`, which doubles the challenger's win XP
-(`docs/design/progression.md` Matchmaking and streaks).
+`battle-request` searches the shared level bands `[-3,-2]`, `[-1,-1]`, `[0,0]`, `[+1,+3]`.
+It excludes humans fought within 24 hours. If none qualifies, or the candidate repeats the
+previous opponent's element, it uses `wildMon()` from another element. Online and offline Wild
+Mons are 90% weaker and 10% stronger (at most +3 levels), with rewards based on the actual level
+difference. See `docs/design/progression.md` Matchmaking and streaks.
 
 Win streaks: `mons.win_streak` is +1 per challenger win (any opponent), reset to 0 on a loss.
 `settle_battle` multiplies the challenger's XP (already elite-doubled by `battle-request` if

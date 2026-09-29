@@ -146,8 +146,8 @@ slot selection and combat timing are unchanged; no clicks or timing inputs are a
 ## Stances
 
 Three stances in a rock-paper-scissors triangle: each grants +2% to one stat and costs −2% on
-another (independently tunable, not opposed-and-equal). Countering the opponent's stance grants +2%
-damage dealt and −2% damage taken for the whole battle.
+another (independently tunable, not opposed-and-equal). Countering the opponent's stance grants
+2.1% more damage dealt and 2.1% less damage taken for the whole battle.
 
 | Stance | Grants | Costs | Beats | Loses to |
 |---|---|---|---|---|
@@ -182,9 +182,10 @@ All equal-level species, archetype, stance and talent balance bounds remain unch
 
 ## Matchmaking and streaks
 
-Real opponents are searched in level bands `[-3, -2]`, `[-1, -1]`, `[0, 0]`, then `[+1, +3]`, stopping at the
-first candidate. Within each band, recent opponents are excluded first, then allowed. Both sides
-are protected by a SQL absolute-gap limit of three. Wild encounters (online and offline) are 90%
+Real opponents are searched in level bands `[-3,-2]`, `[-1,-1]`, `[0,0]`, then `[+1,+3]`.
+Recent 24-hour opponents are excluded. If the candidate repeats the last element, use a Wild Mon
+from another element. SQL caps the level gap at three.
+Wild encounters (online and offline) are 90%
 weaker (-3: 60%, -2: 25%, -1: 5%) and 10% elite, split equally across +1/+2/+3;
 levels clamp to [2, 50]. Clearer level gaps make ordinary battles more forgiving.
 At the hatch floor, weaker enemies may therefore be equal. Elite is a label, not an extra XP multiplier;

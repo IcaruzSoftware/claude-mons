@@ -11,9 +11,13 @@ import {
   snapshotFor,
   type MonSnapshot,
 } from '../_shared/game/battle/battle.ts';
-import { MATCHMAKING_WINDOWS, wildEncounterLevel } from '../_shared/game/battle/matchmaking.ts';
+import {
+  MATCHMAKING_WINDOWS,
+  useWildForElementVariety,
+  wildEncounterLevel,
+} from '../_shared/game/battle/matchmaking.ts';
 import { stageForLevel } from '../_shared/game/game/levels.ts';
-import { otherNations } from '../_shared/game/game/nations.ts';
+import { variedWildNations } from '../_shared/game/game/nations.ts';
 import type { MonLoadout } from '../_shared/game/game/progression.ts';
 import { speciesForNation } from '../_shared/game/game/species.ts';
 import type { Nation, Stage } from '../_shared/game/types.ts';
@@ -85,9 +89,17 @@ serve(async (req) => {
     loadout: (myMon.loadout as MonLoadout | null) ?? undefined,
   });
 
-  const opponent = await findOpponent(db, uid, player.nation, myMon.level);
+  const { data: recent, error: recentError } = await db
+    .from('battles')
+    .select('opponent_snapshot')
+    .eq('challenger_id', uid)
+    .order('created_at', { ascending: false })
+    .limit(1);
+  if (recentError) throw new Error(`recent battle: ${recentError.message}`);
+  const lastNation = recent?.[0]?.opponent_snapshot?.nation as Nation | undefined;
+  const opponent = await findOpponent(db, uid, player.nation, myMon.level, lastNation);
   const isBot = opponent === null;
-  const wild = isBot ? wildMon(player.nation, myMon.level) : null;
+  const wild = isBot ? wildMon(player.nation, myMon.level, lastNation) : null;
   const opp: MonSnapshot = opponent ?? wild!.snapshot;
   const isElite = wild?.isElite ?? false;
 
@@ -131,35 +143,38 @@ serve(async (req) => {
 
 /**
  * Prefer weaker opponents, then peers, then challenges up to +3 levels. Within each
- * band prefer players not fought in the last 24 h, then relax only the recency filter.
+ * band prefer players not fought in the last 24 h. When the pool is exhausted, use a
+ * Wild Mon rather than immediately repeating the same human opponent.
  */
 async function findOpponent(
   db: ServiceClient,
   uid: string,
   nation: Nation,
   level: number,
+  lastNation?: Nation,
 ): Promise<MonSnapshot | null> {
   for (const window of MATCHMAKING_WINDOWS) {
-    for (const excludeRecent of [true, false]) {
-      const rows = await rpc<OpponentRow[]>(db, 'pick_opponent', {
-        p_player: uid,
-        p_nation: nation,
-        p_min_level: level + window.min,
-        p_max_level: level + window.max,
-        p_exclude_recent: excludeRecent,
+    const rows = await rpc<OpponentRow[]>(db, 'pick_opponent', {
+      p_player: uid,
+      p_nation: nation,
+      p_min_level: level + window.min,
+      p_max_level: level + window.max,
+      p_exclude_recent: true,
+    });
+    const row = rows?.[0];
+    if (row) {
+      // An active pool can still contain several people of one element. Alternate with
+      // wild encounters when the chosen element matches the immediately previous fight.
+      if (useWildForElementVariety(row.nation, lastNation)) return null;
+      return snapshotFor({
+        monId: row.mon_id,
+        playerId: row.player_id,
+        nickname: row.nickname,
+        speciesId: row.species_id,
+        stage: row.stage,
+        level: row.level,
+        loadout: row.loadout ?? undefined,
       });
-      const row = rows?.[0];
-      if (row) {
-        return snapshotFor({
-          monId: row.mon_id,
-          playerId: row.player_id,
-          nickname: row.nickname,
-          speciesId: row.species_id,
-          stage: row.stage,
-          level: row.level,
-          loadout: row.loadout ?? undefined,
-        });
-      }
     }
   }
   return null;
@@ -169,8 +184,12 @@ async function findOpponent(
  * Shared wild encounter distribution, including offline play. Rewards depend on the
  * actual level difference; the elite flag labels the encounter, without a second XP multiplier.
  */
-function wildMon(myNation: Nation, level: number): { snapshot: MonSnapshot; isElite: boolean } {
-  const nations = otherNations(myNation);
+function wildMon(
+  myNation: Nation,
+  level: number,
+  lastNation?: Nation,
+): { snapshot: MonSnapshot; isElite: boolean } {
+  const nations = variedWildNations(myNation, lastNation);
   const nation = nations[randomInt(nations.length)]!;
   const pool = speciesForNation(nation);
   const species = pool[randomInt(pool.length)]!;

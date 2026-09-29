@@ -8,7 +8,7 @@ import {
   dayKey,
   displayName,
   levelFromXp,
-  otherNations,
+  variedWildNations,
   simulateBattle,
   snapshotFor,
   speciesForNation,
@@ -180,7 +180,8 @@ export class BattleService {
   /** Offline fallback: a Wild Mon from another nation using the shared bounded encounter distribution. */
   private wildBattle(me: MonSnapshot, myNation: Nation): BattlePlayMessage {
     const rnd = this.deps.random ?? Math.random;
-    const nations = otherNations(myNation);
+    const lastNation = this.deps.state.get().battles.history[0]?.opponent.nation;
+    const nations = variedWildNations(myNation, lastNation);
     const nation = nations[Math.floor(rnd() * nations.length)]!;
     const pool = speciesForNation(nation);
     const species = pool[Math.floor(rnd() * pool.length)] ?? pool[0]!;

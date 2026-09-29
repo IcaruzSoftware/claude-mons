@@ -54,6 +54,22 @@ export const NATION_BEATS: Record<Nation, Nation> = {
   earth: 'water',
 };
 
+export const NATION_PASSIVES: Record<Nation, { name: string; description: string }> = {
+  air: {
+    name: 'Tailwind',
+    description: '12% faster in battle; speed can help act first, dodge and crit.',
+  },
+  earth: { name: 'Stonehide', description: 'Takes 4% less damage from direct hits.' },
+  fire: {
+    name: 'Kindle',
+    description: 'Nation-type hits have a 12% chance to ignite an unburned foe.',
+  },
+  water: {
+    name: 'Soak',
+    description: 'Nation-type hits have a 28% chance to slow the foe for two turns.',
+  },
+};
+
 export function effectiveness(attacker: Nation, defender: Nation): 0.9 | 1 | 1.2 {
   if (NATION_BEATS[attacker] === defender) return 1.2;
   if (NATION_BEATS[defender] === attacker) return 0.9;
@@ -62,4 +78,11 @@ export function effectiveness(attacker: Nation, defender: Nation): 0.9 | 1 | 1.2
 
 export function otherNations(nation: Nation): Nation[] {
   return (Object.keys(NATION_INFO) as Nation[]).filter((n) => n !== nation);
+}
+
+/** Rotate wild encounters away from the most recently faced element when possible. */
+export function variedWildNations(own: Nation, lastOpponent?: Nation | null): Nation[] {
+  const choices = otherNations(own);
+  const fresh = choices.filter((nation) => nation !== lastOpponent);
+  return fresh.length ? fresh : choices;
 }

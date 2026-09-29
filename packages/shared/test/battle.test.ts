@@ -8,7 +8,8 @@ import {
 } from '../src/battle/battle.ts';
 import { makeRng } from '../src/battle/rng.ts';
 import { NATIONS } from '../src/types.ts';
-import { effectiveness, otherNations } from '../src/game/nations.ts';
+import { effectiveness, otherNations, variedWildNations } from '../src/game/nations.ts';
+import { useWildForElementVariety } from '../src/battle/matchmaking.ts';
 import { SPECIES, SPECIES_IDS, rollSpecies, speciesForNation } from '../src/game/species.ts';
 import { STANCE_INFO, stanceBeats } from '../src/game/progression.ts';
 
@@ -34,6 +35,12 @@ describe('rng', () => {
 });
 
 describe('nations', () => {
+  it('rotates wild elements and substitutes wild opponents when the human pool repeats', () => {
+    expect(variedWildNations('water', 'fire')).toEqual(['earth', 'air']);
+    expect(variedWildNations('water')).toHaveLength(3);
+    expect(useWildForElementVariety('fire', 'fire')).toBe(true);
+    expect(useWildForElementVariety('earth', 'fire')).toBe(false);
+  });
   it('form a single cycle where each nation beats one and resists one', () => {
     for (const n of NATIONS) {
       const beats = NATIONS.filter((m) => effectiveness(n, m) > 1);
