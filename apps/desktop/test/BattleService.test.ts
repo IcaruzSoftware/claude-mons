@@ -83,6 +83,21 @@ describe('BattleService (offline / wild mon)', () => {
     );
   });
 
+  it('does not repeat the previous wild element when other elements are available', async () => {
+    const { service, advance } = setup({ level: 7 });
+    const seen: string[] = [];
+    for (let i = 0; i < 3; i++) {
+      const result = await service.request();
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+      seen.push(result.play.opponent.nation);
+      service.finish(result.play.id);
+      advance(BATTLE_RULES.cooldownMs + 1);
+    }
+    expect(seen[1]).not.toBe(seen[0]);
+    expect(seen[2]).not.toBe(seen[1]);
+  });
+
   it('enforces the cooldown and the daily cap locally', async () => {
     const { service, advance } = setup();
     const first = await service.request();

@@ -66,8 +66,8 @@ export function stanceBeats(a: Stance, b: Stance): boolean {
  * the design doc targets, instead of the 80-97% (and, for one pairing, sub-50%) the original +-18%
  * stat swing plus +-10% counter bonus produced.
  */
-export const STANCE_COUNTER_DEALT_MULT = 1.02;
-export const STANCE_COUNTER_TAKEN_MULT = 0.98;
+export const STANCE_COUNTER_DEALT_MULT = 1.021;
+export const STANCE_COUNTER_TAKEN_MULT = 0.979;
 
 /** Applies a stance's stat modifiers. HP is never affected by stance. */
 export function applyStanceModifiers(stats: Stats, stance: Stance): Stats {

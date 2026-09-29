@@ -4,6 +4,7 @@ import {
   FOLLOW_THROUGH_MULT,
   EFFECT_DESCRIPTIONS,
   NATION_INFO,
+  NATION_PASSIVES,
   RESPEC_COOLDOWN_MS,
   RESPEC_FREE_BELOW_LEVEL,
   SHARED_PASSIVE_NODES,
@@ -744,6 +745,9 @@ export function BattlesView({ s }: { s: UiSnapshot }) {
             )}
           </div>
         </div>
+        <p class="hint">
+          {NATION_PASSIVES[species!.nation].name}: {NATION_PASSIVES[species!.nation].description}
+        </p>
         {last && (
           <div class={`result-banner ${last.won ? 'won' : 'lost'}`}>
             {last.won ? 'WON' : 'LOST'} · {last.turns} turn{last.turns === 1 ? '' : 's'} ·{' '}

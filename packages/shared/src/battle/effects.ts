@@ -49,6 +49,13 @@ export const DEF_DOWN_TURNS = 3;
 export const BURN_FRACTION = 0.025;
 /** `burn` duration in turns; a second application while active is ignored (no stacking). */
 export const BURN_TURNS = 3;
+/** Automatic nation traits. Kept below a move's primary effect so loadout choices still matter. */
+export const AIR_SPEED_MULT = 1.12;
+export const EARTH_DAMAGE_MULT = 0.96;
+export const FIRE_IGNITE_CHANCE = 0.12;
+export const WATER_SOAK_CHANCE = 0.28;
+export const WATER_SOAK_SPEED_MULT = 0.72;
+export const WATER_SOAK_TURNS = 2;
 /** `charge`: the release turn's power multiplier. */
 export const CHARGE_MULTIPLIER = 2.2;
 
@@ -79,6 +86,8 @@ export const EFFECT_DESCRIPTIONS: Record<EffectId, string> = {
  * `simulateBattle` instantiates it as `SideEffectState<Move>`.
  */
 export interface SideEffectState<TMove> {
+  /** Water's innate soak: remaining *future* turns of reduced speed. */
+  soakTurns: number;
   /** `def_down` turns remaining on this mon (0 = inactive). */
   defDownTurns: number;
   /** Effective DEF multiplier while `defDownTurns > 0`; recomputed on every (re)application so a
@@ -135,6 +144,7 @@ export interface SideEffectStateInit {
 
 export function initSideEffectState<TMove>(init: SideEffectStateInit): SideEffectState<TMove> {
   return {
+    soakTurns: 0,
     defDownTurns: 0,
     defDownMult: DEF_DOWN_MULT,
     defDownExtraAtkFrac: 0,
