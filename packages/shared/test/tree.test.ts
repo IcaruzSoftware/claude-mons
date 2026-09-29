@@ -9,19 +9,22 @@ import {
   pointsAvailable,
   resolveTree,
   sharedPassivePoints,
+  singlePurchaseTree,
   treeSpent,
   treeSummary,
   validateTree,
 } from '../src/game/tree.ts';
 import { NATIONS } from '../src/types.ts';
+import { validateLoadout } from '../src/game/progression.ts';
 
 describe('tree data', () => {
-  it('every nation has exactly 3 branches of 6 tiered nodes', () => {
+  it('every nation has 4 branches of 6 single-purchase nodes', () => {
     for (const nation of NATIONS) {
       const nodes = nationNodes(nation);
-      expect(nodes).toHaveLength(18);
+      expect(nodes).toHaveLength(24);
       const branches = new Set(nodes.map((n) => n.branch));
-      expect(branches.size).toBe(3);
+      expect(branches.size).toBe(4);
+      expect(nodes.every((node) => node.maxRank === 1)).toBe(true);
       for (const branch of branches) {
         const tiers = nodes.filter((n) => n.branch === branch).map((n) => n.tier);
         expect(tiers.sort()).toEqual([1, 2, 3, 4, 5, 6]);
@@ -39,10 +42,10 @@ describe('tree data', () => {
     }
   });
 
-  it('maxing a full nation costs 54 points (47-point budget forces specialization)', () => {
+  it('all 4 branches cost 56 points (47-point budget forces specialization)', () => {
     for (const nation of NATIONS) {
       const total = nationNodes(nation).reduce((sum, n) => sum + n.cost * n.maxRank, 0);
-      expect(total).toBe(54);
+      expect(total).toBe(56);
     }
     expect(pointsAvailable(50)).toBe(47);
   });
@@ -112,29 +115,9 @@ describe('validateTree', () => {
   });
 
   it('accepts a valid prereq chain and rejects spending over the level budget', () => {
-    const ok = validateTree('water', 50, { 'water:current:1': 3, 'water:current:2': 3 });
+    const ok = validateTree('water', 50, { 'water:current:1': 1, 'water:current:2': 1 });
     expect(ok).toEqual({ ok: true });
-    // Two full branches (18 pts each = 36) plus a 3rd branch's tiers 1-5 (3+3+2+2+3 = 13) = 49,
-    // two over the 47-point budget at level 50 -- deterministically over, not just close to it.
-    const tooMuch = {
-      'water:current:1': 3,
-      'water:current:2': 3,
-      'water:current:3': 1,
-      'water:current:4': 1,
-      'water:current:5': 1,
-      'water:current:6': 1,
-      'water:undertow:1': 3,
-      'water:undertow:2': 3,
-      'water:undertow:3': 1,
-      'water:undertow:4': 1,
-      'water:undertow:5': 1,
-      'water:undertow:6': 1,
-      'water:reservoir:1': 3,
-      'water:reservoir:2': 3,
-      'water:reservoir:3': 1,
-      'water:reservoir:4': 1,
-      'water:reservoir:5': 1,
-    };
+    const tooMuch = Object.fromEntries(nationNodes('water').map((node) => [node.id, 1]));
     expect(validateTree('water', 50, tooMuch)).toMatchObject({
       ok: false,
       code: 'TREE_OVER_BUDGET',
@@ -156,7 +139,7 @@ describe('validateTree', () => {
   // walking each branch tier by tier so prereqs are always satisfied -- and spent right up to the
   // level's budget. This locks in that no nation's node ids/branches drift out of what the shared
   // validator accepts (see docs/design/talent-tree.md).
-  it('accepts a legal budget-filling allocation for every nation, spanning all 3 branches', () => {
+  it('accepts a legal allocation for every nation, spanning all 4 branches', () => {
     const level = 30;
     const budget = pointsAvailable(level);
     for (const nation of NATIONS) {
@@ -187,25 +170,57 @@ describe('validateTree', () => {
 });
 
 describe('isRespec', () => {
-  it("is true only when some node's rank goes down", () => {
+  it('does not charge a respec for legacy rank consolidation', () => {
     expect(isRespec({}, { 'water:current:1': 1 })).toBe(false);
     expect(isRespec({ 'water:current:1': 2 }, { 'water:current:1': 2 })).toBe(false);
-    expect(isRespec({ 'water:current:1': 2 }, { 'water:current:1': 1 })).toBe(true);
+    expect(isRespec({ 'water:current:1': 2 }, { 'water:current:1': 1 })).toBe(false);
     expect(isRespec({ 'water:current:1': 1 }, {})).toBe(true);
+  });
+});
+
+it('accepts an old client resending existing multi-ranks but rejects new duplicate purchases', () => {
+  const context = {
+    level: 30,
+    nation: 'water' as const,
+    speciesId: 'dripple',
+    existingTree: { 'water:current:1': 3 },
+  };
+  const oldClient = validateLoadout(
+    { tree: { 'water:current:1': 3, 'water:current:2': 1 } },
+    context,
+  );
+  expect(oldClient).toMatchObject({
+    ok: true,
+    isRespec: false,
+    loadout: { tree: { 'water:current:1': 1, 'water:current:2': 1 } },
+  });
+  expect(
+    validateLoadout(
+      { tree: { 'water:current:1': 3 } },
+      { ...context, existingTree: { 'water:current:1': 1 } },
+    ),
+  ).toMatchObject({
+    ok: false,
+    code: 'TREE_RANK',
   });
 });
 
 describe('treeSpent / treeSummary', () => {
   it('sums nation and shared spend separately', () => {
     const ranks = { 'water:current:1': 3, 'water:current:2': 2, 'shared:bedrock': 1 };
-    expect(treeSpent('water', ranks)).toEqual({ nation: 5, shared: 1 });
+    expect(treeSpent('water', ranks)).toEqual({ nation: 2, shared: 1 });
   });
 
   it('groups a tree by branch (and "Shared" for shared passives)', () => {
     const ranks = { 'water:current:1': 3, 'shared:bedrock': 1 };
     const summary = treeSummary('water', ranks);
-    expect(summary.Current).toEqual({ Riverrun: 3 });
+    expect(summary.Current).toEqual({ Riverrun: 1 });
     expect(summary.Shared).toEqual({ Bedrock: 1 });
+  });
+  it('converts saved multi-rank allocations without deleting selected talents', () => {
+    expect(
+      singlePurchaseTree({ 'water:current:1': 3, 'water:current:2': 2, 'shared:bedrock': 0 }),
+    ).toEqual({ 'water:current:1': 1, 'water:current:2': 1 });
   });
 });
 

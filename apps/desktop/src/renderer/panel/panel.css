@@ -1159,6 +1159,30 @@
   color: var(--fg);
 }
 
+.combo-branch {
+  display: grid;
+  gap: 5px;
+  padding: 7px;
+  border-top: 1px solid var(--line);
+}
+.combo-branch h4 { margin: 0; color: var(--fg); }
+.combo-branch .hint { margin: 0 0 3px; }
+.combo-node {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  width: 100%;
+  padding: 6px 8px;
+  text-align: left;
+  background: var(--bg-3);
+  color: var(--fg);
+  border: 1px solid var(--line-lite);
+}
+.combo-node.ranked { border-color: var(--earth); }
+.combo-node span { font-size: 10px; }
+.combo-node small { color: var(--fg-dim); }
+
 .talent-passives {
   display: flex;
   flex-direction: column;

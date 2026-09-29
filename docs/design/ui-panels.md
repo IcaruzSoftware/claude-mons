@@ -167,7 +167,7 @@ info web page ... the skill tree should be an actual tree"; Settings "fine for n
 │      Fury                               │
 │  Bulwark* — Gale   (triangle, lit)     │
 │ TALENTS · EARTH            🍃18/47     │
-│   (SVG tree: 3 branches x 6 tiers,     │
+│   (SVG tree: 3 nation branches x 6,    │
 │    trunk at bottom, ranked=filled)     │
 │ RECENT OPPONENTS                        │
 │  Wild Wispit  WON +20xp  · hint line   │
@@ -191,13 +191,13 @@ info web page ... the skill tree should be an actual tree"; Settings "fine for n
   - **Stance**: an SVG triangle, one corner per stance (Fury/Bulwark/Gale per
     `docs/design/progression.md` Stances), the active stance's corner filled solid in `--accent`, the
     other two dim — replaces the current 3-button list.
-  - **Talent tree**: an SVG with a trunk rising into 3 branch columns (one per nation branch, e.g.
+  - **Talent tree**: an SVG with a trunk rising into 3 nation-branch columns, plus a Flow combo list (e.g.
     Tremor/Canopy/Foundation for Earth — `docs/design/talent-tree.md`), 6 circular nodes per branch
     connected by a vertical line, tier 1 nearest the trunk (bottom) rising to the tier-6 capstone (top).
     A ranked node is filled in the nation color; a locked node (rank 0 or prereq unmet) is dim/outline
-    only. Hovering a node (a click also selects, covering the tap case) shows its name, rank,
-    cost/rank and effect in a `talent-tooltip` line below the tree; a left click adds a rank and a
-    right click removes one when the tree is interactive (`onAdd`/`onRemove` supplied). Node x/y
+    only. Hovering a node (a click also selects, covering the tap case) shows its name, one-time cost
+    and effect in a `talent-tooltip` line below the tree; a left click buys the talent once and a
+    right click removes it when the tree is interactive (`onAdd`/`onRemove` supplied). Node x/y
     coordinates come from the pure, unit-tested `treeNodePosition`
     (`apps/desktop/src/renderer/panel/views/battleTreeLayout.ts`). A `leaf`-glyph badge shows the
     point counter (`spent.nation` / `pointsAvailable(level)`). Shared passives keep their existing

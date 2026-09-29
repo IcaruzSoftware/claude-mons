@@ -132,7 +132,7 @@ export interface MatchupExplanation {
   openerLine: string;
   /** e.g. "Finishes with Backpressure (shields their first hit taken)." */
   finisherLine: string;
-  /** e.g. "Invested most in Tremor (5 ranks)." Null when the opponent has no spent tree. */
+  /** e.g. "Invested most in Tremor (5 talents)." Null when the opponent has no spent tree. */
   topBranchLine: string | null;
   /** One concrete, rule-derived suggestion (see module doc for the priority order). */
   suggestion: string;
@@ -194,7 +194,7 @@ export function explainMatchup(me: MonSnapshot, opp: MonSnapshot): MatchupExplan
 
   const top = topBranch(opp.nation, opp.loadout?.tree);
   const topBranchLine = top
-    ? `Invested most in ${top.branch} (${top.ranks} rank${top.ranks === 1 ? '' : 's'}).`
+    ? `Invested most in ${top.branch} (${top.ranks} talent${top.ranks === 1 ? '' : 's'}).`
     : null;
 
   let suggestion: string;

@@ -105,6 +105,9 @@ variance = 0.8 + rng() * 0.4              // uniform in [0.8, 1.2)
   speed by 28% for the next two turns. Soak refreshes only after expiry and neither trait applies
   on a miss, neutral move or double strike. Fire uses the ordinary non-stacking burn. Logs mark
   triggered traits in `nationPassive`; previous protocol logs remain stored unchanged.
+- **Protocol 9** activates all nation-tree tier-3/4 talents, adds six once-per-battle Flow combos,
+  and uses the finisher more often from turns 3–4. `comboTalent` names a triggered combo in the
+  stored action and playback. Multiple regular talent damage bonuses use the strongest value.
 - **`def_down`, `burn`, `drain`, `shield_first`, `priority`, `charge`**: the remaining 5 of the 8
   move effects. Numbers, per-battle state, and the loadout policy that picks a move each turn all
   live in docs/design/progression.md Move pool and effects / Loadout policy — this doc only notes

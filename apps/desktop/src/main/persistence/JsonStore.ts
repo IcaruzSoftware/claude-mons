@@ -131,7 +131,9 @@ export class JsonStore<T extends { schemaVersion: number }> {
         await fs.rm(tmp).catch(() => {});
         return;
       }
-      await fs.rename(tmp, path);
+      // Keep the revision check and rename in one event-loop turn: flushSync() must not
+      // land a newer auth session while an awaited rename is still in flight.
+      renameSync(tmp, path);
       this.writtenRev = rev;
     });
     return this.writing;

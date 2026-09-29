@@ -147,6 +147,7 @@ export class BattlePlayer {
     const foe = this.name(target);
     if (action.nationPassive === 'ignite') return `${actor}'s Fire trait ignites ${foe}`;
     if (action.nationPassive === 'soak') return `${actor}'s Water trait slows ${foe}`;
+    if (action.comboTalent) return `${actor}'s ${action.comboTalent} combo!`;
     switch (action.effect) {
       case 'burn':
         return action.moveId === null

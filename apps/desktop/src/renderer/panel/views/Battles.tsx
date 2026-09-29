@@ -17,6 +17,7 @@ import {
   nationNodes,
   pointsAvailable,
   sharedPassivePoints,
+  singlePurchaseTree,
   speciesOf,
   toRoman,
   topBranch,
@@ -181,6 +182,39 @@ function TalentTree({
           }),
         )}
       </svg>
+      <div class="combo-branch">
+        <h4>Flow combos</h4>
+        <p class="hint">
+          Arrange moves in the loadout above; combos activate automatically in battle.
+        </p>
+        {nodes
+          .filter((node) => node.branch === 'Flow')
+          .map((node) => {
+            const ranked = (ranks[node.id] ?? 0) > 0;
+            const locked = node.prereqId !== null && (ranks[node.prereqId] ?? 0) < 1;
+            return (
+              <button
+                key={node.id}
+                class={ranked ? 'combo-node ranked' : 'combo-node'}
+                disabled={!interactive || (locked && !ranked)}
+                onClick={() => {
+                  setSelected(node.id);
+                  if (!ranked) onAdd?.(node);
+                }}
+              >
+                <b>
+                  {ranked ? '✓ ' : ''}
+                  {node.name}
+                </b>
+                <span>{node.description}</span>
+                <small>
+                  {node.cost} pt{node.cost === 1 ? '' : 's'} ·{' '}
+                  {locked ? 'unlock previous talent' : ranked ? 'owned' : 'available'}
+                </small>
+              </button>
+            );
+          })}
+      </div>
       {selectedNode && (
         <div class="talent-tooltip">
           <b>
@@ -190,7 +224,7 @@ function TalentTree({
           {selectedNode.description}
           {interactive && (ranks[selectedNode.id] ?? 0) > 0 && (
             <div style={{ marginTop: 4 }}>
-              <button onClick={() => onRemove?.(selectedNode)}>Remove a rank</button>
+              <button onClick={() => onRemove?.(selectedNode)}>Remove talent</button>
             </div>
           )}
         </div>
@@ -198,7 +232,7 @@ function TalentTree({
       {!selectedNode && (
         <p class="hint" style={{ margin: '4px 0 0', textAlign: 'center' }}>
           {interactive
-            ? 'Click a node to rank it, right-click to remove a rank.'
+            ? 'Click a node to buy it once; right-click or use Remove talent to respec.'
             : 'Hover or tap a node for details.'}
         </p>
       )}
@@ -249,7 +283,8 @@ function LoadoutEditor({
 
   const [moves, setMoves] = useState<[string, string, string]>(initial);
   const [stance, setStance] = useState<Stance>(s.battles.loadout.stance ?? 'bulwark');
-  const savedTree = s.battles.loadout.tree ?? {};
+  const rawSavedTree = s.battles.loadout.tree ?? {};
+  const savedTree = singlePurchaseTree(rawSavedTree);
   const [tree, setTree] = useState<Record<string, number>>(savedTree);
   const [respecArmed, setRespecArmed] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -329,7 +364,7 @@ function LoadoutEditor({
     setErr(null);
     const payload: SetLoadoutPayload = { stance };
     if (movesValid) payload.moves = moves;
-    if (JSON.stringify(tree) !== JSON.stringify(savedTree)) {
+    if (JSON.stringify(tree) !== JSON.stringify(rawSavedTree)) {
       payload.tree = tree;
       payload.respec = treeRespec;
     }

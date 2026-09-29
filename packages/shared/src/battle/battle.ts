@@ -98,6 +98,8 @@ export interface BattleAction {
   doubleStrike?: boolean;
   /** Innate elemental trait triggered by this hit. */
   nationPassive?: 'ignite' | 'soak';
+  /** Name of a talent combo activated by this action, if one was used. */
+  comboTalent?: string;
 }
 
 export interface BattleTurn {
@@ -132,8 +134,8 @@ export const FOLLOW_THROUGH_MULT = 1.2;
  * Phoenix Reborn/Second Breath KO interceptions -- none of which add or remove an `rng()` call by
  * themselves, but the golden log's *values* change because the formula does).
  */
-// v8: four automatic elemental traits affect order, damage or short-lived statuses.
-export const BATTLE_PROTOCOL_VERSION = 8;
+// v9: single-purchase combo talents and a more frequent automatic finisher.
+export const BATTLE_PROTOCOL_VERSION = 9;
 
 const levelScale = (l: number): number => (l + 24) / 25;
 export const DOUBLE_STRIKE_CHANCE = 0.08;
@@ -280,6 +282,38 @@ export function simulateBattle(a: MonSnapshot, b: MonSnapshot, seed: string): Ba
     a: resolveTree(a.nation, a.loadout?.tree),
     b: resolveTree(b.nation, b.loadout?.tree),
   };
+  const hasTalent = (side: Side, slug: string) => treeOf[side].passives.has(slug);
+  type TalentRuntime = {
+    recentMoves: string[];
+    lastPriorityId: string | null;
+    rhythmUsed: boolean;
+    flowUsed: boolean;
+    exposeUsed: boolean;
+    kindledUsed: boolean;
+    patientUsed: boolean;
+    quickUsed: boolean;
+    watershedUsed: boolean;
+    reinforcedHits: number;
+    reinforcedUsed: boolean;
+    critReceivedTurn: number;
+  };
+  const newTalentState = (): TalentRuntime => ({
+    recentMoves: [],
+    lastPriorityId: null,
+    rhythmUsed: false,
+    flowUsed: false,
+    exposeUsed: false,
+    kindledUsed: false,
+    patientUsed: false,
+    quickUsed: false,
+    watershedUsed: false,
+    reinforcedHits: 0,
+    reinforcedUsed: false,
+    critReceivedTurn: 0,
+  });
+  const talents: Record<Side, TalentRuntime> = { a: newTalentState(), b: newTalentState() };
+  const pickedPriority: Record<Side, boolean> = { a: false, b: false };
+  const actedFirst: Record<Side, boolean> = { a: false, b: false };
   const slotOf: Record<Side, Record<string, LoadoutSlot>> = { a: {}, b: {} };
   for (const side of ['a', 'b'] as const) {
     const [opener, standard, finisher] = loadoutMoves[side];
@@ -323,7 +357,8 @@ export function simulateBattle(a: MonSnapshot, b: MonSnapshot, seed: string): Ba
     const spdMult = st.defDownTurns > 0 ? 1 - st.defDownExtraSpdFrac : 1;
     const airMult = mons[side].nation === 'air' ? AIR_SPEED_MULT : 1;
     const soakMult = st.soakTurns > 0 ? WATER_SOAK_SPEED_MULT : 1;
-    return { atk: base.atk * atkMult, spd: base.spd * spdMult * airMult * soakMult };
+    const slipstream = pickedPriority[side] && hasTalent(side, 'slipstream') ? 1.03 : 1;
+    return { atk: base.atk * atkMult, spd: base.spd * spdMult * airMult * soakMult * slipstream };
   };
 
   /** Deep Roots (shared passive) latches on once `side` first drops below the threshold; Ember
@@ -346,12 +381,20 @@ export function simulateBattle(a: MonSnapshot, b: MonSnapshot, seed: string): Ba
    * by the `def_down` move effect itself and Fire's Aftershock passive (crits also apply it). */
   const applyDefDown = (me: Side, foe: Side, upgrade: MoveUpgrade | undefined) => {
     const foeState = fx[foe];
-    const cutFraction = (1 - DEF_DOWN_MULT) * (upgrade ? upgrade.effectMult : 1);
-    foeState.defDownTurns = DEF_DOWN_TURNS;
+    const cutFraction =
+      (1 - DEF_DOWN_MULT) * (upgrade ? upgrade.effectMult : 1) +
+      (hasTalent(me, 'ground-shatter') ? 0.025 : 0);
+    foeState.defDownTurns =
+      DEF_DOWN_TURNS +
+      (hasTalent(me, 'silt-cloud') ? 1 : 0) -
+      (hasTalent(foe, 'mulch-layer') && hp[foe] > mons[foe].stats.hp / 2 ? 1 : 0);
     foeState.defDownMult = 1 - cutFraction;
     const spdCap = hasCapstone(me, 'defDownAlsoSpd');
     const atkCap = hasCapstone(me, 'defDownAlsoAtk');
-    foeState.defDownExtraSpdFrac = spdCap ? spdCap.fraction : 0;
+    foeState.defDownExtraSpdFrac = Math.max(
+      spdCap?.fraction ?? 0,
+      hasTalent(me, 'spillway') ? 0.05 : 0,
+    );
     foeState.defDownExtraAtkFrac = atkCap ? atkCap.fraction : 0;
   };
 
@@ -362,7 +405,8 @@ export function simulateBattle(a: MonSnapshot, b: MonSnapshot, seed: string): Ba
 
   /**
    * Loadout policy (docs/design/progression.md Loadout policy): turn 1 always the opener (slot 1);
-   * the finisher (slot 3) fires once per battle the first turn target HP < 35% or own HP < 40%;
+   * the finisher (slot 3) fires once per battle when either side drops below 60% from turn 3,
+   * or on turn 4 if the fight lasts that long;
    * otherwise slot 2 w.p. 0.8, slot 1 w.p. 0.2 (one rng draw); a pending `charge` release always
    * overrides all of the above. Air's Tempest capstone (docs/design/talent-tree.md) skips the
    * telegraph turn entirely: a `charge` move resolves as an immediate `release`, never enters
@@ -386,7 +430,10 @@ export function simulateBattle(a: MonSnapshot, b: MonSnapshot, seed: string): Ba
     const foeSide: Side = side === 'a' ? 'b' : 'a';
     const ownFrac = hp[side] / mons[side].stats.hp;
     const foeFrac = hp[foeSide] / mons[foeSide].stats.hp;
-    if (!state.finisherUsed && (foeFrac < 0.35 || ownFrac < 0.4)) {
+    if (
+      !state.finisherUsed &&
+      ((turnNum >= 3 && (foeFrac < 0.6 || ownFrac < 0.6)) || turnNum >= 4)
+    ) {
       state.finisherUsed = true;
       return { move: finisher, charge: chargeOf(finisher) };
     }
@@ -426,15 +473,31 @@ export function simulateBattle(a: MonSnapshot, b: MonSnapshot, seed: string): Ba
 
     // `true_hit` ignores the target's dodge chance entirely -- no roll is made for it, same as no
     // roll is made for a battle that never reaches this action.
+    const quickSetup =
+      !doubleStrike &&
+      !talents[me].quickUsed &&
+      hasTalent(me, 'quick-setup') &&
+      talents[me].lastPriorityId !== null &&
+      talents[me].lastPriorityId !== move.id &&
+      (move.effect === 'burn' || move.effect === 'def_down');
     let dodged = false;
-    if (doubleStrike || move.effect !== 'true_hit') {
+    if (doubleStrike || (move.effect !== 'true_hit' && !quickSetup)) {
       const dodge = Math.min(
         0.15,
-        Math.max(0.02, 0.04 + (foeStats.spd - meStats.spd) / (160 * scale)),
+        Math.max(
+          0.02,
+          0.04 +
+            (foeStats.spd - meStats.spd) / (160 * scale) +
+            (hasTalent(foe, 'undercurrent') && fx[me].defDownTurns > 0 ? 0.025 : 0) +
+            (hasTalent(foe, 'static-charge') && talents[foe].critReceivedTurn === turnNum - 1
+              ? 0.05
+              : 0),
+        ),
       );
       dodged = rng() < dodge;
     }
     if (dodged) {
+      if (!doubleStrike) talents[me].recentMoves = [];
       return {
         actor: me,
         move: doubleStrike ? `${move.name} (double strike)` : move.name,
@@ -459,6 +522,9 @@ export function simulateBattle(a: MonSnapshot, b: MonSnapshot, seed: string): Ba
         CRIT_UP_MAX,
         critChance + CRIT_UP_BONUS * (upgrade ? upgrade.effectMult : 1),
       );
+    }
+    if (!doubleStrike && move.effect === 'crit_up' && hasTalent(me, 'detonation')) {
+      critChance = Math.min(CRIT_UP_MAX, critChance + 0.03);
     }
     // Ember Heart (shared passive): armed bonus applies to this mon's very next move, one-shot.
     if (!doubleStrike && fx[me].emberHeartPending) {
@@ -509,6 +575,62 @@ export function simulateBattle(a: MonSnapshot, b: MonSnapshot, seed: string): Ba
       ((setup === 'def_down' && foeState.defDownTurns > 0) ||
         (setup === 'burn' && foeState.burnTurns > 0));
     if (followThrough) openingSetup[me] = null;
+    const foeDebuffed = foeState.defDownTurns > 0 || foeState.burnTurns > 0;
+    const thirdDifferent =
+      !doubleStrike &&
+      talents[me].recentMoves.length === 2 &&
+      talents[me].recentMoves[0] !== talents[me].recentMoves[1] &&
+      !talents[me].recentMoves.includes(move.id);
+    const expose =
+      !doubleStrike &&
+      !talents[me].exposeUsed &&
+      hasTalent(me, 'expose-weakness') &&
+      move.effect === 'true_hit' &&
+      foeState.defDownTurns > 0;
+    const rhythm = thirdDifferent && !talents[me].rhythmUsed && hasTalent(me, 'rhythm');
+    const patient =
+      !doubleStrike &&
+      !talents[me].patientUsed &&
+      hasTalent(me, 'patient-followup') &&
+      charge === 'release' &&
+      foeDebuffed;
+    const kindled =
+      !doubleStrike &&
+      !talents[me].kindledUsed &&
+      hasTalent(me, 'kindled-recovery') &&
+      move.effect === 'drain' &&
+      foeState.burnTurns > 0;
+    const flow = thirdDifferent && !talents[me].flowUsed && hasTalent(me, 'flow-state');
+    const rekindle =
+      !doubleStrike &&
+      hasTalent(me, 'rekindle-surge') &&
+      talents[me].critReceivedTurn === turnNum - 1;
+    // Several bought branches can qualify on one hit; only the strongest regular talent and
+    // strongest Flow combo apply, so a high-level tree cannot multiply every bonus together.
+    const talentDamage =
+      Math.max(
+        1,
+        hasTalent(me, 'pressure-head') && move.type === 'nation' && hp[foe] > mons[foe].stats.hp / 2
+          ? 1.03
+          : 1,
+        hasTalent(me, 'scorchmark') && crit && foeState.burnTurns > 0 ? 1.05 : 1,
+        hasTalent(me, 'wind-shear') && move.effect === 'true_hit' ? 1.05 : 1,
+        hasTalent(me, 'funnel-force') && charge === 'release' ? 1.07 : 1,
+        hasTalent(me, 'thermal-lift') && actedFirst[me] ? 1.025 : 1,
+        rekindle ? 1.03 : 1,
+      ) *
+      Math.max(1, quickSetup ? 1.05 : 1, expose ? 1.04 : 1, rhythm ? 1.05 : 1, patient ? 1.05 : 1);
+    const comboTalent =
+      [
+        quickSetup && 'Quick Setup',
+        expose && 'Expose Weakness',
+        kindled && 'Kindled Recovery',
+        rhythm && 'Rhythm',
+        patient && 'Patient Followup',
+        flow && 'Flow State',
+      ]
+        .filter(Boolean)
+        .join(' + ') || undefined;
 
     // Experience matters even late in the level curve. Keep the gap bounded to matchmaking.
     const levelGap = Math.max(-3, Math.min(3, M.level - mons[foe].level));
@@ -524,6 +646,7 @@ export function simulateBattle(a: MonSnapshot, b: MonSnapshot, seed: string): Ba
       moveEff *
       experience *
       (followThrough ? combo : 1) *
+      talentDamage *
       critMultiplier *
       variance *
       (counters[me] ? STANCE_COUNTER_DEALT_MULT : 1) *
@@ -541,7 +664,12 @@ export function simulateBattle(a: MonSnapshot, b: MonSnapshot, seed: string): Ba
         const shieldUpgrade = foeState.shieldFirstSlot
           ? treeOf[foe].moveUpgradeBySlot[foeState.shieldFirstSlot]
           : undefined;
-        const reduction = SHIELD_FIRST_REDUCTION * (shieldUpgrade ? shieldUpgrade.effectMult : 1);
+        const shieldTalent = ['flashover', 'load-bearing', 'fog-bank'].some((slug) =>
+          hasTalent(foe, slug),
+        );
+        const reduction =
+          (shieldTalent ? 0.55 : SHIELD_FIRST_REDUCTION) *
+          (shieldUpgrade ? shieldUpgrade.effectMult : 1);
         damage = Math.max(1, Math.floor(damage * (1 - reduction)));
         foeState.shieldConsumed = true;
       }
@@ -549,6 +677,22 @@ export function simulateBattle(a: MonSnapshot, b: MonSnapshot, seed: string): Ba
         damage = Math.max(1, Math.floor(damage * (1 - STONE_SKIN_REDUCTION)));
         foeState.stoneSkinConsumed = true;
       }
+    }
+    if (
+      hasTalent(foe, 'reinforced-crust') &&
+      talents[foe].reinforcedHits > 0 &&
+      !talents[foe].reinforcedUsed
+    ) {
+      damage = Math.max(1, Math.floor(damage * 0.95));
+      talents[foe].reinforcedUsed = true;
+    }
+    if (
+      hasTalent(foe, 'watershed') &&
+      !talents[foe].watershedUsed &&
+      hp[foe] - damage < mons[foe].stats.hp * 0.2
+    ) {
+      hp[foe] = Math.min(mons[foe].stats.hp, hp[foe] + Math.floor(mons[foe].stats.hp * 0.03));
+      talents[foe].watershedUsed = true;
     }
 
     // Air's Ceiling Break capstone: once/battle, a hit exceeding the cap is clamped down to it.
@@ -573,6 +717,8 @@ export function simulateBattle(a: MonSnapshot, b: MonSnapshot, seed: string): Ba
 
     hp[foe] = Math.max(0, hp[foe] - damage);
     tookDamageThisTurn[foe] = true;
+    talents[foe].reinforcedHits++;
+    if (crit) talents[foe].critReceivedTurn = turnNum;
 
     // Fire's Phoenix Reborn capstone, then the shared Second Breath passive (in that order --
     // both are once/battle KO interceptions, and a mon's own nation-locked capstone takes
@@ -603,9 +749,30 @@ export function simulateBattle(a: MonSnapshot, b: MonSnapshot, seed: string): Ba
 
     let nationPassive: BattleAction['nationPassive'];
     if (!doubleStrike) {
+      if (quickSetup) talents[me].quickUsed = true;
+      if (expose) talents[me].exposeUsed = true;
+      if (rhythm) talents[me].rhythmUsed = true;
+      if (patient) talents[me].patientUsed = true;
+      if (flow) {
+        hp[me] = Math.min(M.stats.hp, hp[me] + Math.floor(M.stats.hp * 0.04));
+        talents[me].flowUsed = true;
+      }
+      talents[me].recentMoves = [...talents[me].recentMoves.slice(-1), move.id];
+      talents[me].lastPriorityId = move.effect === 'priority' ? move.id : null;
       if (move.effect === 'drain') {
-        const heal = Math.floor(damage * DRAIN_FRACTION * (upgrade ? upgrade.effectMult : 1));
+        const drainBonus = hasTalent(me, 'slow-leak')
+          ? 0.04
+          : hasTalent(me, 'canopy-cover')
+            ? 0.02
+            : 0;
+        const heal = Math.floor(
+          damage * (DRAIN_FRACTION + drainBonus) * (upgrade ? upgrade.effectMult : 1),
+        );
         hp[me] = Math.min(M.stats.hp, hp[me] + heal);
+        if (kindled) {
+          hp[me] = Math.min(M.stats.hp, hp[me] + Math.floor(M.stats.hp * 0.03));
+          talents[me].kindledUsed = true;
+        }
       }
       if (turnNum === 1 && (move.effect === 'def_down' || move.effect === 'burn')) {
         openingSetup[me] = move.effect;
@@ -613,6 +780,9 @@ export function simulateBattle(a: MonSnapshot, b: MonSnapshot, seed: string): Ba
       if (move.effect === 'def_down') applyDefDown(me, foe, upgrade);
       if (crit && hasPassive(me, 'aftershock') && move.effect !== 'def_down') {
         applyDefDown(me, foe, undefined);
+      }
+      if (crit && hasTalent(me, 'resonant-crack') && foeState.defDownTurns > 0) {
+        foeState.defDownTurns = DEF_DOWN_TURNS + (hasTalent(me, 'silt-cloud') ? 1 : 0);
       }
       if (crit && hasPassive(me, 'tidal-recovery')) {
         hp[me] = Math.min(
@@ -624,8 +794,12 @@ export function simulateBattle(a: MonSnapshot, b: MonSnapshot, seed: string): Ba
         const wildfire = hasPassive(me, 'wildfire');
         const fraction =
           BURN_FRACTION * (upgrade ? upgrade.effectMult : 1) +
-          (wildfire ? WILDFIRE_BURN_BONUS_FRACTION : 0);
-        const turnsFor = BURN_TURNS + (wildfire ? WILDFIRE_BURN_EXTRA_TURNS : 0);
+          (wildfire ? WILDFIRE_BURN_BONUS_FRACTION : 0) +
+          (hasTalent(me, 'ashfall') ? 0.0025 : 0);
+        const turnsFor =
+          BURN_TURNS +
+          (wildfire ? WILDFIRE_BURN_EXTRA_TURNS : 0) +
+          (hasTalent(me, 'slow-burn') ? 1 : 0);
         if (foeState.burnTurns === 0) {
           foeState.burnTurns = turnsFor;
           foeState.burnFraction = fraction;
@@ -642,8 +816,8 @@ export function simulateBattle(a: MonSnapshot, b: MonSnapshot, seed: string): Ba
         foeState.burnTurns === 0 &&
         rng() < FIRE_IGNITE_CHANCE
       ) {
-        foeState.burnTurns = BURN_TURNS;
-        foeState.burnFraction = BURN_FRACTION;
+        foeState.burnTurns = BURN_TURNS + (hasTalent(me, 'slow-burn') ? 1 : 0);
+        foeState.burnFraction = BURN_FRACTION + (hasTalent(me, 'ashfall') ? 0.0025 : 0);
         nationPassive = 'ignite';
       }
       if (
@@ -671,6 +845,7 @@ export function simulateBattle(a: MonSnapshot, b: MonSnapshot, seed: string): Ba
       ...(followThrough ? { followThrough: true } : {}),
       ...(charge ? { charge } : {}),
       ...(nationPassive ? { nationPassive } : {}),
+      ...(comboTalent ? { comboTalent } : {}),
     };
   };
 
@@ -679,6 +854,8 @@ export function simulateBattle(a: MonSnapshot, b: MonSnapshot, seed: string): Ba
     tookDamageThisTurn.b = false;
     const pickA = pickMove('a', t);
     const pickB = pickMove('b', t);
+    pickedPriority.a = pickA.move.effect === 'priority';
+    pickedPriority.b = pickB.move.effect === 'priority';
     const priorityA = pickA.move.effect === 'priority';
     const priorityB = pickB.move.effect === 'priority';
     let first: Side;
@@ -713,6 +890,8 @@ export function simulateBattle(a: MonSnapshot, b: MonSnapshot, seed: string): Ba
       }
     }
     const second: Side = first === 'a' ? 'b' : 'a';
+    actedFirst.a = first === 'a';
+    actedFirst.b = first === 'b';
     const firstPick = first === 'a' ? pickA : pickB;
     const secondPick = second === 'a' ? pickA : pickB;
 

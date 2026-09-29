@@ -131,8 +131,8 @@ describe('explainMatchup', () => {
     });
     const r = explainMatchup(me, opp);
     expect(r.suggestion).toBe("Burn beats Stone Skin's single-hit shield.");
-    expect(r.topBranchLine).toBe('Invested most in Current (5 ranks).');
-    expect(topBranch('water', opp.loadout?.tree)).toEqual({ branch: 'Current', ranks: 5 });
+    expect(r.topBranchLine).toBe('Invested most in Current (2 talents).');
+    expect(topBranch('water', opp.loadout?.tree)).toEqual({ branch: 'Current', ranks: 2 });
     expect(toRoman(5)).toBe('V');
   });
 

@@ -181,16 +181,9 @@ export function burnTickDamage(maxHp: number, fraction: number = BURN_FRACTION):
 // Wired in packages/shared/src/battle/battle.ts. Node structure/budget/prereqs live in
 // packages/shared/src/game/tree.ts; these are only the numbers `simulateBattle` reads.
 
-/**
- * Tier-5 move-upgrade node: the equipped move in its branch's loadout slot gets either bonus.
- * Tuned by simulation on 2026-09-13 (down from the design doc's literal +25%/+10%, see
- * docs/design/talent-tree.md Balance targets): the doc's own numbers, combined with the stat
- * nodes and a capstone, made a near-budget-maxed tree beat an empty one ~89% of the time at level
- * 50 against a 60-70% target. Kept proportional to each other (effect magnitude still roughly
- * 2x the power-only bonus) while both shrink.
- */
-export const MOVE_UPGRADE_EFFECT_MULT = 1.06;
-export const MOVE_UPGRADE_POWER_MULT = 1.03;
+/** Tier-5 move upgrade, tuned with the four-branch protocol-9 balance matrix. */
+export const MOVE_UPGRADE_EFFECT_MULT = 1.03;
+export const MOVE_UPGRADE_POWER_MULT = 1.01;
 
 /** Shared passive "Stone Skin": reduces the first hit taken each battle (stacks multiplicatively
  * with a `shield_first` move's own reduction, since they are independent sources). */

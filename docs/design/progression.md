@@ -127,7 +127,7 @@ apply at the same thresholds; no XP or hatch-odds changes are required.
 A loadout is 3 of the mon's unlocked moves plus a stance. Selection each turn (one RNG draw, replacing the current `normal`/`typed`/`special` choice in `simulateBattle`):
 
 - **Slot 1** always opens turn 1.
-- **Slot 3** fires once per battle, the first turn target HP < 35% or own HP < 40% (whichever comes first).
+- **Slot 3** fires once per battle from turn 3 below 60% HP on either side, or on turn 4 if the fight lasts that long.
 - Otherwise: slot 2 with probability 0.8, slot 1 with probability 0.2.
 - A `charge` move's release always fires on its own second turn regardless of this policy.
 
@@ -164,7 +164,7 @@ pairings touch ATK/DEF symmetrically — lands every pairing at 55-62%; see
 
 ## Talent tree
 
-3 branches of 6 tiered nodes per nation, plus a small shared-passive pool, spent from level 3
+4 branches of 6 single-purchase nodes per nation, plus a small shared-passive pool, spent from level 4
 (47 points by level 50). Full node tables, the shared-passive list, the respec rule and the
 "tuned by simulation" magnitudes all live in `docs/design/talent-tree.md` -- this section is
 just the pointer so this doc stays under its length budget.

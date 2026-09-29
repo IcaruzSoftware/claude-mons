@@ -206,7 +206,10 @@ export function validateLoadout(
           reason: `${id}: rank must be a non-negative integer`,
         };
       }
-      ranks[id] = rank;
+      // Older clients may resend a rank bought before talents became single-purchase.
+      // Preserve that purchase, but never accept an increased or newly duplicated rank.
+      const legacyRank = context.existingTree?.[id] ?? 0;
+      ranks[id] = rank > 1 && legacyRank >= rank ? 1 : rank;
     }
     const treeResult = validateTree(context.nation, context.level, ranks);
     if (!treeResult.ok) return { ok: false, code: treeResult.code, reason: treeResult.reason };

@@ -34,15 +34,15 @@ describe('treeNodePosition', () => {
 
   // Regression guard: TalentTree (Battles.tsx) derives one column per branch (in nationNodes order,
   // capped at 3) and positions each node with treeNodePosition(columnIndex, tier). This asserts the
-  // layout yields a finite, in-range coordinate for EVERY node of EVERY nation -- so the editor can
-  // never fail to place a non-earth node (see docs/design/talent-tree.md).
-  it('positions every node of every nation on the tree canvas', () => {
+  // layout yields a finite, in-range coordinate for each SVG node of every nation; Flow is rendered
+  // as a separate list below the SVG.
+  it('positions every SVG node of every nation on the tree canvas', () => {
     for (const nation of NATIONS) {
       const nodes = nationNodes(nation);
       const branches: string[] = [];
       for (const n of nodes) if (!branches.includes(n.branch)) branches.push(n.branch);
-      expect(branches.length, `${nation} branch count`).toBe(3);
-      for (const node of nodes) {
+      expect(branches.length, `${nation} branch count`).toBe(4);
+      for (const node of nodes.filter((node) => node.branch !== 'Flow')) {
         const ci = branches.indexOf(node.branch);
         const { x, y } = treeNodePosition(ci, node.tier);
         expect(Number.isFinite(x), `${node.id} x`).toBe(true);

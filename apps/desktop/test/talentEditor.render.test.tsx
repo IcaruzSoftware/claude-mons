@@ -145,6 +145,45 @@ describe('talent editor adds ranks and saves for every nation', () => {
   }
 });
 
+it('shows six Flow choices and only buys each talent once', async () => {
+  render(h(BattlesView, { s: snapshotFor('water', {}) }), container);
+  await flush();
+  const choices = Array.from(container.querySelectorAll<HTMLButtonElement>('.combo-node'));
+  expect(choices).toHaveLength(6);
+  fire(choices[0]!, 'click');
+  await flush();
+  fire(choices[0]!, 'click');
+  await flush();
+  fire(choices[1]!, 'click');
+  await flush();
+  const save = Array.from(container.querySelectorAll('button')).find(
+    (button) => button.textContent === 'Save',
+  )!;
+  fire(save, 'click');
+  await flush();
+  expect(setLoadout).toHaveBeenCalledWith(
+    expect.objectContaining({
+      tree: expect.objectContaining({ 'water:flow:1': 1, 'water:flow:2': 1 }),
+    }),
+  );
+});
+
+it('consolidates old multi-rank talents without charging a respec', async () => {
+  render(h(BattlesView, { s: snapshotFor('water', { 'water:current:1': 3 }) }), container);
+  await flush();
+  const save = Array.from(container.querySelectorAll('button')).find(
+    (button) => button.textContent === 'Save',
+  )!;
+  fire(save, 'click');
+  await flush();
+  expect(setLoadout).toHaveBeenCalledWith(
+    expect.objectContaining({
+      tree: { 'water:current:1': 1 },
+      respec: false,
+    }),
+  );
+});
+
 it('keeps move edits local across snapshots, blocks duplicate picks, and discards explicitly', async () => {
   const snapshot = snapshotFor('water', {});
   render(h(BattlesView, { s: snapshot }), container);
