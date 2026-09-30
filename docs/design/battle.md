@@ -223,14 +223,13 @@ nations only** (`p.nation <> p_nation`) and further excludes: eggs, mons with no
 inactive > 30 days, `suspicion >= 10`, the requester themselves, and the requester's
 `last_opponent_id`.
 
-`findOpponent` searches the shared `MATCHMAKING_WINDOWS` in order: weaker, equal, stronger.
-Within each band it excludes opponents fought in the last 24 hours. When no fresh human is
-available, or the candidate has the same element as the immediately preceding opponent, the
-server chooses a Wild Mon from a different element if possible. Offline Wild Mons also rotate
-away from the last opponent's element. The SQL RPC also
-independently enforces an absolute level gap of at most three, including for older callers.
-The new guard and stat mirror live in `supabase/migrations/20260924120000_fair_matchmaking.sql`.
-If no player qualifies, `wildEncounterLevel` supplies the same bounded distribution used offline.
+On a Rival attempt, `findOpponent` searches a rolled preferred level band, then the other common
+bands. The immediate previous opponent is excluded; other repeats wait one hour. A repeated element
+causes a different band to be searched. When no Rival is selected, online and offline battles use
+Wild or Trainer NPCs with rotating elements. SQL independently caps the level gap at five in
+`supabase/migrations/20260930000000_varied_challenges.sql`. Wild stats are 20% below Trainer stats;
+Trainer stats are 10% below an equivalent Rival. `wildEncounterLevel` supplies the bounded NPC
+distribution.
 Exact bands, probabilities and passive combo rules live in `docs/design/progression.md`.
 
 `simulateBattle` is called with `seed = battleId = crypto.randomUUID()`, generated fresh per request; the

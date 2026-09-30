@@ -175,7 +175,7 @@ export interface BattlePlayMessage {
   /** XP the player earns; shown at the end */
   reward: number;
   isBot: boolean;
-  /** true for the 10% of Wild Mon encounters that roll +3 levels and double challenger XP */
+  /** true for NPC encounters at least three levels above the challenger */
   isElite: boolean;
   /** the challenger's consecutive-win streak after this battle (0 on a loss) */
   winStreak: number;

@@ -94,8 +94,7 @@ export interface MonLoadout {
 /**
  * Stable, machine-readable reasons a submitted loadout was rejected (`set-loadout`'s response
  * carries this as `error.details.code`). The `TREE_*` codes come from
- * `packages/shared/src/game/tree.ts:validateTree`; `RESPEC_COOLDOWN` is Phase C's respec rule
- * (docs/design/talent-tree.md).
+ * `packages/shared/src/game/tree.ts:validateTree`.
  */
 export type LoadoutErrorCode =
   | 'INVALID_SHAPE'
@@ -108,17 +107,11 @@ export type LoadoutErrorCode =
   | 'TREE_UNKNOWN_NODE'
   | 'TREE_RANK'
   | 'TREE_PREREQ'
-  | 'TREE_OVER_BUDGET'
-  | 'RESPEC_COOLDOWN';
+  | 'TREE_OVER_BUDGET';
 
 export type ValidateLoadoutResult =
   | { ok: true; loadout: MonLoadout; isRespec: boolean }
   | { ok: false; code: LoadoutErrorCode; reason: string; details?: Record<string, unknown> };
-
-/** A respec is free below this level, then limited to once per `RESPEC_COOLDOWN_MS`
- * (docs/design/talent-tree.md Respec). */
-export const RESPEC_FREE_BELOW_LEVEL = 10;
-export const RESPEC_COOLDOWN_MS = 7 * 24 * 60 * 60 * 1000;
 
 /**
  * Pure validation for the `set-loadout` Edge Function. Accepts `stance`, `moves` (3 distinct move
@@ -128,14 +121,8 @@ export const RESPEC_COOLDOWN_MS = 7 * 24 * 60 * 60 * 1000;
  * `context.speciesId` is null for an unhatched egg, which cannot have moves (it has no species,
  * hence no move pool) -- `stance` alone is still accepted for an egg, same as Phase A.
  *
- * A respec (docs/design/talent-tree.md: "any change that lowers a node's rank", detected by
- * `isRespec` against `context.existingTree`) is free below `RESPEC_FREE_BELOW_LEVEL`; at or above
- * it, `context.lastRespecAt`/`context.now` gate it to once per `RESPEC_COOLDOWN_MS` -- this is
- * always re-derived from the submitted ranks themselves, so the caller's own `respec` flag (kept
- * in the request shape for the client's own UI confirmation) cannot be used to bypass the cooldown.
- * Both `existingTree`/`lastRespecAt` are optional because a client-side preview call (before the
- * server round-trip) may not have them at hand; the cooldown is only truly enforced once
- * `set-loadout` calls this with the mon's real stored `tree`/`last_respec_at`.
+ * Lowering a rank is a free respec. The caller's `respec` flag is ignored; the result derives
+ * `isRespec` from the stored and submitted trees.
  */
 export function validateLoadout(
   input: unknown,
@@ -144,8 +131,6 @@ export function validateLoadout(
     nation: Nation;
     speciesId: string | null;
     existingTree?: Record<string, number>;
-    lastRespecAt?: string | null;
-    now?: Date;
   },
 ): ValidateLoadoutResult {
   if (typeof input !== 'object' || input === null || Array.isArray(input)) {
@@ -213,21 +198,7 @@ export function validateLoadout(
     }
     const treeResult = validateTree(context.nation, context.level, ranks);
     if (!treeResult.ok) return { ok: false, code: treeResult.code, reason: treeResult.reason };
-    const respec = isRespec(context.existingTree ?? {}, ranks);
-    if (respec && context.level >= RESPEC_FREE_BELOW_LEVEL) {
-      const lastMs = context.lastRespecAt ? Date.parse(context.lastRespecAt) : NaN;
-      const nowMs = (context.now ?? new Date()).getTime();
-      if (Number.isFinite(lastMs) && nowMs - lastMs < RESPEC_COOLDOWN_MS) {
-        const cooldownUntil = new Date(lastMs + RESPEC_COOLDOWN_MS).toISOString();
-        return {
-          ok: false,
-          code: 'RESPEC_COOLDOWN',
-          reason: `respec available again at ${cooldownUntil}`,
-          details: { cooldownUntil },
-        };
-      }
-    }
-    isRespecResult = respec;
+    isRespecResult = isRespec(context.existingTree ?? {}, ranks);
     loadout.tree = ranks;
   }
   return { ok: true, loadout, isRespec: isRespecResult };

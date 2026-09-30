@@ -143,7 +143,7 @@ export interface BattleRequestResponse {
     /** the opponent; `playerId` is null for a Wild Mon */
     b: MonSnapshot;
     isBot: boolean;
-    /** true for the 10% of Wild Mon encounters that roll +3 levels and double challenger XP */
+    /** true for NPC encounters at least three levels above the challenger */
     isElite: boolean;
   };
   reward: { xp: number; kind: BattleRewardKind };

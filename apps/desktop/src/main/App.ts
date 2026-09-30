@@ -3,7 +3,6 @@ import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { app, dialog, ipcMain, shell } from 'electron';
 import {
-  RESPEC_FREE_BELOW_LEVEL,
   isNation,
   isStance,
   pointsAvailable,
@@ -543,7 +542,6 @@ export class App {
         nation: loadoutNation(s),
         speciesId: s.pet.speciesId,
         ...(s.loadout.tree ? { existingTree: s.loadout.tree } : {}),
-        lastRespecAt: s.loadout.lastRespecAt,
       });
       if (!result.ok) return { ok: false, error: result.reason };
       this.store.update((st) => {
@@ -551,11 +549,6 @@ export class App {
         if (result.loadout.moves !== undefined) st.loadout.moves = result.loadout.moves;
         if (result.loadout.tree !== undefined) {
           st.loadout.tree = result.loadout.tree;
-          // Offline mirror of set-loadout's own stamping rule; overwritten below with the
-          // server's own timestamp as soon as the online call (if any) comes back.
-          if (result.isRespec && level >= RESPEC_FREE_BELOW_LEVEL) {
-            st.loadout.lastRespecAt = new Date().toISOString();
-          }
         }
       });
       this.pushSnapshot();

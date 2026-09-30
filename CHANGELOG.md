@@ -19,6 +19,22 @@ related_files:
 
 All notable changes to claude-mons are documented here. See [Keep a Changelog](https://keepachangelog.com/) for format details.
 
+## [0.2.9] - 2026-09-30
+
+### Fixed
+
+- Codex's Windows hooks now launch the XP forwarder correctly through PowerShell. The activity XP rate is unchanged from Claude Code.
+- The Talent tree shows names and effects for all nation, Flow and shared talents; Reset all saves immediately without a cooldown.
+
+### Changed
+
+- Wild, Trainer and Rival battles have distinct strength and win XP. Wild stats are 20% below Trainers; comparable Trainers are 10% below Rivals. Higher-level opponents appear occasionally up to +5 and pay more XP only when beaten; losses always pay 10 XP.
+- Rival selection varies level bands, elements and recent opponents. Battle protocol 10 records the revised damage balance.
+
+### Deployment
+
+- Deploy migration `supabase/migrations/20260930000000_varied_challenges.sql` and the Edge Functions before publishing the desktop release.
+
 ## [0.2.8] - 2026-09-29
 
 ### Added

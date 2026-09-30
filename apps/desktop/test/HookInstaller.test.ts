@@ -35,6 +35,20 @@ describe('hook command', () => {
     );
   });
 
+  it('invokes Codex binaries correctly from Windows PowerShell without changing Claude hooks', () => {
+    const codex = buildOurHooks(BINARY_TARGET, CODEX_AGENT, 'win32');
+    const claude = buildOurHooks(BINARY_TARGET, CLAUDE_AGENT, 'win32');
+    expect(codex.UserPromptSubmit?.[0]?.hooks[0]?.command).toBe(
+      `& ${hookCommand(BIN, HOME, 'UserPromptSubmit')}`,
+    );
+    expect(claude.UserPromptSubmit?.[0]?.hooks[0]?.command).toBe(
+      hookCommand(BIN, HOME, 'UserPromptSubmit'),
+    );
+    expect(buildOurHooks(BINARY_TARGET, CODEX_AGENT, 'linux').Stop?.[0]?.hooks[0]?.command).toBe(
+      hookCommand(BIN, HOME, 'Stop'),
+    );
+  });
+
   it('honors CLAUDE_CONFIG_DIR', () => {
     expect(claudeSettingsPath({ CLAUDE_CONFIG_DIR: '/tmp/cc' }, '/home/x')).toBe(
       join('/tmp/cc', 'settings.json'),
@@ -171,7 +185,11 @@ describe('codex agent', () => {
         SessionStart: [
           {
             hooks: [
-              { command: "bash '/h/.codex/herdr-agent-state.sh' session", timeout: 10, type: 'command' },
+              {
+                command: "bash '/h/.codex/herdr-agent-state.sh' session",
+                timeout: 10,
+                type: 'command',
+              },
             ],
           },
         ],
@@ -184,7 +202,9 @@ describe('codex agent', () => {
   });
 
   it('honors CODEX_HOME', () => {
-    expect(codexHooksPath({ CODEX_HOME: '/tmp/cx' }, '/home/x')).toBe(join('/tmp/cx', 'hooks.json'));
+    expect(codexHooksPath({ CODEX_HOME: '/tmp/cx' }, '/home/x')).toBe(
+      join('/tmp/cx', 'hooks.json'),
+    );
     expect(codexConfigPath({}, '/home/x')).toBe(join('/home/x', '.codex', 'config.toml'));
   });
 
@@ -277,7 +297,11 @@ describe('HookInstaller (filesystem)', () => {
         SessionStart: [
           {
             hooks: [
-              { command: "bash '/h/.codex/herdr-agent-state.sh' session", timeout: 10, type: 'command' },
+              {
+                command: "bash '/h/.codex/herdr-agent-state.sh' session",
+                timeout: 10,
+                type: 'command',
+              },
             ],
           },
         ],

@@ -13,7 +13,6 @@ related_files:
   - apps/desktop/src/renderer/panel/views/Leaderboard.tsx
   - apps/desktop/src/renderer/panel/views/leaderboardHelpers.ts
   - apps/desktop/src/renderer/panel/views/Battles.tsx
-  - apps/desktop/src/renderer/panel/views/battleTreeLayout.ts
   - apps/desktop/src/renderer/panel/views/Settings.tsx
   - apps/desktop/src/renderer/panel/onboardingSteps.ts
   - apps/desktop/src/renderer/panel/panel.css
@@ -193,16 +192,10 @@ info web page ... the skill tree should be an actual tree"; Settings "fine for n
     other two dim — replaces the current 3-button list.
   - **Talent tree**: an SVG with a trunk rising into 3 nation-branch columns, plus a Flow combo list (e.g.
     Tremor/Canopy/Foundation for Earth — `docs/design/talent-tree.md`), 6 circular nodes per branch
-    connected by a vertical line, tier 1 nearest the trunk (bottom) rising to the tier-6 capstone (top).
-    A ranked node is filled in the nation color; a locked node (rank 0 or prereq unmet) is dim/outline
-    only. Hovering a node (a click also selects, covering the tap case) shows its name, one-time cost
-    and effect in a `talent-tooltip` line below the tree; a left click buys the talent once and a
-    right click removes it when the tree is interactive (`onAdd`/`onRemove` supplied). Node x/y
-    coordinates come from the pure, unit-tested `treeNodePosition`
-    (`apps/desktop/src/renderer/panel/views/battleTreeLayout.ts`). A `leaf`-glyph badge shows the
-    point counter (`spent.nation` / `pointsAvailable(level)`). Shared passives keep their existing
-    flat button-list treatment (restyled, not redrawn as a tree — they are a separate pool with no
-    tiers to visualize, per `docs/design/talent-tree.md` Shared passives).
+    shown as a readable vertical branch with each talent's name, effect, cost and status visible.
+    All four nation branches (including Flow) and Shared passives appear together. Clicking an
+    available card buys it once; owned cards have a separate Remove button. Nation and Shared point
+    counters appear at the top. Reset all changes the draft only; Save applies it without a cooldown.
   - **Recent opponents**: unchanged data (`explainMatchup`, `docs/design/progression.md` Phase D),
     restyled as compact strips (name, win/loss, one hint line, "Counter this" button only when
     `suggestedStance` is set) rather than the current bordered-card-per-opponent block.

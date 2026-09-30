@@ -176,6 +176,20 @@ describe('isRespec', () => {
     expect(isRespec({ 'water:current:1': 2 }, { 'water:current:1': 1 })).toBe(false);
     expect(isRespec({ 'water:current:1': 1 }, {})).toBe(true);
   });
+
+  it('allows reset at any level even after a recent respec', () => {
+    expect(
+      validateLoadout(
+        { tree: {} },
+        {
+          level: 30,
+          nation: 'water',
+          speciesId: 'dripple',
+          existingTree: { 'water:current:1': 1 },
+        },
+      ),
+    ).toMatchObject({ ok: true, isRespec: true, loadout: { tree: {} } });
+  });
 });
 
 it('accepts an old client resending existing multi-ranks but rejects new duplicate purchases', () => {

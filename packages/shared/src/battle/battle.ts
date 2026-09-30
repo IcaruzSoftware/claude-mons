@@ -134,8 +134,8 @@ export const FOLLOW_THROUGH_MULT = 1.2;
  * Phoenix Reborn/Second Breath KO interceptions -- none of which add or remove an `rng()` call by
  * themselves, but the golden log's *values* change because the formula does).
  */
-// v9: single-purchase combo talents and a more frequent automatic finisher.
-export const BATTLE_PROTOCOL_VERSION = 9;
+// v10: gentler +1..+3 level gaps, while +5 remains a serious challenge.
+export const BATTLE_PROTOCOL_VERSION = 10;
 
 const levelScale = (l: number): number => (l + 24) / 25;
 export const DOUBLE_STRIKE_CHANCE = 0.08;
@@ -214,6 +214,21 @@ export function snapshotFor(input: {
       stance: loadout?.stance ?? DEFAULT_STANCE,
       moves,
       ...(tree ? { tree } : {}),
+    },
+  };
+}
+
+/** NPCs have no invested talent tree; Wild stats are 20% below Trainer stats. */
+export function npcSnapshot(snapshot: MonSnapshot, kind: 'wild' | 'trainer'): MonSnapshot {
+  const factor = kind === 'wild' ? 0.72 : 0.9;
+  const stats = snapshot.stats;
+  return {
+    ...snapshot,
+    stats: {
+      hp: Math.round(stats.hp * factor),
+      atk: Math.round(stats.atk * factor),
+      def: Math.round(stats.def * factor),
+      spd: Math.round(stats.spd * factor),
     },
   };
 }
@@ -633,10 +648,15 @@ export function simulateBattle(a: MonSnapshot, b: MonSnapshot, seed: string): Ba
         .join(' + ') || undefined;
 
     // Experience matters even late in the level curve. Keep the gap bounded to matchmaking.
-    const levelGap = Math.max(-3, Math.min(3, M.level - mons[foe].level));
-    const experience = 1 + Math.sign(levelGap) * (0.09 + 0.02 * Math.abs(levelGap));
+    const levelGap = Math.max(-5, Math.min(5, M.level - mons[foe].level));
+    // A prepared trainer can challenge a stronger Wild Mon; real trainers keep the full
+    // level advantage. Weaker Wild Mons retain their old, reliable level disadvantage.
+    const experience =
+      levelGap < 0 && M.playerId !== null && mons[foe].playerId === null
+        ? 1 - 0.008 * levelGap ** 2
+        : 1 + Math.sign(levelGap) * (0.09 + 0.02 * Math.abs(levelGap));
     // A prepared opening gives an underdog one chance to overcome the experience gap.
-    const combo = FOLLOW_THROUGH_MULT + 0.7 * Math.max(0, -levelGap);
+    const combo = FOLLOW_THROUGH_MULT + 0.7 * Math.min(3, Math.max(0, -levelGap));
     const raw =
       power *
       (meStats.atk / 50) *
@@ -1015,13 +1035,15 @@ export const BATTLE_RULES = {
 export function challengerReward(input: {
   won: boolean;
   isBot: boolean;
+  opponentKind?: 'wild' | 'trainer' | 'rival';
   myLevel: number;
   oppLevel: number;
 }): number {
   if (!input.won) return 10;
-  const diff = Math.max(-3, Math.min(3, input.oppLevel - input.myLevel));
-  if (input.isBot) return 20 + 15 * Math.max(0, diff);
-  return 30 + (diff > 0 ? 15 : 5) * diff;
+  const diff = Math.max(-5, Math.min(5, input.oppLevel - input.myLevel));
+  const kind = input.opponentKind ?? (input.isBot ? 'wild' : 'rival');
+  const base = kind === 'wild' ? 20 : kind === 'trainer' ? 30 : 45;
+  return Math.max(10, base + (diff > 0 ? 15 : 5) * diff);
 }
 
 /** XP credited to the snapshot owner who was challenged. */
