@@ -145,7 +145,7 @@ describe('simulateBattle', () => {
   });
 
   it('golden log: pins the protocol so client and server cannot drift', () => {
-    expect(BATTLE_PROTOCOL_VERSION).toBe(9);
+    expect(BATTLE_PROTOCOL_VERSION).toBe(10);
     const res = simulateBattle(snap('sparkit', 10, 'a'), snap('puffle', 10, 'b'), 'golden-1');
     // If this test fails after an intentional formula change, update the fixture AND bump the
     // battle protocol version in the Edge Function; old logs keep replaying from stored snapshots.
@@ -154,9 +154,9 @@ describe('simulateBattle', () => {
   });
 
   it('rewards follow the design table', () => {
-    expect(challengerReward({ won: true, isBot: false, myLevel: 10, oppLevel: 10 })).toBe(30);
-    expect(challengerReward({ won: true, isBot: false, myLevel: 10, oppLevel: 20 })).toBe(75);
-    expect(challengerReward({ won: true, isBot: false, myLevel: 20, oppLevel: 10 })).toBe(15);
+    expect(challengerReward({ won: true, isBot: false, myLevel: 10, oppLevel: 10 })).toBe(45);
+    expect(challengerReward({ won: true, isBot: false, myLevel: 10, oppLevel: 20 })).toBe(120);
+    expect(challengerReward({ won: true, isBot: false, myLevel: 20, oppLevel: 10 })).toBe(20);
     expect(challengerReward({ won: false, isBot: false, myLevel: 10, oppLevel: 10 })).toBe(10);
     expect(challengerReward({ won: true, isBot: true, myLevel: 10, oppLevel: 10 })).toBe(20);
     expect(challengerReward({ won: false, isBot: true, myLevel: 10, oppLevel: 10 })).toBe(10);

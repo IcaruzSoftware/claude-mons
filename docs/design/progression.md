@@ -182,14 +182,16 @@ All equal-level species, archetype, stance and talent balance bounds remain unch
 
 ## Matchmaking and streaks
 
-Real opponents are searched in level bands `[-3,-2]`, `[-1,-1]`, `[0,0]`, then `[+1,+3]`.
-Recent 24-hour opponents are excluded. If the candidate repeats the last element, use a Wild Mon
-from another element. SQL caps the level gap at three.
-Wild encounters (online and offline) are 90%
-weaker (-3: 60%, -2: 25%, -1: 5%) and 10% elite, split equally across +1/+2/+3;
-levels clamp to [2, 50]. Clearer level gaps make ordinary battles more forgiving.
-At the hatch floor, weaker enemies may therefore be equal. Elite is a label, not an extra XP multiplier;
-win rewards use the actual level difference, and all challenger losses pay the same amount
+Rivals (real players) appear on 30% of online matchmaking attempts when an eligible player exists.
+Their preferred level bands vary between -3 and +3; +4 occurs on 2% of rival rolls and +5 on 1%.
+The previous opponent is never picked immediately again; other repeats wait one hour. A repeated
+element sends matchmaking to another band or an NPC. SQL caps the level gap at five.
+Without a rival, Wild and Trainer NPCs alternate. Both have no invested talents. Trainer stats are
+90% of a comparable Rival's; Wild stats are 80% of Trainer stats. The offline fallback mirrors
+these NPCs. NPC levels are 55% weaker, 20% equal, and 25% stronger, with +4/+5 only 1.5%/0.5%;
+levels clamp to [2, 50]. At the hatch floor, weaker enemies may therefore be equal. On wins,
+Wild, Trainer and Rival base rewards are 20, 30 and 45 XP respectively, plus 15 XP per higher
+opponent level (capped at +5). All challenger losses pay the same 10 XP
 (`docs/design/battle.md` Rewards). No real-player pool can guarantee weaker candidates exist.
 
 Win streaks add +10% challenger XP per consecutive win, capped at +50% (5 wins), resetting to 0 on a loss; tracked in `mons.win_streak` (new column). No Elo/rating system in v1.
@@ -205,17 +207,17 @@ migrations per `CLAUDE.md`'s "init migration is not edited in place" gotcha --
 |---|---|---|
 | `loadout` | `jsonb` | `{ moves?: [string, string, string], stance?: string, tree?: { [nodeId]: rank } }` |
 | `win_streak` | `int` | Consecutive real-player wins, see Matchmaking above |
-| `last_respec_at` | `timestamptz` | Enforces the once-per-7-days respec cooldown past level 10 |
+| `last_respec_at` | `timestamptz` | Legacy timestamp, no longer limits respecs |
 
 `loadout.moves` has no backfill for mons predating Phase B: `packages/shared/src/battle/
 battle.ts:snapshotFor` always defaults an absent/incomplete `moves` to
 `defaultLoadoutMoveIds(species, level)` (`packages/shared/src/game/species.ts`), so every mon battles
 with a valid loadout whether or not it has ever called `set-loadout`. The `set-loadout` Edge
 Function validates a submitted `{ stance?, moves?, tree?, respec? }` against
-the mon's level (unlocked moves, the talent tree's node/prereq/budget/respec-cooldown rules — see
+the mon's level (unlocked moves and the talent tree's node/prereq/budget rules — see
 `docs/design/talent-tree.md`) via the pure shared `validateLoadout`
 (`packages/shared/src/game/progression.ts`), returning typed `LoadoutErrorCode`s (e.g. `MOVE_LOCKED`,
-`MOVES_NOT_DISTINCT`, `TREE_OVER_BUDGET`, `RESPEC_COOLDOWN`) as `error.details.code`. `MonSnapshot`
+`MOVES_NOT_DISTINCT`, `TREE_OVER_BUDGET`) as `error.details.code`. `MonSnapshot`
 (`packages/shared/src/battle/battle.ts`) carries a `loadout` field, stored in
 `public.battles.challenger_snapshot`/`opponent_snapshot` so old battle logs keep replaying against
 the loadout actually equipped. `MonState` (`packages/shared/src/api.ts`) carries the mon's own
@@ -272,9 +274,7 @@ count tractable):
   against each other) — see `docs/design/talent-tree.md` Balance targets.
 
 Any change to `simulateBattle`'s RNG call order resets the golden log snapshot (`docs/design/battle.md`
-Determinism contract) and bumps `BATTLE_PROTOCOL_VERSION` (**4** as of Phase C: talent-tree stat
-nodes folded into snapshot stats, move-upgrade/capstone nodes and the 10 shared passives; an untreed
-mon's battle stays bit-identical to Phase B).
+Determinism contract) and bumps `BATTLE_PROTOCOL_VERSION` (**10** for the current combat rules).
 
 ## Phases
 

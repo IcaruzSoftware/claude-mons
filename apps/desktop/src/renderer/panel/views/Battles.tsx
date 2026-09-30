@@ -5,15 +5,12 @@ import {
   EFFECT_DESCRIPTIONS,
   NATION_INFO,
   NATION_PASSIVES,
-  RESPEC_COOLDOWN_MS,
-  RESPEC_FREE_BELOW_LEVEL,
   SHARED_PASSIVE_NODES,
   STANCES,
   defaultLoadoutMoveIds,
   displayName,
   explainMatchup,
   findMove,
-  isRespec,
   nationNodes,
   pointsAvailable,
   sharedPassivePoints,
@@ -32,7 +29,6 @@ import type { BattleSummary, SetLoadoutPayload, UiSnapshot } from '../../../comm
 import { SpriteView } from '../../ui/SpriteView.tsx';
 import { TypeChip } from '../../ui/TypeChip.tsx';
 import { Glyph } from '../../ui/Glyph.tsx';
-import { BRANCH_X, TIER_Y, treeNodePosition } from './battleTreeLayout.ts';
 
 /**
  * Tuned by simulation on 2026-09-13 (docs/design/progression.md Stances); keep this copy in sync
@@ -97,145 +93,110 @@ function StanceTriangle({ active, onPick }: { active: Stance; onPick?: (s: Stanc
   );
 }
 
-/**
- * Talent tree as an actual SVG tree (docs/design/ui-panels.md Battles' Talent tree component):
- * trunk rising into 3 branch columns of 6 tiered nodes each. Read-only (a static preview of the
- * saved tree) when `onAdd`/`onRemove` are omitted; interactive inside the loadout editor, where a
- * left click adds a rank and a right click removes one, with a detail line below showing the
- * selected node's exact numbers (desktop hover also selects, covering the tap-to-inspect case).
- */
+/** Every branch, including Flow and shared passives, stays readable without hover. */
 function TalentTree({
   nation,
   ranks,
   level,
   onAdd,
   onRemove,
+  onTogglePassive,
 }: {
   nation: Nation;
   ranks: Record<string, number>;
   level: number;
   onAdd?: (node: TreeNode) => void;
   onRemove?: (node: TreeNode) => void;
+  onTogglePassive?: (id: string, cost: number) => void;
 }) {
-  const [selected, setSelected] = useState<string | null>(null);
   const nodes = nationNodes(nation);
-  const branches: string[] = [];
-  for (const n of nodes) if (!branches.includes(n.branch)) branches.push(n.branch);
-  const columns = branches
-    .slice(0, 3)
-    .map((b) => nodes.filter((n) => n.branch === b).sort((a, c) => a.tier - c.tier));
+  const branches = [...new Set(nodes.map((node) => node.branch))];
   const spent = treeSpent(nation, ranks);
   const budget = pointsAvailable(level);
-  const interactive = Boolean(onAdd);
-  const selectedNode = selected ? nodes.find((n) => n.id === selected) : null;
+  const sharedBudget = sharedPassivePoints(level);
 
   return (
-    <div class={`tree-wrap`}>
-      <div class="leaf-badge">
-        <Glyph name="leaf" size={9} />
-        {spent.nation}/{budget}
-      </div>
-      <svg class={`tree-svg ${nation}`} viewBox="0 0 300 230" width="100%" height={230}>
-        <line x1="150" y1="228" x2="150" y2="205" />
-        {BRANCH_X.map((x) => (
-          <line key={x} x1="150" y1="205" x2={x} y2={TIER_Y[0]} />
-        ))}
-        {BRANCH_X.map((x) => (
-          <line key={`c-${x}`} x1={x} y1={TIER_Y[0]} x2={x} y2={TIER_Y[5]} />
-        ))}
-        {columns.map((col, ci) => (
-          <text key={ci} class="branch-label" x={BRANCH_X[ci]} y={205} text-anchor="middle">
-            {col[0]!.branch.toUpperCase()}
-          </text>
-        ))}
-        {columns.map((col, ci) =>
-          col.map((node) => {
-            const rank = ranks[node.id] ?? 0;
-            const locked = node.prereqId !== null && (ranks[node.prereqId] ?? 0) < 1;
-            const { x, y } = treeNodePosition(ci, node.tier);
-            return (
-              <g
-                key={node.id}
-                onMouseEnter={() => setSelected(node.id)}
-                onClick={() => {
-                  setSelected(node.id);
-                  if (interactive && !locked) onAdd?.(node);
-                }}
-                onContextMenu={(e) => {
-                  e.preventDefault();
-                  if (interactive && rank > 0) onRemove?.(node);
-                }}
-              >
-                <circle
-                  class={`node${locked ? ' locked' : ''}${rank > 0 ? ' ranked' : ''}`}
-                  cx={x}
-                  cy={y}
-                  r={9}
-                />
-                {rank > 0 && node.maxRank > 1 && (
-                  <text class="rank-label" x={x} y={y + 3} text-anchor="middle">
-                    {rank}
-                  </text>
-                )}
-              </g>
-            );
-          }),
-        )}
-      </svg>
-      <div class="combo-branch">
-        <h4>Flow combos</h4>
-        <p class="hint">
-          Arrange moves in the loadout above; combos activate automatically in battle.
-        </p>
-        {nodes
-          .filter((node) => node.branch === 'Flow')
-          .map((node) => {
-            const ranked = (ranks[node.id] ?? 0) > 0;
-            const locked = node.prereqId !== null && (ranks[node.prereqId] ?? 0) < 1;
-            return (
+    <div class="tree-wrap readable-tree">
+      <p class="hint">
+        Nation {spent.nation}/{budget} · Shared {spent.shared}/{sharedBudget}
+      </p>
+      {branches.map((branch) => (
+        <div class="talent-branch" key={branch}>
+          <h4>
+            {branch}
+            {branch === 'Flow' ? ' · combos' : ''}
+          </h4>
+          {nodes
+            .filter((node) => node.branch === branch)
+            .sort((a, b) => a.tier - b.tier)
+            .map((node) => {
+              const rank = ranks[node.id] ?? 0;
+              const locked = node.prereqId !== null && (ranks[node.prereqId] ?? 0) < 1;
+              const affordable = spent.nation + node.cost <= budget;
+              return (
+                <div class="talent-row" key={node.id}>
+                  <button
+                    class={`talent-card${rank ? ' ranked' : ''}`}
+                    disabled={!onAdd || Boolean(rank) || locked || !affordable}
+                    onClick={() => onAdd?.(node)}
+                  >
+                    <b>
+                      {rank ? '✓ ' : ''}
+                      {node.name}
+                    </b>
+                    <span>{node.description}</span>
+                    <small>
+                      {node.cost} pt ·{' '}
+                      {rank
+                        ? 'owned'
+                        : locked
+                          ? 'unlock previous talent'
+                          : affordable
+                            ? 'available'
+                            : 'not enough points'}
+                    </small>
+                  </button>
+                  {Boolean(rank) && onRemove && (
+                    <button class="talent-remove" onClick={() => onRemove(node)}>
+                      Remove
+                    </button>
+                  )}
+                </div>
+              );
+            })}
+        </div>
+      ))}
+      <div class="talent-branch">
+        <h4>Shared passives</h4>
+        {SHARED_PASSIVE_NODES.map((node) => {
+          const rank = ranks[node.id] ?? 0;
+          return (
+            <div class="talent-row" key={node.id}>
               <button
-                key={node.id}
-                class={ranked ? 'combo-node ranked' : 'combo-node'}
-                disabled={!interactive || (locked && !ranked)}
-                onClick={() => {
-                  setSelected(node.id);
-                  if (!ranked) onAdd?.(node);
-                }}
+                class={`talent-card${rank ? ' ranked' : ''}`}
+                disabled={
+                  !onTogglePassive || Boolean(rank) || spent.shared + node.cost > sharedBudget
+                }
+                onClick={() => onTogglePassive?.(node.id, node.cost)}
               >
                 <b>
-                  {ranked ? '✓ ' : ''}
+                  {rank ? '✓ ' : ''}
                   {node.name}
                 </b>
                 <span>{node.description}</span>
                 <small>
-                  {node.cost} pt{node.cost === 1 ? '' : 's'} ·{' '}
-                  {locked ? 'unlock previous talent' : ranked ? 'owned' : 'available'}
+                  {node.cost} pt · {rank ? 'owned' : 'available'}
                 </small>
               </button>
-            );
-          })}
-      </div>
-      {selectedNode && (
-        <div class="talent-tooltip">
-          <b>
-            {selectedNode.name} · {ranks[selectedNode.id] ?? 0}/{selectedNode.maxRank} (
-            {selectedNode.cost} pt{selectedNode.cost === 1 ? '' : 's'}/rank)
-          </b>
-          {selectedNode.description}
-          {interactive && (ranks[selectedNode.id] ?? 0) > 0 && (
-            <div style={{ marginTop: 4 }}>
-              <button onClick={() => onRemove?.(selectedNode)}>Remove talent</button>
+              {Boolean(rank) && onTogglePassive && (
+                <button class="talent-remove" onClick={() => onTogglePassive(node.id, node.cost)}>
+                  Remove
+                </button>
+              )}
             </div>
-          )}
-        </div>
-      )}
-      {!selectedNode && (
-        <p class="hint" style={{ margin: '4px 0 0', textAlign: 'center' }}>
-          {interactive
-            ? 'Click a node to buy it once; right-click or use Remove talent to respec.'
-            : 'Hover or tap a node for details.'}
-        </p>
-      )}
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -286,7 +247,6 @@ function LoadoutEditor({
   const rawSavedTree = s.battles.loadout.tree ?? {};
   const savedTree = singlePurchaseTree(rawSavedTree);
   const [tree, setTree] = useState<Record<string, number>>(savedTree);
-  const [respecArmed, setRespecArmed] = useState(false);
   const [busy, setBusy] = useState(false);
   const [saved, setSaved] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -294,13 +254,6 @@ function LoadoutEditor({
     if (counterRequest) setStance(counterRequest.stance);
   }, [counterRequest]);
   useEffect(() => setSaved(false), [moves, stance, tree]);
-  const treeRespec = isRespec(savedTree, tree);
-  const cooldownUntilMs = s.battles.lastRespecAt
-    ? Date.parse(s.battles.lastRespecAt) + RESPEC_COOLDOWN_MS
-    : 0;
-  const onCooldown = level >= RESPEC_FREE_BELOW_LEVEL && treeRespec && cooldownUntilMs > Date.now();
-  const needsConfirm =
-    treeRespec && level >= RESPEC_FREE_BELOW_LEVEL && !onCooldown && !respecArmed;
 
   const nodes = nationNodes(species.nation);
   const addRank = (node: TreeNode) => {
@@ -356,25 +309,18 @@ function LoadoutEditor({
   const canPickThreeMoves = unlockedIds.size >= 3;
 
   const save = async () => {
-    if (needsConfirm) {
-      setRespecArmed(true);
-      return;
-    }
     setBusy(true);
     setErr(null);
     const payload: SetLoadoutPayload = { stance };
     if (movesValid) payload.moves = moves;
     if (JSON.stringify(tree) !== JSON.stringify(rawSavedTree)) {
       payload.tree = tree;
-      payload.respec = treeRespec;
     }
     try {
       const r = await window.monsUi.setLoadout(payload);
       if (r.ok) {
         setSaved(true);
-        setRespecArmed(false);
       } else {
-        setRespecArmed(false);
         setErr(r.error ?? 'Failed to save loadout');
       }
     } catch {
@@ -390,7 +336,7 @@ function LoadoutEditor({
       : canPickThreeMoves && !allUnlocked
         ? "One of these moves isn't unlocked yet."
         : null;
-  const saveDisabled = busy || saved || saveDisabledReason !== null || onCooldown;
+  const saveDisabled = busy || saved || saveDisabledReason !== null;
 
   return (
     <div class="section">
@@ -501,55 +447,15 @@ function LoadoutEditor({
           level={level}
           onAdd={addRank}
           onRemove={removeRank}
+          onTogglePassive={togglePassive}
         />
-        <h3 style={{ marginTop: 14 }}>Shared passives</h3>
-        <p class="flavor" style={{ margin: '0 0 6px' }}>
-          Shared: {spent.shared} / {sharedBudget} spent. Available regardless of nation.
-        </p>
-        <div class="talent-passives">
-          {SHARED_PASSIVE_NODES.map((p) => {
-            const active = (tree[p.id] ?? 0) > 0;
-            const affordable = spent.shared + p.cost <= sharedBudget;
-            return (
-              <button
-                key={p.id}
-                class={`talent-passive${active ? ' active' : ''}`}
-                disabled={!active && !affordable}
-                onClick={() => togglePassive(p.id, p.cost)}
-                title={p.description}
-              >
-                <b>{p.name}</b>
-                <div class="hint">{p.description}</div>
-              </button>
-            );
-          })}
-        </div>
 
         <div class="row" style={{ border: 0, justifyContent: 'space-between', marginTop: 8 }}>
-          <span class="hint">
-            {level < RESPEC_FREE_BELOW_LEVEL
-              ? `Free respec below level ${RESPEC_FREE_BELOW_LEVEL}.`
-              : onCooldown
-                ? `Respec cooldown until ${new Date(cooldownUntilMs).toLocaleString()}.`
-                : 'Respec limited to once per 7 days past level 10.'}
-          </span>
-          <button
-            disabled={Object.values(tree).every((r) => !r)}
-            onClick={() => {
-              setTree({});
-              setRespecArmed(false);
-            }}
-          >
+          <span class="hint">Reset changes stay local until Save.</span>
+          <button disabled={Object.values(tree).every((r) => !r)} onClick={() => setTree({})}>
             Reset all
           </button>
         </div>
-        {respecArmed && !onCooldown && (
-          <p class="flavor">
-            This lowers a talent rank, which starts a 7-day respec cooldown. Click Save again to
-            confirm.
-          </p>
-        )}
-        {onCooldown && <p class="flavor">Respec is on cooldown; this change can't be saved yet.</p>}
 
         {err && <p class="loadout-error">Couldn't save: {err}</p>}
         {saveDisabledReason && !err && !saved && (
@@ -558,14 +464,8 @@ function LoadoutEditor({
           </p>
         )}
         <div class="row" style={{ border: 0, justifyContent: 'flex-end', gap: 8, marginTop: 8 }}>
-          <button
-            onClick={() => {
-              if (respecArmed) setRespecArmed(false);
-              else onDiscard();
-            }}
-            disabled={busy}
-          >
-            {respecArmed ? 'Back' : 'Discard changes'}
+          <button onClick={onDiscard} disabled={busy}>
+            Discard changes
           </button>
           <button
             class="primary"
@@ -573,7 +473,7 @@ function LoadoutEditor({
             disabled={saveDisabled}
             title={saveDisabledReason ?? undefined}
           >
-            {saved ? 'Saved' : busy ? 'Saving…' : respecArmed ? 'Confirm respec' : 'Save'}
+            {saved ? 'Saved' : busy ? 'Saving…' : 'Save'}
           </button>
         </div>
       </fieldset>
@@ -659,7 +559,7 @@ function RecentOpponentStrip({
   return (
     <div class="opponent-strip">
       <div class="top">
-        <b>{b.isBot ? 'Wild' : o.nickname}</b>
+        <b>{o.nickname}</b>
         <span class={b.won ? 'res-w' : 'res-l'}>
           {b.won ? 'WON' : 'LOST'} +{b.xp} XP
         </span>

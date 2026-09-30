@@ -74,14 +74,26 @@ export function scriptCommand(
 }
 
 /** Builds the hooks we add for all of the agent's events, pointed at the given target. */
-export function buildOurHooks(target: HookTarget, spec: HookAgentSpec = CLAUDE_AGENT): HooksSection {
+export function buildOurHooks(
+  target: HookTarget,
+  spec: HookAgentSpec = CLAUDE_AGENT,
+  platform: NodeJS.Platform = process.platform,
+): HooksSection {
   const section: HooksSection = {};
   for (const e of spec.events) {
     const command =
       target.mode === 'binary'
         ? hookCommand(target.binaryPath, target.homeDir, e.as)
         : scriptCommand(target.endpoint);
-    const group: HookGroup = { hooks: [{ type: 'command', command, timeout: e.timeout }] };
+    // Codex runs Windows hooks through PowerShell, where a quoted executable path needs `&`.
+    // Claude Code's command remains unchanged because it can run through cmd.exe.
+    const executableCommand =
+      spec.agent === 'codex' && platform === 'win32' && target.mode === 'binary'
+        ? `& ${command}`
+        : command;
+    const group: HookGroup = {
+      hooks: [{ type: 'command', command: executableCommand, timeout: e.timeout }],
+    };
     if (e.matcher) group.matcher = e.matcher;
     section[e.name] = [group];
   }

@@ -83,12 +83,8 @@ describe('talent UI renders for every nation (read-only preview with a populated
     it(`${nation}: main tab renders a saved tier 1-4 + passive tree without error`, async () => {
       render(h(BattlesView, { s: snapshotFor(nation, savedTree(nation)) }), container);
       await flush();
-      // Hover every preview node so its tooltip/description renders too (covers tier 3/4 flavour).
-      for (const g of Array.from(container.querySelectorAll('.tree-svg g'))) {
-        fire(g, 'mouseenter');
-        await flush();
-      }
-      expect(container.querySelector('.tree-svg'), `${nation}: preview tree`).toBeTruthy();
+      expect(container.querySelectorAll('.readable-tree .talent-branch')).toHaveLength(5);
+      expect(container.querySelectorAll('.readable-tree .talent-card')).toHaveLength(34);
       expect(consoleError, `${nation}: console.error`).not.toHaveBeenCalled();
     });
   }
@@ -109,17 +105,15 @@ describe('talent editor adds ranks and saves for every nation', () => {
       const overlay = container.querySelector('.loadout-card');
       expect(overlay, `${nation}: inline editor`).toBeTruthy();
 
-      // Hover + click every node; DOM order is tier 1..6 per branch, so prereqs are met as we go.
-      const nodeGroups = Array.from(overlay!.querySelectorAll('.tree-svg g'));
-      expect(nodeGroups.length, `${nation}: node count`).toBe(18);
-      for (const g of nodeGroups) {
-        fire(g, 'mouseenter');
-        await flush();
-        fire(g, 'click');
+      const nodeCards = Array.from(
+        overlay!.querySelectorAll('.talent-branch:first-of-type .talent-card'),
+      );
+      expect(nodeCards.length, `${nation}: first branch`).toBe(6);
+      for (const card of nodeCards) {
+        fire(card, 'click');
         await flush();
       }
-      // Turn on a shared passive (starts off, so this only adds -- never a respec).
-      const firstPassive = overlay!.querySelector('.talent-passives button');
+      const firstPassive = overlay!.querySelector('.talent-branch:last-child .talent-card');
       if (firstPassive) {
         fire(firstPassive, 'click');
         await flush();
@@ -148,7 +142,9 @@ describe('talent editor adds ranks and saves for every nation', () => {
 it('shows six Flow choices and only buys each talent once', async () => {
   render(h(BattlesView, { s: snapshotFor('water', {}) }), container);
   await flush();
-  const choices = Array.from(container.querySelectorAll<HTMLButtonElement>('.combo-node'));
+  const choices = Array.from(
+    container.querySelectorAll<HTMLButtonElement>('.talent-branch:nth-of-type(4) .talent-card'),
+  );
   expect(choices).toHaveLength(6);
   fire(choices[0]!, 'click');
   await flush();
@@ -179,7 +175,6 @@ it('consolidates old multi-rank talents without charging a respec', async () => 
   expect(setLoadout).toHaveBeenCalledWith(
     expect.objectContaining({
       tree: { 'water:current:1': 1 },
-      respec: false,
     }),
   );
 });

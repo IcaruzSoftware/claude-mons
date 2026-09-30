@@ -95,7 +95,6 @@ All windows share one preload (`src/preload/index.ts`); four renderers (pet, pan
 | `src/renderer/panel/onboardingSteps.ts` | Pure step arithmetic (`nextOnboardingStep`/`prevOnboardingStep`/`canGoBack`/`canGoNext`) for the onboarding wizard |
 | `src/renderer/panel/accountCopy.ts` | Copy for account linking, shared by Settings' Account section and Onboarding's sign-in sub-step |
 | `src/renderer/panel/views/*` | Onboarding (5-step wizard: welcome, what-is, controls, connect Claude Code, nation picker; welcome also offers a "sign in" sub-step, see account-linking flow doc), Mon, Battles, Leaderboard, Settings (Account section: link/switch/sign-out) |
-| `src/renderer/panel/views/battleTreeLayout.ts` | Pure talent-tree SVG coordinate lookup (`treeNodePosition`) for Battles' tree, dependency-free so it's unit-testable |
 | `src/renderer/panel/views/leaderboardHelpers.ts` | Pure podium ordering (`podiumOrder`: 2nd/1st/3rd) for Leaderboard, dependency-free so it's unit-testable |
 | `src/renderer/hovercard/main.tsx` | Hover card entry: compact stat card |
 | `src/renderer/reminder/main.tsx` | Water reminder card entry: nation-tinted sprite (or a `drop` glyph before hatch) + "Time for a sip of water" + Done/Snooze buttons; always renders the same content since the window is only shown while due |
@@ -212,7 +211,6 @@ app) and `--remote-debugging-port=<port>` exposes the renderers to the Chrome De
 | `test/onboardingSteps.test.ts` | Onboarding wizard step clamping (`nextOnboardingStep`/`prevOnboardingStep`) and Back/Next availability at the edges |
 | `test/WaterReminder.test.ts` | `nextDueAt` derivation, `tick`/`done`/`snooze`/auto-hide re-arm, skip-while-asleep and skip-while-in-battle, daily sip counter rollover across a UTC day boundary, `onConfigChanged`, `devForceDueInSeconds` |
 | `test/account.test.ts` | Email format validation, `describeAuthError` code mapping, `buildAdoptedProfile`/`resetToAnonymousProfile` state transforms |
-| `test/battleTreeLayout.test.ts` | Pure talent-tree SVG coordinate lookup (`treeNodePosition`) |
 | `test/bannerFit.test.ts` | Battle banner wrap/shrink/truncate and HUD clamp helpers |
 | `test/leaderboardHelpers.test.ts` | Podium ordering (2nd/1st/3rd) |
 | `test/updaterInterop.test.ts` | `pickAutoUpdater` module shapes, `describeUpdateError`, `isNoReleaseError` |

@@ -1,12 +1,39 @@
 import { describe, expect, it } from 'vitest';
-import { challengerReward, simulateBattle, snapshotFor } from '../src/battle/battle.ts';
-import { MATCHMAKING_WINDOWS, wildEncounterLevel } from '../src/battle/matchmaking.ts';
+import {
+  challengerReward,
+  npcSnapshot,
+  simulateBattle,
+  snapshotFor,
+} from '../src/battle/battle.ts';
+import {
+  MATCHMAKING_WINDOWS,
+  matchmakingWindowsForRoll,
+  wildEncounterLevel,
+} from '../src/battle/matchmaking.ts';
 import { effectiveness } from '../src/game/nations.ts';
 
 import { stageForLevel } from '../src/game/levels.ts';
 import { SPECIES } from '../src/game/species.ts';
 
 describe('passive fair battles', () => {
+  it('makes Wild roughly 20% weaker than Trainers and both weaker than Rivals', () => {
+    const rival = snapshotFor({
+      monId: 'r',
+      playerId: 'r',
+      nickname: 'r',
+      speciesId: 'ottlet',
+      level: 20,
+      stage: 'teen',
+      loadout: { tree: {} },
+    });
+    const trainer = npcSnapshot(rival, 'trainer');
+    const wild = npcSnapshot(rival, 'wild');
+    for (const stat of ['hp', 'atk', 'def', 'spd'] as const) {
+      expect(trainer.stats[stat]).toBeLessThan(rival.stats[stat]);
+      expect(wild.stats[stat]).toBeLessThan(trainer.stats[stat]);
+      expect(wild.stats[stat] / trainer.stats[stat]).toBeCloseTo(0.8, 1);
+    }
+  });
   it('makes prepared ordering useful against +3 opponents without guaranteeing a win', () => {
     let prepared = 0;
     let reversed = 0;
@@ -50,26 +77,31 @@ describe('passive fair battles', () => {
     expect(prepared / total).toBeLessThan(0.6);
   });
 
-  it('searches weaker players first and never extends beyond three levels either way', () => {
+  it('varies rivals by level and only rarely offers +4 or +5', () => {
     expect(MATCHMAKING_WINDOWS).toEqual([
       { min: -3, max: -2 },
-      { min: -1, max: -1 },
-      { min: 0, max: 0 },
-      { min: 1, max: 3 },
+      { min: -1, max: 0 },
+      { min: 1, max: 2 },
+      { min: 3, max: 3 },
     ]);
+    expect(matchmakingWindowsForRoll(0.5)[0]).toEqual({ min: -1, max: 0 });
+    expect(matchmakingWindowsForRoll(0.975)[0]).toEqual({ min: 4, max: 4 });
+    expect(matchmakingWindowsForRoll(0.995)[0]).toEqual({ min: 5, max: 5 });
     for (const level of [2, 3, 10, 30, 49, 50]) {
       let weaker = 0;
       let elite = 0;
       for (let i = 0; i < 1000; i++) {
         const encounter = wildEncounterLevel(level, i / 1000);
-        expect(Math.abs(encounter.level - level)).toBeLessThanOrEqual(3);
+        expect(Math.abs(encounter.level - level)).toBeLessThanOrEqual(5);
         expect(encounter.level).toBeGreaterThanOrEqual(2);
         expect(encounter.level).toBeLessThanOrEqual(50);
         if (encounter.level < level) weaker++;
         if (encounter.isElite) elite++;
       }
-      expect(elite).toBe(100);
-      if (level >= 10) expect(weaker).toBe(900);
+      if (level >= 10 && level <= 45) {
+        expect(elite).toBe(60);
+        expect(weaker).toBe(550);
+      }
     }
   });
 
@@ -117,24 +149,31 @@ describe('passive fair battles', () => {
       counts.set(gap, (counts.get(gap) ?? 0) + 1);
     }
     expect(Object.fromEntries(counts)).toEqual({
-      1: 100,
-      2: 100,
-      3: 100,
-      '-1': 150,
-      '-2': 750,
-      '-3': 1800,
+      0: 600,
+      1: 360,
+      2: 210,
+      3: 120,
+      4: 45,
+      5: 15,
+      '-1': 510,
+      '-2': 600,
+      '-3': 540,
     });
   });
 
-  it('pays +15 XP per harder level only on wins and the same 10 XP on every loss', () => {
-    for (const isBot of [false, true]) {
+  it('pays Wild < Trainer < Rival, +15 XP per harder level, and 10 XP on every loss', () => {
+    for (const opponentKind of ['wild', 'trainer', 'rival'] as const) {
       for (let diff = -10; diff <= 10; diff++) {
-        const input = { isBot, myLevel: 20, oppLevel: 20 + diff };
+        const input = {
+          isBot: opponentKind !== 'rival',
+          opponentKind,
+          myLevel: 20,
+          oppLevel: 20 + diff,
+        };
         expect(challengerReward({ ...input, won: false })).toBe(10);
-        const bounded = Math.max(-3, Math.min(3, diff));
-        const expected = isBot
-          ? 20 + 15 * Math.max(0, bounded)
-          : 30 + (bounded > 0 ? 15 : 5) * bounded;
+        const bounded = Math.max(-5, Math.min(5, diff));
+        const base = opponentKind === 'wild' ? 20 : opponentKind === 'trainer' ? 30 : 45;
+        const expected = Math.max(10, base + (bounded > 0 ? 15 : 5) * bounded);
         expect(challengerReward({ ...input, won: true })).toBe(expected);
       }
     }

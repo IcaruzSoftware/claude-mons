@@ -6,20 +6,48 @@ export function useWildForElementVariety(candidate: Nation, previous?: Nation | 
   return candidate === previous;
 }
 
-/** Prefer easier matches, then peers, then a bounded challenge. */
+/** Common human-opponent windows; +4/+5 are only searched on their rare rolls. */
 export const MATCHMAKING_WINDOWS = [
   { min: -3, max: -2 },
-  { min: -1, max: -1 },
-  { min: 0, max: 0 },
-  { min: 1, max: 3 },
+  { min: -1, max: 0 },
+  { min: 1, max: 2 },
+  { min: 3, max: 3 },
 ] as const;
 
-/** Inject a uniform roll: 90% weaker wild mons (-3: 60%, -2: 25%, -1: 5%); 10% challenges (+1 to +3). */
+/** Roll a preferred human matchup, then try common windows before falling back to wild. */
+export function matchmakingWindowsForRoll(roll: number): Array<{ min: number; max: number }> {
+  if (roll >= 0.99) return [{ min: 5, max: 5 }, ...MATCHMAKING_WINDOWS];
+  if (roll >= 0.97) return [{ min: 4, max: 4 }, ...MATCHMAKING_WINDOWS];
+  const preferred = roll < 0.25 ? 0 : roll < 0.55 ? 1 : roll < 0.9 ? 2 : 3;
+  return [
+    MATCHMAKING_WINDOWS[preferred]!,
+    ...MATCHMAKING_WINDOWS.filter((_, i) => i !== preferred),
+  ];
+}
+
+/** 55% weaker, 20% peer, 25% stronger; +4/+5 occur only 1.5%/0.5% of the time. */
 export function wildEncounterLevel(
   level: number,
   roll: number,
 ): { level: number; isElite: boolean } {
-  const isElite = roll < 0.1;
-  const delta = isElite ? 1 + Math.floor(roll * 30) : roll < 0.15 ? -1 : roll < 0.4 ? -2 : -3;
+  const delta =
+    roll < 0.18
+      ? -3
+      : roll < 0.38
+        ? -2
+        : roll < 0.55
+          ? -1
+          : roll < 0.75
+            ? 0
+            : roll < 0.87
+              ? 1
+              : roll < 0.94
+                ? 2
+                : roll < 0.98
+                  ? 3
+                  : roll < 0.995
+                    ? 4
+                    : 5;
+  const isElite = delta >= 3;
   return { level: Math.max(2, Math.min(MAX_LEVEL, level + delta)), isElite };
 }

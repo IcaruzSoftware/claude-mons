@@ -8,6 +8,7 @@ import {
   dayKey,
   displayName,
   levelFromXp,
+  npcSnapshot,
   variedWildNations,
   simulateBattle,
   snapshotFor,
@@ -177,7 +178,7 @@ export class BattleService {
     return summary;
   }
 
-  /** Offline fallback: a Wild Mon from another nation using the shared bounded encounter distribution. */
+  /** Offline fallback: a Wild or Trainer NPC from another nation. */
   private wildBattle(me: MonSnapshot, myNation: Nation): BattlePlayMessage {
     const rnd = this.deps.random ?? Math.random;
     const lastNation = this.deps.state.get().battles.history[0]?.opponent.nation;
@@ -187,14 +188,19 @@ export class BattleService {
     const species = pool[Math.floor(rnd() * pool.length)] ?? pool[0]!;
     const encounter = wildEncounterLevel(me.level, rnd());
     const stage = stageForLevel(encounter.level) as MonSnapshot['stage'];
-    const opponent = snapshotFor({
-      monId: `wild-${species.id}`,
-      playerId: null,
-      nickname: `Wild ${SPECIES[species.id]!.names[stage]}`,
-      speciesId: species.id,
-      stage,
-      level: encounter.level,
-    });
+    const kind = rnd() < 0.5 ? 'wild' : 'trainer';
+    const opponent = npcSnapshot(
+      snapshotFor({
+        monId: `${kind}-${species.id}`,
+        playerId: null,
+        nickname: `${kind === 'wild' ? 'Wild' : 'Trainer'} ${SPECIES[species.id]!.names[stage]}`,
+        speciesId: species.id,
+        stage,
+        level: encounter.level,
+        loadout: { tree: {} },
+      }),
+      kind,
+    );
     const id = randomUUID();
     const result = simulateBattle(me, opponent, id);
     const won = result.winner === 'a';
@@ -204,7 +210,13 @@ export class BattleService {
       result,
       me,
       opponent,
-      reward: challengerReward({ won, isBot: true, myLevel: me.level, oppLevel: opponent.level }),
+      reward: challengerReward({
+        won,
+        isBot: true,
+        opponentKind: kind,
+        myLevel: me.level,
+        oppLevel: opponent.level,
+      }),
       isBot: true,
       isElite: encounter.isElite,
       winStreak: won ? prevStreak + 1 : 0,

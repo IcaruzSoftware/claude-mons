@@ -1,5 +1,5 @@
 // POST {} -> BattleRequestResponse (DESIGN.md §5.7, §6.2).
-// claim_battle_slot -> pick an opponent from another nation (bounded level windows) or a Wild Mon
+// claim_battle_slot -> pick a Rival from another nation or a Wild/Trainer NPC
 // -> deterministic simulateBattle(seed = battle id) -> settle_battle.
 import type { BattleRequestResponse, BattleRewardKind } from '../_shared/game/api.ts';
 import {
@@ -7,12 +7,13 @@ import {
   BATTLE_RULES,
   challengerReward,
   defenderReward,
+  npcSnapshot,
   simulateBattle,
   snapshotFor,
   type MonSnapshot,
 } from '../_shared/game/battle/battle.ts';
 import {
-  MATCHMAKING_WINDOWS,
+  matchmakingWindowsForRoll,
   useWildForElementVariety,
   wildEncounterLevel,
 } from '../_shared/game/battle/matchmaking.ts';
@@ -97,16 +98,24 @@ serve(async (req) => {
     .limit(1);
   if (recentError) throw new Error(`recent battle: ${recentError.message}`);
   const lastNation = recent?.[0]?.opponent_snapshot?.nation as Nation | undefined;
-  const opponent = await findOpponent(db, uid, player.nation, myMon.level, lastNation);
+  const opponent =
+    randomUnit() < 0.3 ? await findOpponent(db, uid, player.nation, myMon.level, lastNation) : null;
   const isBot = opponent === null;
-  const wild = isBot ? wildMon(player.nation, myMon.level, lastNation) : null;
+  const botKind = randomUnit() < 0.5 ? 'trainer' : 'wild';
+  const wild = isBot ? wildMon(player.nation, myMon.level, lastNation, botKind) : null;
   const opp: MonSnapshot = opponent ?? wild!.snapshot;
   const isElite = wild?.isElite ?? false;
 
   const battleId = crypto.randomUUID();
   const result = simulateBattle(me, opp, battleId);
   const won = result.winner === 'a';
-  const xp = challengerReward({ won, isBot, myLevel: me.level, oppLevel: opp.level });
+  const xp = challengerReward({
+    won,
+    isBot,
+    opponentKind: isBot ? botKind : 'rival',
+    myLevel: me.level,
+    oppLevel: opp.level,
+  });
   const oppXp = isBot ? 0 : defenderReward(!won);
   const kind: BattleRewardKind = isBot ? (won ? 'bot_win' : 'bot_loss') : won ? 'win' : 'loss';
 
@@ -142,8 +151,8 @@ serve(async (req) => {
 });
 
 /**
- * Prefer weaker opponents, then peers, then challenges up to +3 levels. Within each
- * band prefer players not fought in the last 24 h. When the pool is exhausted, use a
+ * Sample a level band, including rare +4/+5 challenges. Within each band prefer players
+ * not fought in the last hour. When the pool is exhausted, use a
  * Wild Mon rather than immediately repeating the same human opponent.
  */
 async function findOpponent(
@@ -153,7 +162,7 @@ async function findOpponent(
   level: number,
   lastNation?: Nation,
 ): Promise<MonSnapshot | null> {
-  for (const window of MATCHMAKING_WINDOWS) {
+  for (const window of matchmakingWindowsForRoll(randomUnit())) {
     const rows = await rpc<OpponentRow[]>(db, 'pick_opponent', {
       p_player: uid,
       p_nation: nation,
@@ -165,7 +174,7 @@ async function findOpponent(
     if (row) {
       // An active pool can still contain several people of one element. Alternate with
       // wild encounters when the chosen element matches the immediately previous fight.
-      if (useWildForElementVariety(row.nation, lastNation)) return null;
+      if (useWildForElementVariety(row.nation, lastNation)) continue;
       return snapshotFor({
         monId: row.mon_id,
         playerId: row.player_id,
@@ -188,6 +197,7 @@ function wildMon(
   myNation: Nation,
   level: number,
   lastNation?: Nation,
+  kind: 'wild' | 'trainer' = 'wild',
 ): { snapshot: MonSnapshot; isElite: boolean } {
   const nations = variedWildNations(myNation, lastNation);
   const nation = nations[randomInt(nations.length)]!;
@@ -195,15 +205,20 @@ function wildMon(
   const species = pool[randomInt(pool.length)]!;
   const { level: wildLevel, isElite } = wildEncounterLevel(level, randomUnit());
   const stage = stageForLevel(wildLevel) as Exclude<Stage, 'egg'>;
-  return {
-    snapshot: snapshotFor({
-      monId: `wild:${species.id}`,
+  const snapshot = npcSnapshot(
+    snapshotFor({
+      monId: `${kind}:${species.id}`,
       playerId: null,
-      nickname: `Wild ${species.names.baby}`,
+      nickname: `${kind === 'wild' ? 'Wild' : 'Trainer'} ${species.names.baby}`,
       speciesId: species.id,
       stage,
       level: wildLevel,
+      loadout: { tree: {} },
     }),
+    kind,
+  );
+  return {
+    snapshot,
     isElite,
   };
 }

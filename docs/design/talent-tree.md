@@ -38,14 +38,13 @@ Saved pre-change ranks above one resolve as one purchase. The editor shows one p
 extra points available, and submits the normalized map on the next Save without treating that rank
 consolidation as a respec. The server also accepts an older client resending ranks already stored,
 normalizes them, and rejects any new duplicate purchase. Removing a purchased node or its
-prerequisite is still a respec: free
-below level 10, otherwise once per seven days. `validateLoadout` recomputes this on the server;
-a client's `respec` flag cannot bypass it. No database migration is needed because the loadout is
-stored as JSON.
+prerequisite is a free respec at every level. The editor shows all four nation branches, Flow and
+shared passives together, with names and effects always visible. Changes, including Reset all,
+take effect only after Save. No database migration is needed because the loadout is stored as JSON.
 
 ## Flow combos
 
-Flow appears under the three visual nation branches. The player arranges the three distinct move
+Flow appears alongside the three other nation branches. The player arranges the three distinct move
 slots and buys the Flow nodes; combat executes itself. Nodes require the previous Flow tier:
 
 | Tier | Talent | Automatic effect, at most once per battle |
