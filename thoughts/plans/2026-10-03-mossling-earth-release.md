@@ -3,7 +3,7 @@ doc_type: reference
 purpose: "Implementation and release checklist for the moss evolution line and local balance tuning."
 audience: agent
 last_verified: 2026-10-03
-last_verified_commit: da1f9c0
+last_verified_commit: 5f0e99a
 related_files:
   - packages/sprites/src/species/mossling.ts
   - packages/sprites/src/species/rootling.ts
@@ -80,8 +80,8 @@ Backend/client version drift is prevented by backend-first publication.
 - [x] Bump desktop version and changelog to 0.2.10 dated 2026-10-03.
 - [x] Run pnpm check, Deno compatibility check and production desktop build.
 - [x] Verify the three stages in an offline throwaway profile and save captures.
-- [ ] Commit, push reviewed source, deploy functions, and confirm successful workflow.
-- [ ] Push v0.2.10; wait for release workflow and verify all installer/metadata assets.
+- [x] Commit, push reviewed source, deploy functions, and confirm successful workflow.
+- [x] Push v0.2.10; wait for release workflow and verify all installer/metadata assets.
 
 ## Automated verification
 
@@ -101,3 +101,14 @@ checks and Deno shared-code compatibility. Validate release artifact names and v
   show swaying foliage, the brief sneeze and recovery. Walk/attack strips retain readable forms.
 - No database migration or local-profile migration is required. The original checkout's
   unrelated startup edits are excluded from this release.
+## Release evidence
+
+- Source/tag commit: 5f0e99a; Windows/Linux CI succeeded (run 37118491302).
+- Backend-first deployment succeeded (run 37118491506), with migrations disabled.
+- Release workflow succeeded (run 37118678180); v0.2.10 is published as a prerelease.
+- All six Windows/Linux installer and updater assets are present. Downloaded installer,
+  AppImage and DEB sizes and SHA-512 hashes match both version-0.2.10 manifests. The Windows
+  blockmap decompresses successfully; packaging logged creation of resources/app-update.yml.
+- Windows signing is disabled by existing repository configuration. APT publishing was
+  skipped because signing secrets are absent; the standalone DEB is published.
+- Release: https://github.com/IcaruzSoftware/claude-mons/releases/tag/v0.2.10
