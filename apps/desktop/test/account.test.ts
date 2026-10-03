@@ -56,6 +56,17 @@ describe('isValidEmailFormat', () => {
 });
 
 describe('buildAdoptedProfile', () => {
+  it('keeps history on same-account sign-in and restores the server loadout', () => {
+    const current = defaultState();
+    current.profile.userId = 'server-uid';
+    current.battles.lastBattleAt = 1234;
+    const res = fakeResponse({ loadout: { stance: 'gale', tree: { 'water:flow:1': 1 } } });
+    const patch = buildAdoptedProfile(current, res, 'trainer@example.com');
+    expect(patch.battles).toEqual(current.battles);
+    expect(patch.loadout).toEqual({ ...res.mon.loadout, lastRespecAt: null });
+    current.profile.userId = 'another-account';
+    expect(buildAdoptedProfile(current, res, 'trainer@example.com').battles.history).toEqual([]);
+  });
   it('writes the server profile fields and resets local progress from scratch', () => {
     const current = defaultState();
     current.pet.seed = 12345; // preserved: it's the behavior engine's per-install seed, not per-account

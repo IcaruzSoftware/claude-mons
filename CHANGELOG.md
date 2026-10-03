@@ -3,7 +3,7 @@ doc_type: reference
 purpose: "Release notes and version history; check this when seeing claude-mons updates or deciding what version to expect features in."
 audience: both
 last_verified: 2026-10-03
-last_verified_commit: da1f9c0
+last_verified_commit: 0d5dfe3
 related_files:
   - docs/history/v1-handoff-2026-09-04.md
   - docs/README.md
@@ -18,6 +18,29 @@ related_files:
 # Changelog
 
 All notable changes to claude-mons are documented here. See [Keep a Changelog](https://keepachangelog.com/) for format details.
+
+## [0.2.11] - 2026-10-03
+
+### Added
+
+- Battle's Skill Tree button opens a draggable, zoomable game-style map with all four
+  nation paths, including the six Flow combos, and ten shared passives. Wheel/plus/minus
+  zoom, Fit and Center support navigation; effects and purchase actions stay in a fixed
+  inspector. Learned paths glow, and passive/ultimate nodes have larger frames.
+
+### Changed
+
+- Shared passives display a cost of three points, with their point pool scaled to 3/6/9.
+  Existing purchases and the three-passive limit remain valid; all talents still buy once.
+- Battle shows only Abilities, the Skill Tree entry and Battle History. Talents, passives,
+  Flow and stance choices live inside the map. Map saves preserve unsaved attack drafts.
+- History persists resolved fights before animation ends and syncs the latest account battles
+  at startup, sign-in and subsequent syncs, including defenses and original battle timestamps.
+
+### Deployment
+
+- Redeploy Edge Functions before the desktop update to align passive point units. No
+  database migration or profile reset. Includes all previous 0.2.10 features and balance.
 
 ## [0.2.10] - 2026-10-03
 

@@ -2,8 +2,8 @@
 doc_type: design
 purpose: "Read this when redesigning a specific panel tab (Mon, Leaderboard, Battles, Settings) or planning the order of work for the panel reskin."
 audience: agent
-last_verified: 2026-09-28
-last_verified_commit: 2418c0b
+last_verified: 2026-10-03
+last_verified_commit: 0d5dfe3
 related_files:
   - docs/design/ui-style.md
   - docs/design/progression.md
@@ -150,66 +150,32 @@ info web page ... the skill tree should be an actual tree"; Settings "fine for n
 
 ## Battles
 
-```
-┌ 440 ───────────────────────────────────┐
-│ ┌ arena ──────────────────────────────┐│
-│ │ [Mossling]   VS   [Wild Wispit]     ││
-│ │  Lv4 Bulwark      Lv5 Bulwark       ││
-│ │ WON · 6 turns · knockout            ││
-│ │ [09:42 timer]  ★x3 streak  42/50    ││
-│ └──────────────────────────────────────┘│
-│ LOADOUT                                 │
-│  1 Opener   Moss Pat        [neu] ↕    │
-│  2 Default  Root Bind       [ETH] ↕    │
-│  3 Finisher terraform apply [ETH] ↕    │
-│ STANCE                                  │
-│      Fury                               │
-│  Bulwark* — Gale   (triangle, lit)     │
-│ TALENTS · EARTH            🍃18/47     │
-│   (SVG tree: 3 nation branches x 6,    │
-│    trunk at bottom, ranked=filled)     │
-│ RECENT OPPONENTS                        │
-│  Wild Wispit  WON +20xp  · hint line   │
-│  Riftpatch    LOST +10xp · hint [Counter]│
-├──────────────────────────────────────────┤
-│ [MON] [BOARD] [BATTLE*] [SETUP]         │
-└──────────────────────────────────────────┘
-```
+The main Battle view contains Abilities (three attack slots, reorder, Save/Discard), the
+Skill Tree entry immediately below the slots, and Battle History. It has no arena,
+separate Talents list, passive list or stance section.
 
-- **Components**:
-  - **Arena header**: player-mon sprite vs. last opponent's sprite with a "VS" divider, a result banner
-    (win/loss + turn count + `reason`), a pixel/digital-readout cooldown timer, win-streak flame, and
-    challenges-remaining-today count — consolidates the existing "How to battle" `kv` block into one
-    game-styled header instead of a plain key-value grid.
-  - **Loadout**: 3 slot cards (Opener/Default/Finisher per `SLOT_LABELS` in
-    `apps/desktop/src/renderer/panel/views/Battles.tsx`), each a move name + its type chip
-    (`docs/design/ui-style.md` chip spec) + up/down reorder buttons — same `reorder`/`setSlot` logic
-    already in `LoadoutEditor`, restyled as cards instead of a flat `<select>` list. The move picker
-    itself stays a native `<select>` inside each card (shipped as-is; restyling that control further
-    is not planned).
-  - **Stance**: an SVG triangle, one corner per stance (Fury/Bulwark/Gale per
-    `docs/design/progression.md` Stances), the active stance's corner filled solid in `--accent`, the
-    other two dim — replaces the current 3-button list.
-  - **Talent tree**: an SVG with a trunk rising into 3 nation-branch columns, plus a Flow combo list (e.g.
-    Tremor/Canopy/Foundation for Earth — `docs/design/talent-tree.md`), 6 circular nodes per branch
-    shown as a readable vertical branch with each talent's name, effect, cost and status visible.
-    All four nation branches (including Flow) and Shared passives appear together. Clicking an
-    available card buys it once; owned cards have a separate Remove button. Nation and Shared point
-    counters appear at the top. Reset all changes the draft only; Save applies it without a cooldown.
-  - **Recent opponents**: unchanged data (`explainMatchup`, `docs/design/progression.md` Phase D),
-    restyled as compact strips (name, win/loss, one hint line, "Counter this" button only when
-    `suggestedStance` is set) rather than the current bordered-card-per-opponent block.
-- **States**: egg (`hatched === false`) — arena/loadout/stance/tree are replaced by the existing
-  "Hatch your mon to pick its moves and stance" line, only Recent opponents can still render (an egg
-  can't battle but a previous mon's history — none in practice, list is empty); loading — none, battle
-  state is part of `UiSnapshot`; error — the loadout editor's own inline `err` message on a failed save
-  is unchanged; empty recent-opponents — existing "No battles yet" line.
-- **Fits without scrolling**: arena header + loadout + stance triangle, at typical panel height.
-  **Scrolls**: the talent tree and recent-opponents sections — the tree alone (6 tiers x 3 branches
-  plus the trunk) is taller than the remaining budget once the arena/loadout/stance render. The
-  scroll area (`.view` in `apps/desktop/src/renderer/panel/panel.css`) hides its native scrollbar
-  and instead pins a `scroll-fade` sibling (rendered by `apps/desktop/src/renderer/panel/App.tsx`)
-  above the game-menu bar as the visual cue that there is more to see.
+The Skill Tree opens a full-panel atlas: drag to pan, wheel or plus/minus to zoom,
+Fit for the overview and Center for the core. Four nation paths include six Flow
+combos; ten shared passives form independent clusters. Solid paths indicate prerequisites,
+dotted paths indicate shared groups. Passives and ultimate nodes have larger frames.
+The unscaled inspector shows effects, cost and explicit one-time purchase/removal actions.
+Select the core for the innate passive, automatic combo and battle stance choices.
+Save applies tree/stance only and preserves unsaved attack drafts. Cancel restores the
+opening tree and stance. Free Reset all affects only the map draft.
+
+History shows the ten newest battles, sorted by their original timestamps. Resolved
+battles persist before animation ends and update the open panel immediately. Startup,
+account sign-in and sync read the account's latest 50 challenger/defender battles through
+existing participant-only RLS, merging by id with local offline fights. Same-account
+sign-in preserves cached history; switching accounts clears it. Failed fetches keep the
+cache. Late fetches cannot populate a different account.
+
+The map and fixed controls fit 440x660 and 380x520; the inspector scrolls independently.
+The main view scrolls its history. An egg shows the hatch prompt and empty history.
+Save errors retain drafts for retry.
+
+References: [Path of Exile](https://www.pathofexile.com/passive-skill-tree) and
+[Last Epoch](https://lastepoch.com/skills/).
 
 ## Settings
 

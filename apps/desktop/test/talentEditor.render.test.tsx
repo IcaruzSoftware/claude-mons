@@ -69,7 +69,10 @@ beforeEach(() => {
   container = document.createElement('div');
   document.body.appendChild(container);
   setLoadout = vi.fn().mockResolvedValue({ ok: true, error: null });
-  (window as unknown as { monsUi: unknown }).monsUi = { setLoadout };
+  (window as unknown as { monsUi: unknown }).monsUi = {
+    setLoadout,
+    refreshBattles: vi.fn().mockResolvedValue(undefined),
+  };
   consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
 });
 afterEach(() => {
@@ -78,90 +81,59 @@ afterEach(() => {
   consoleError.mockRestore();
 });
 
-describe('talent UI renders for every nation (read-only preview with a populated tree)', () => {
-  for (const nation of NATIONS) {
-    it(`${nation}: main tab renders a saved tier 1-4 + passive tree without error`, async () => {
-      render(h(BattlesView, { s: snapshotFor(nation, savedTree(nation)) }), container);
-      await flush();
-      expect(container.querySelectorAll('.readable-tree .talent-branch')).toHaveLength(5);
-      expect(container.querySelectorAll('.readable-tree .talent-card')).toHaveLength(34);
-      expect(consoleError, `${nation}: console.error`).not.toHaveBeenCalled();
-    });
-  }
+it('shows only abilities, a Skill Tree entry and history on Battle', async () => {
+  render(h(BattlesView, { s: snapshotFor('water', savedTree('water')) }), container);
+  await flush();
+  expect([...container.querySelectorAll('h3')].map((e) => e.textContent)).toEqual([
+    'Abilities',
+    'Battle History',
+  ]);
+  expect(container.querySelectorAll('.mv-select')).toHaveLength(3);
+  expect(container.querySelector('.skill-entry')).toBeTruthy();
+  expect(container.querySelector('.talent-card, .tree-wrap, .arena, .triframe')).toBeNull();
+  expect(container.textContent).not.toContain('Shared passives');
 });
 
-describe('talent editor adds ranks and saves for every nation', () => {
-  for (const nation of NATIONS) {
-    it(`${nation}: editing from an empty tree throws nothing and sends the tree to save`, async () => {
-      // Start from an empty tree so adding ranks is never a respec (which would arm confirmation).
-      render(h(BattlesView, { s: snapshotFor(nation, {}) }), container);
-      await flush();
-
-      expect(
-        Array.from(container.querySelectorAll('button')).some(
-          (b) => b.textContent?.trim() === 'Edit loadout',
-        ),
-      ).toBe(false);
-      const overlay = container.querySelector('.loadout-card');
-      expect(overlay, `${nation}: inline editor`).toBeTruthy();
-
-      const nodeCards = Array.from(
-        overlay!.querySelectorAll('.talent-branch:first-of-type .talent-card'),
-      );
-      expect(nodeCards.length, `${nation}: first branch`).toBe(6);
-      for (const card of nodeCards) {
-        fire(card, 'click');
-        await flush();
-      }
-      const firstPassive = overlay!.querySelector('.talent-branch:last-child .talent-card');
-      if (firstPassive) {
-        fire(firstPassive, 'click');
-        await flush();
-      }
-
-      expect(setLoadout).not.toHaveBeenCalled();
-      const saveBtn = Array.from(overlay!.querySelectorAll('button')).find(
-        (b) => b.textContent?.trim() === 'Save',
-      );
-      expect(saveBtn, `${nation}: Save button`).toBeTruthy();
-      fire(saveBtn!, 'click');
-      await flush();
-
-      expect(consoleError, `${nation}: console.error`).not.toHaveBeenCalled();
-      expect(setLoadout, `${nation}: setLoadout called`).toHaveBeenCalled();
-      const payload = setLoadout.mock.calls.at(-1)![0] as { tree?: Record<string, number> };
-      expect(payload.tree, `${nation}: tree in payload`).toBeTruthy();
-      expect(
-        Object.values(payload.tree!).some((r) => r > 0),
-        `${nation}: non-empty tree`,
-      ).toBe(true);
-    });
-  }
-});
-
-it('shows six Flow choices and only buys each talent once', async () => {
-  render(h(BattlesView, { s: snapshotFor('water', {}) }), container);
+it('updates the open History with the newest battle ahead of login-time entries', async () => {
+  const s = snapshotFor('water', {});
+  const old = {
+    id: 'login-battle',
+    at: 1000,
+    won: true,
+    xp: 10,
+    isBot: true,
+    isElite: false,
+    winStreak: 0,
+    turns: 5,
+    reason: 'ko' as const,
+    me: { speciesId: 'dripple', stage: 'baby' as const, level: 5 },
+    opponent: {
+      nickname: 'Old',
+      speciesId: 'sparkit',
+      stage: 'baby' as const,
+      level: 5,
+      nation: 'fire' as const,
+      loadout: {},
+    },
+  };
+  s.battles.history = [old];
+  render(h(BattlesView, { s }), container);
   await flush();
-  const choices = Array.from(
-    container.querySelectorAll<HTMLButtonElement>('.talent-branch:nth-of-type(4) .talent-card'),
-  );
-  expect(choices).toHaveLength(6);
-  fire(choices[0]!, 'click');
-  await flush();
-  fire(choices[0]!, 'click');
-  await flush();
-  fire(choices[1]!, 'click');
-  await flush();
-  const save = Array.from(container.querySelectorAll('button')).find(
-    (button) => button.textContent === 'Save',
-  )!;
-  fire(save, 'click');
-  await flush();
-  expect(setLoadout).toHaveBeenCalledWith(
-    expect.objectContaining({
-      tree: expect.objectContaining({ 'water:flow:1': 1, 'water:flow:2': 1 }),
+  render(
+    h(BattlesView, {
+      s: {
+        ...s,
+        battles: { ...s.battles, history: [old, { ...old, id: 'new-battle', at: 2000 }] },
+      },
     }),
+    container,
   );
+  await flush();
+  expect(
+    [...container.querySelectorAll('[data-battle-id]')].map((e) =>
+      e.getAttribute('data-battle-id'),
+    ),
+  ).toEqual(['new-battle', 'login-battle']);
 });
 
 it('consolidates old multi-rank talents without charging a respec', async () => {
@@ -237,4 +209,82 @@ it('retains a draft after a failed save and permits retry without reopening an e
     expect.objectContaining({ moves: expect.arrayContaining([replacement]) }),
   );
   expect(container.querySelector('.loadout-error')).toBeNull();
+});
+
+describe('zoomable skill map', () => {
+  async function open(s: UiSnapshot) {
+    render(h(BattlesView, { s }), container);
+    await flush();
+    fire(container.querySelector('.skill-entry')!, 'click');
+    await flush();
+    return container.querySelector('.skill-overlay')!;
+  }
+  async function clickText(scope: Element, label: string) {
+    const button = Array.from(scope.querySelectorAll('button')).find(
+      (b) => b.textContent?.trim() === label,
+    )!;
+    expect(button).toBeTruthy();
+    fire(button, 'click');
+    await flush();
+  }
+  for (const nation of NATIONS) {
+    for (const species of speciesForNation(nation)) {
+      it(`${species.id}: renders all four paths, Flow and shared passives`, async () => {
+        const s = snapshotFor(nation, {});
+        s.pet.speciesId = species.id;
+        const overlay = await open(s);
+        expect(overlay.querySelectorAll('[data-node-id]')).toHaveLength(24);
+        expect(overlay.querySelectorAll('[data-passive-id]')).toHaveLength(10);
+        expect(overlay.querySelectorAll('.map-branch-label')).toHaveLength(4);
+        expect(overlay.querySelector(`[data-node-id="${nation}:flow:6"]`)).toBeTruthy();
+        expect(overlay.textContent).not.toContain('Planned');
+      });
+    }
+  }
+  it('buys Flow talents once and saves only the tree while retaining the attack draft', async () => {
+    const overlay = await open(snapshotFor('water', {}));
+    const select = container.querySelector<HTMLSelectElement>('.mv-select')!;
+    const replacement = Array.from(select.options).find(
+      (o) => !o.disabled && o.value !== select.value,
+    )!.value;
+    select.value = replacement;
+    fire(select, 'change');
+    await flush();
+    fire(overlay.querySelector('[data-node-id="water:flow:1"]')!, 'click');
+    await flush();
+    await clickText(overlay, 'Unlock · 1 pts');
+    expect(overlay.querySelector('.skill-actions .primary')!.hasAttribute('disabled')).toBe(true);
+    await clickText(overlay, 'Save');
+    expect(setLoadout).toHaveBeenLastCalledWith({ tree: { 'water:flow:1': 1 } });
+    expect(container.querySelector<HTMLSelectElement>('.mv-select')!.value).toBe(replacement);
+  });
+  it('cancels additions and cascades removal through actual prerequisites', async () => {
+    const overlay = await open(snapshotFor('water', { 'water:flow:1': 1, 'water:flow:2': 1 }));
+    fire(overlay.querySelector('[data-node-id="water:flow:1"]')!, 'click');
+    await flush();
+    await clickText(overlay, 'Remove');
+    expect(overlay.querySelectorAll('[data-node-id].learned')).toHaveLength(0);
+    await clickText(overlay, 'Cancel');
+    expect(setLoadout).not.toHaveBeenCalled();
+    fire(container.querySelector('.skill-entry')!, 'click');
+    await flush();
+    expect(container.querySelectorAll('[data-node-id].learned')).toHaveLength(2);
+  });
+  it('enforces separate passive points and exposes zoom controls without spending points', async () => {
+    const overlay = await open(snapshotFor('water', {}));
+    fire(overlay.querySelector('[data-passive-id="shared:stone-skin"]')!, 'click');
+    await flush();
+    await clickText(overlay, 'Unlock · 3 passive pts');
+    fire(overlay.querySelector('[data-passive-id="shared:deep-roots"]')!, 'click');
+    await flush();
+    expect(overlay.querySelector('.skill-actions .primary')!.hasAttribute('disabled')).toBe(true);
+    fire(overlay.querySelector('[aria-label="Zoom in"]')!, 'click');
+    await flush();
+    expect(overlay.querySelector('output')!.textContent).toBe('90%');
+    fire(overlay.querySelector('[aria-label="Zoom out"]')!, 'click');
+    await flush();
+    expect(overlay.querySelector('output')!.textContent).toBe('75%');
+    await clickText(overlay, 'Save');
+    expect(setLoadout).toHaveBeenLastCalledWith({ tree: { 'shared:stone-skin': 1 } });
+  });
 });

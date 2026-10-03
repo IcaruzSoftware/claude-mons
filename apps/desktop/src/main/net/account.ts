@@ -5,7 +5,7 @@
  * either — `apps/desktop/src/main/App.ts` is what wires them to `SupabaseClient`/`GameService`.
  */
 import type { User } from '@supabase/supabase-js';
-import type { CreateProfileResponse } from '@claude-mons/shared';
+import { DEFAULT_STANCE, type CreateProfileResponse } from '@claude-mons/shared';
 import type { LocalState } from '../persistence/state.ts';
 
 /** Same shape the panel uses for an inline format check before ever calling the server. */
@@ -51,7 +51,15 @@ export function resolveConfirmedEmail(
 /** The subset of `LocalState` an adopt/sign-out replaces; everything else (device, settings, hooks, UI, water, behavior) is left untouched. */
 export type ProfileReplacement = Pick<
   LocalState,
-  'profile' | 'pet' | 'progress' | 'ledger' | 'streak' | 'bonusXp' | 'battleXp' | 'battles'
+  | 'profile'
+  | 'pet'
+  | 'progress'
+  | 'ledger'
+  | 'streak'
+  | 'bonusXp'
+  | 'battleXp'
+  | 'battles'
+  | 'loadout'
 >;
 
 /**
@@ -79,7 +87,20 @@ export function buildAdoptedProfile(
     streak: { streakDays: res.mon.streakDays, lastActiveDay: null },
     bonusXp: 0,
     battleXp: 0,
-    battles: { history: [], lastBattleAt: null, today: { day: '', count: 0 }, streak: 0 },
+    battles:
+      current.profile.userId === res.player.id
+        ? current.battles
+        : {
+            history: [],
+            lastBattleAt: null,
+            today: { day: '', count: 0 },
+            streak: res.mon.winStreak,
+          },
+    loadout: {
+      ...res.mon.loadout,
+      stance: res.mon.loadout.stance ?? DEFAULT_STANCE,
+      lastRespecAt: res.mon.lastRespecAt,
+    },
   };
 }
 
@@ -99,5 +120,6 @@ export function resetToAnonymousProfile(newSeed: number): ProfileReplacement {
     bonusXp: 0,
     battleXp: 0,
     battles: { history: [], lastBattleAt: null, today: { day: '', count: 0 }, streak: 0 },
+    loadout: { stance: DEFAULT_STANCE, lastRespecAt: null },
   };
 }

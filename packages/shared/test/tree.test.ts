@@ -50,10 +50,10 @@ describe('tree data', () => {
     expect(pointsAvailable(50)).toBe(47);
   });
 
-  it('has exactly 10 shared passives, each costing 1 point with maxRank 1', () => {
+  it('has exactly 10 shared passives, each costing 3 points with maxRank 1', () => {
     expect(SHARED_PASSIVE_NODES).toHaveLength(10);
     for (const p of SHARED_PASSIVE_NODES) {
-      expect(p.cost).toBe(1);
+      expect(p.cost).toBe(3);
       expect(p.maxRank).toBe(1);
       expect(p.id.startsWith('shared:')).toBe(true);
     }
@@ -70,11 +70,11 @@ describe('pointsAvailable / sharedPassivePoints', () => {
     expect(pointsAvailable(999)).toBe(47);
   });
 
-  it('grants shared-passive points every 15 levels, capped at 3', () => {
+  it('grants shared-passive points every 15 levels, capped at 9', () => {
     expect(sharedPassivePoints(14)).toBe(0);
-    expect(sharedPassivePoints(15)).toBe(1);
-    expect(sharedPassivePoints(30)).toBe(2);
-    expect(sharedPassivePoints(45)).toBe(3);
+    expect(sharedPassivePoints(15)).toBe(3);
+    expect(sharedPassivePoints(30)).toBe(6);
+    expect(sharedPassivePoints(45)).toBe(9);
     expect(sharedPassivePoints(50)).toBe(MAX_SHARED_PASSIVE_POINTS);
   });
 });
@@ -222,7 +222,7 @@ it('accepts an old client resending existing multi-ranks but rejects new duplica
 describe('treeSpent / treeSummary', () => {
   it('sums nation and shared spend separately', () => {
     const ranks = { 'water:current:1': 3, 'water:current:2': 2, 'shared:bedrock': 1 };
-    expect(treeSpent('water', ranks)).toEqual({ nation: 2, shared: 1 });
+    expect(treeSpent('water', ranks)).toEqual({ nation: 2, shared: 3 });
   });
 
   it('groups a tree by branch (and "Shared" for shared passives)', () => {

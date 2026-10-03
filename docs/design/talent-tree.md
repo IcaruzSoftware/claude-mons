@@ -2,8 +2,8 @@
 doc_type: design
 purpose: "Read this when changing talent-tree nodes, budgets, respec rules, or the loadout editor's Talents section."
 audience: agent
-last_verified: 2026-09-29
-last_verified_commit: cd39fe6
+last_verified: 2026-10-03
+last_verified_commit: 0d5dfe3
 related_files:
   - packages/shared/src/game/tree.ts
   - packages/shared/src/battle/battle.ts
@@ -32,7 +32,8 @@ One nation point arrives per level from level 4, up to 47 at level 50. Each orig
 5. Flow follows the same costs. All four cost 56, so specialization remains necessary. Tier 1/2
 nodes each grant +0.33% to their listed stat once; tiers 3/4 have real battle effects; tier 5
 upgrades the specified loadout slot's move by +3% effect magnitude or +1% power; tier 6 is the
-branch capstone. Shared passives grant one point every 15 levels, capped at three purchases.
+branch capstone. Shared passives cost three points; their pool grants three points every 15 levels, capped at nine
+points (three purchases). Cost and budget units scale together, preserving existing selections.
 
 Saved pre-change ranks above one resolve as one purchase. The editor shows one purchase, makes the
 extra points available, and submits the normalized map on the next Save without treating that rank

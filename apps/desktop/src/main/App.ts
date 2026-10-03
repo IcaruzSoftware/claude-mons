@@ -31,6 +31,8 @@ import { PetHost } from './PetHost.ts';
 import { Autostart } from './autostart/Autostart.ts';
 import { rememberAnchor } from './display.ts';
 import { BattleService } from './game/BattleService.ts';
+import { mergeBattleHistory } from '../common/battleHistory.ts';
+import { fetchBattleHistory } from './net/battleHistory.ts';
 import { GameService } from './game/GameService.ts';
 import { rollSpeciesForNation } from './game/species.ts';
 import { ActivityTracker } from './hooks/ActivityTracker.ts';
@@ -506,6 +508,7 @@ export class App {
       await this.sync?.flush();
       return this.snapshot();
     });
+    ipcMain.handle(IPC.uiRefreshBattles, () => this.refreshBattleHistory());
     ipcMain.handle(IPC.uiSetNickname, async (_e, nickname: unknown) => {
       if (typeof nickname !== 'string') return { ok: false, error: 'invalid' };
       if (!this.sync) return { ok: false, error: 'offline build' };
@@ -715,6 +718,7 @@ export class App {
         stage: res.mon.stage,
       });
       this.host.setNation(res.player.nation);
+      void this.refreshBattleHistory();
       // wireGameEvents' hatch handler always lands on 'baby' after the crack animation; correct
       // the sprite to the true adopted stage once that settles (a mon adopted mid-teen/adult would
       // otherwise get stuck showing 'baby'). A no-op when the mon is still an egg or really is baby.
@@ -752,8 +756,12 @@ export class App {
         ].slice(0, 20);
       }
       this.pushSnapshot();
+      void this.refreshBattleHistory();
     });
-    this.sync.on('profile', () => this.pushSnapshot());
+    this.sync.on('profile', () => {
+      this.pushSnapshot();
+      void this.refreshBattleHistory();
+    });
     this.sync.on('status', () => this.pushSnapshot());
     this.sync.on('signedout', ({ nickname }) => {
       this.signedOut = true;
@@ -761,6 +769,22 @@ export class App {
       this.pushSnapshot();
     });
     this.sync.start();
+    void this.refreshBattleHistory();
+  }
+
+  private async refreshBattleHistory(): Promise<void> {
+    const userId = this.store.get().profile.userId;
+    if (!this.api || !userId || this.signedOut) return;
+    try {
+      const history = await fetchBattleHistory(this.api, userId);
+      if (this.store.get().profile.userId !== userId || this.signedOut) return;
+      this.store.update((s) => {
+        s.battles.history = mergeBattleHistory(s.battles.history, history);
+      });
+      this.pushSnapshot();
+    } catch (err) {
+      console.warn('battle history refresh failed:', err);
+    }
   }
 
   private async leaderboard(): Promise<LeaderboardPayload> {

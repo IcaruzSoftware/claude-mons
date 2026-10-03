@@ -508,7 +508,7 @@ export interface SharedPassiveNode {
 }
 
 function sharedPassive(name: string, description: string): SharedPassiveNode {
-  return { id: `shared:${slugify(name)}`, name, description, cost: 1, maxRank: 1 };
+  return { id: `shared:${slugify(name)}`, name, description, cost: 3, maxRank: 1 };
 }
 
 export const SHARED_PASSIVE_NODES: readonly SharedPassiveNode[] = [
@@ -548,12 +548,12 @@ export function pointsAvailable(level: number): number {
 /**
  * Shared-passive points: a small, separate pool (docs/design/progression.md notes the exact
  * slotting is a Phase C implementation detail). One pick every 15 levels starting at 15, capped
- * at the full 10-passive roster's realistic budget of 3 -- enough to matter without dwarfing the
+ * at the full 10-passive roster's realistic budget of 9 points (three purchases) -- enough to matter without dwarfing the
  * nation tree's 47-point budget.
  */
-export const MAX_SHARED_PASSIVE_POINTS = 3;
+export const MAX_SHARED_PASSIVE_POINTS = 9;
 export function sharedPassivePoints(level: number): number {
-  return Math.min(MAX_SHARED_PASSIVE_POINTS, Math.floor(Math.max(0, level) / 15));
+  return Math.min(MAX_SHARED_PASSIVE_POINTS, Math.floor(Math.max(0, level) / 15) * 3);
 }
 
 /** Points already spent in each pool (ignores unknown/wrong-nation ids rather than throwing, same

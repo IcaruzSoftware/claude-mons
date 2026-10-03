@@ -18,6 +18,7 @@ import {
   type Nation,
 } from '@claude-mons/shared';
 import type { BattlePlayMessage, BattleSummary } from '../../common/ipc.ts';
+import { mergeBattleHistory } from '../../common/battleHistory.ts';
 import type { LocalState } from '../persistence/state.ts';
 
 export type BattleRefusal =
@@ -139,6 +140,7 @@ export class BattleService {
           ? { day: today, count: st.battles.today.count + 1 }
           : { day: today, count: 1 };
     });
+    this.record(play, now);
     return { ok: true, play };
   }
 
@@ -147,10 +149,15 @@ export class BattleService {
     const play = this.pending;
     if (!play || play.id !== id) return null;
     this.pending = null;
+    return this.deps.state.get().battles.history.find((b) => b.id === id) ?? null;
+  }
+
+  /** Persist resolved battles before animation, so restart/hiding cannot lose recent fights. */
+  private record(play: BattlePlayMessage, at: number): void {
     const won = play.result.winner === 'a';
     const summary: BattleSummary = {
       id: play.id,
-      at: this.now(),
+      at,
       won,
       xp: play.reward,
       isBot: play.isBot,
@@ -171,11 +178,9 @@ export class BattleService {
       },
     };
     this.deps.state.update((st) => {
-      st.battles.history.unshift(summary);
-      if (st.battles.history.length > 50) st.battles.history.length = 50;
+      st.battles.history = mergeBattleHistory(st.battles.history, [summary]);
       st.battles.streak = play.winStreak;
     });
-    return summary;
   }
 
   /** Offline fallback: a Wild or Trainer NPC from another nation. */

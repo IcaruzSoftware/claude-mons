@@ -30,6 +30,17 @@ function setup(opts: { hatched?: boolean; level?: number } = {}) {
 }
 
 describe('BattleService (offline / wild mon)', () => {
+  it('persists the resolved battle immediately and keeps its time across animation completion', async () => {
+    const { service, state, advance } = setup();
+    const result = await service.request();
+    if (!result.ok) throw new Error('Expected a battle');
+    expect(state.battles.history).toHaveLength(1);
+    const at = state.battles.history[0]!.at;
+    advance(60_000);
+    expect(service.finish(result.play.id)?.at).toBe(at);
+    expect(service.finish(result.play.id)).toBeNull();
+    expect(state.battles.history).toHaveLength(1);
+  });
   it('reports readiness only for an eligible hatched mon, recovering after cooldown and day reset', async () => {
     expect(setup({ hatched: false }).service.isReady()).toBe(false);
     const { service, state, advance } = setup();
