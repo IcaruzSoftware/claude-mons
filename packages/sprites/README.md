@@ -2,8 +2,8 @@
 doc_type: reference
 purpose: "Read this when authoring sprite definitions (SpriteDef), understanding the grid format, or running the preview script."
 audience: agent
-last_verified: 2026-09-28
-last_verified_commit: 2418c0b
+last_verified: 2026-10-03
+last_verified_commit: da1f9c0
 related_files:
   - packages/sprites/src/types.ts
   - packages/sprites/src/palette.ts
@@ -11,6 +11,8 @@ related_files:
   - packages/sprites/src/index.ts
   - packages/shared/src/game/species.ts
   - packages/sprites/test/sprites.test.ts
+  - packages/sprites/test/moss.test.ts
+  - packages/sprites/src/species/moss-art.ts
   - packages/sprites/scripts/preview.ts
 ---
 
@@ -166,6 +168,20 @@ fish size across the three stages. Species ids, grid sizes, and anchors stay sta
 | `rasterize(def, name, frame, paletteOverride?)` | → RasterFrame { width, height, data: Uint8ClampedArray, bbox } |
 
 Missing palette keys render magenta (visible error), and alpha-0 entries are excluded from bbox.
+
+## Moss evolution line
+
+Mossling, Rootling and Terraformer share fixed olive/fern/sage moss colors, warm root accents,
+glossy eyes and paired leafy shoots. The baby is a round cushion; the teen a braided root guardian;
+the adult remains a tortoise with moss over buried stone plates. Their original IDs, grids,
+anchors and seven animation names stay unchanged.
+
+Each work clip runs at 3 FPS through eight poses: left sway, center, right sway, tickle,
+a brief sneeze with moss crumbs, grin, another sway, and recovery. Mossling and Rootling
+balance the soil ball on their crown; Terraformer grows the seedling on its shell.
+The shared palette and seedling layers live in `packages/sprites/src/species/moss-art.ts`.
+`packages/sprites/test/moss.test.ts` checks all three stage lookups and work routing, intact moving
+leaves, a stationary soil ball, brief sneeze particles, looping frames, foot anchors and earth tinting.
 
 ## Test Invariants
 

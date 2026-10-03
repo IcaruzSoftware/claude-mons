@@ -134,8 +134,8 @@ export const FOLLOW_THROUGH_MULT = 1.2;
  * Phoenix Reborn/Second Breath KO interceptions -- none of which add or remove an `rng()` call by
  * themselves, but the golden log's *values* change because the formula does).
  */
-// v10: gentler +1..+3 level gaps, while +5 remains a serious challenge.
-export const BATTLE_PROTOCOL_VERSION = 10;
+// v11: stronger elemental counters, bounded 3% level bonuses and gentler opening combos.
+export const BATTLE_PROTOCOL_VERSION = 11;
 
 const levelScale = (l: number): number => (l + 24) / 25;
 export const DOUBLE_STRIKE_CHANCE = 0.08;
@@ -647,16 +647,11 @@ export function simulateBattle(a: MonSnapshot, b: MonSnapshot, seed: string): Ba
         .filter(Boolean)
         .join(' + ') || undefined;
 
-    // Experience matters even late in the level curve. Keep the gap bounded to matchmaking.
-    const levelGap = Math.max(-5, Math.min(5, M.level - mons[foe].level));
-    // A prepared trainer can challenge a stronger Wild Mon; real trainers keep the full
-    // level advantage. Weaker Wild Mons retain their old, reliable level disadvantage.
-    const experience =
-      levelGap < 0 && M.playerId !== null && mons[foe].playerId === null
-        ? 1 - 0.008 * levelGap ** 2
-        : 1 + Math.sign(levelGap) * (0.09 + 0.02 * Math.abs(levelGap));
-    // A prepared opening gives an underdog one chance to overcome the experience gap.
-    const combo = FOLLOW_THROUGH_MULT + 0.7 * Math.min(3, Math.max(0, -levelGap));
+    // A small, bounded level bonus leaves room for elemental counters.
+    const levelGap = Math.max(-3, Math.min(3, M.level - mons[foe].level));
+    const experience = 1 + 0.03 * levelGap;
+    // Prepared underdogs get one bounded opening boost.
+    const combo = FOLLOW_THROUGH_MULT + 0.4 * Math.max(0, -levelGap);
     const raw =
       power *
       (meStats.atk / 50) *

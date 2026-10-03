@@ -2,8 +2,8 @@
 doc_type: design
 purpose: "Read this when changing moves, stances, talents, matchmaking windows, streaks or evolution stat multipliers, or building the loadout editor."
 audience: agent
-last_verified: 2026-09-27
-last_verified_commit: 1c03a6e
+last_verified: 2026-10-03
+last_verified_commit: da1f9c0
 related_files:
   - packages/shared/src/battle/battle.ts
   - packages/shared/src/battle/effects.ts
@@ -138,7 +138,7 @@ This supersedes `docs/design/battle.md`'s `special`-at-≤50%-own-HP rule once P
 Combat remains passive. Arrange a Burn or DEF-down move in slot 1 before battle. While that
 landed opening effect is active, the first different landed Priority, True-hit, Crit-up or Charge
 release gets 1.2x direct damage, once per side per battle. Against a higher-level foe,
-add 0.7 per higher level (gap capped at 3): 1.9x / 2.6x / 3.3x for this one hit.
+add 0.4 per higher level (gap capped at 3): 1.6x / 2.0x / 2.4x for this one hit.
 The underdog bonus makes a prepared challenge winnable without boosting equal-level combos. Dodges and charge telegraphs do not
 consume it; expiry discards it. Healing and further status moves cannot trigger it. Existing
 slot selection and combat timing are unchanged; no clicks or timing inputs are added.
@@ -173,22 +173,22 @@ just the pointer so this doc stays under its length budget.
 
 `packages/shared/src/game/levels.ts:statAtLevel` gains a per-stage multiplier on top of its existing linear level scaling: Baby ×1.00, Teen ×1.03, Adult ×1.06, keyed off `stageForLevel(level)` (same file). Each level now adds 4% of the base stat, with a minimum one-point gain before evolution: `floor((base + (level - 1) * max(1, base / 25)) * stageMultiplier)`. Integer arithmetic matches PostgreSQL numeric rounding. Every level adds at least one HP, ATK, DEF and SPD; XP thresholds stay unchanged. The Mon panel previews next-level gains. Server mirror: `supabase/migrations/20260927120000_level_stat_growth.sql`.
 
-The stage multipliers remain unchanged. Protocol 6 deliberately targets a 90-97% win rate for
-the higher-level default at the evolution boundaries (9/11 and 24/26): easier encounters should
-usually be wins. The unprepared lower-level target is 3-10%; prepared +3 challenges still win 30-60%
-in the opening-combo matrix. A bounded experience multiplier keeps level differences relevant
+The stage multipliers remain unchanged. Protocol 11 leaves room for elemental counters:
+the unprepared lower-level side wins 10-25% at evolution boundaries (9/11 and 24/26).
+Prepared +3 challenges still win 30-60% in the opening-combo matrix. A bounded experience multiplier keeps level differences relevant
 late in the game (see battle.md Damage formula).
 All equal-level species, archetype, stance and talent balance bounds remain unchanged.
 
 ## Matchmaking and streaks
 
 Rivals (real players) appear on 30% of online matchmaking attempts when an eligible player exists.
-Their preferred level bands vary between -3 and +3; +4 occurs on 2% of rival rolls and +5 on 1%.
+They search peers first: [0, 0], then [-1, +1], then [-3, +3].
 The previous opponent is never picked immediately again; other repeats wait one hour. A repeated
-element sends matchmaking to another band or an NPC. SQL caps the level gap at five.
+element sends matchmaking to another band or an NPC. Selection caps gaps at three; SQL retains its five-level defense cap for older callers.
 Without a rival, Wild and Trainer NPCs alternate. Both have no invested talents. Trainer stats are
 90% of a comparable Rival's; Wild stats are 80% of Trainer stats. The offline fallback mirrors
-these NPCs. NPC levels are 55% weaker, 20% equal, and 25% stronger, with +4/+5 only 1.5%/0.5%;
+these NPCs. NPC levels are 75% weaker (-1: 40%, -2: 30%, -3: 5%), 15% peers, and
+10% elite (equally split across +1/+2/+3);
 levels clamp to [2, 50]. At the hatch floor, weaker enemies may therefore be equal. On wins,
 Wild, Trainer and Rival base rewards are 20, 30 and 45 XP respectively, plus 15 XP per higher
 opponent level (capped at +5). All challenger losses pay the same 10 XP
@@ -268,13 +268,13 @@ count tractable):
 - no single archetype exceeds **60%** win rate (measured: all 8 level × archetype combos landed 46–55%);
 - the stance triangle holds at **55–62%** for the counter side, every pairing within 5 points of each
   other (see Stances above);
-- boundary matchups (level 9 vs. 11, level 24 vs. 26) land the low-level side at **25–40%** (see
+- boundary matchups (level 9 vs. 11, level 24 vs. 26) land the low-level side at **10–25%** (see
   Evolution multipliers above);
 - Phase C's talent-tree matrix (a maxed tree vs. an empty one, and every pair of a nation's branches
   against each other) — see `docs/design/talent-tree.md` Balance targets.
 
 Any change to `simulateBattle`'s RNG call order resets the golden log snapshot (`docs/design/battle.md`
-Determinism contract) and bumps `BATTLE_PROTOCOL_VERSION` (**10** for the current combat rules).
+Determinism contract) and bumps `BATTLE_PROTOCOL_VERSION` (**11** for the current combat rules).
 
 ## Phases
 

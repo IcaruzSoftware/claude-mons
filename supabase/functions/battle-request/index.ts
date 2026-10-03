@@ -13,7 +13,7 @@ import {
   type MonSnapshot,
 } from '../_shared/game/battle/battle.ts';
 import {
-  matchmakingWindowsForRoll,
+  MATCHMAKING_WINDOWS,
   useWildForElementVariety,
   wildEncounterLevel,
 } from '../_shared/game/battle/matchmaking.ts';
@@ -151,7 +151,7 @@ serve(async (req) => {
 });
 
 /**
- * Sample a level band, including rare +4/+5 challenges. Within each band prefer players
+ * Prefer peers, then nearby opponents within three levels. Within each band prefer players
  * not fought in the last hour. When the pool is exhausted, use a
  * Wild Mon rather than immediately repeating the same human opponent.
  */
@@ -162,7 +162,7 @@ async function findOpponent(
   level: number,
   lastNation?: Nation,
 ): Promise<MonSnapshot | null> {
-  for (const window of matchmakingWindowsForRoll(randomUnit())) {
+  for (const window of MATCHMAKING_WINDOWS) {
     const rows = await rpc<OpponentRow[]>(db, 'pick_opponent', {
       p_player: uid,
       p_nation: nation,

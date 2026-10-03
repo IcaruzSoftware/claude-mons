@@ -2,8 +2,8 @@
 doc_type: reference
 purpose: "Release notes and version history; check this when seeing claude-mons updates or deciding what version to expect features in."
 audience: both
-last_verified: 2026-09-28
-last_verified_commit: 258acff
+last_verified: 2026-10-03
+last_verified_commit: da1f9c0
 related_files:
   - docs/history/v1-handoff-2026-09-04.md
   - docs/README.md
@@ -18,6 +18,25 @@ related_files:
 # Changelog
 
 All notable changes to claude-mons are documented here. See [Keep a Changelog](https://keepachangelog.com/) for format details.
+
+## [0.2.10] - 2026-10-03
+
+### Changed
+
+- Mossling, Rootling and Terraformer use original moss-heavy earth designs with shared eyes,
+  leafy shoots and root accents. The adult remains a moss tortoise.
+- All three stages animate a swaying seedling while earning activity XP, with a playful tickle,
+  moss sneeze and grin. Terraformer grows the plant on its shell.
+- Elemental counters matter more: advantage is 1.24x and resistance 0.85x. The experience bonus
+  is 3% per level, capped at a three-level gap; prepared underdog openings use a smaller boost.
+- Human matchmaking searches peers first, then nearby opponents within three levels. NPC levels
+  are 75% weaker, 15% peers and 10% elite. Existing opponent kinds, element rotation, talent
+  combos and reward formulas remain available.
+
+### Deployment
+
+- Battle protocol 11. Deploy Edge Functions before the desktop release; no new migration.
+  Historical battle logs and existing pets remain readable.
 
 ## [0.2.9] - 2026-09-30
 

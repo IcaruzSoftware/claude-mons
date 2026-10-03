@@ -2,8 +2,8 @@
 doc_type: design
 purpose: "Read this when adding/changing a nation, species, hatch rarity, stage threshold, or sprite id, and need every place that must stay in sync."
 audience: agent
-last_verified: 2026-09-27
-last_verified_commit: 1c03a6e
+last_verified: 2026-10-03
+last_verified_commit: da1f9c0
 related_files:
   - packages/shared/src/game/nations.ts
   - packages/shared/src/game/species.ts
@@ -35,8 +35,8 @@ Each nation's egg sprite and per-species sprites are tinted from this same palet
 
 | Matchup | Multiplier |
 |---|---|
-| Attacker's cycle target (attacker beats defender) | 1.2× |
-| Attacker's cycle predecessor (defender beats attacker) | 0.9× |
+| Attacker's cycle target (attacker beats defender) | 1.24× |
+| Attacker's cycle predecessor (defender beats attacker) | 0.85× |
 | Any other pairing | 1× |
 
 Each nation beats exactly one other and is resisted by exactly one other; the fourth nation is neutral both ways.
@@ -72,6 +72,12 @@ level 25) used by battle; the full per-species move table (power, type, effect, 
 in `docs/design/progression.md` Move pool and effects — not restated here since a fact has one home.
 
 `speciesOf(id)` throws on an unknown id; `speciesForNation(nation)` filters `SPECIES` by nation; `displayName(speciesId, stage)` returns `'Egg'` for stage `'egg'`, else the per-stage name above.
+
+The moss line keeps a shared fixed earth palette and glossy eyes: Mossling is a moss cushion,
+Rootling a braided root guardian, and Terraformer a moss tortoise. Their work clips balance a
+swaying seedling, followed by a brief sneeze and recovery; the adult grows it on its shell.
+Sprite IDs, grid sizes and foot anchors remain stable. Animation details and verification live
+in `packages/sprites/README.md`.
 
 ## Hatch roll
 

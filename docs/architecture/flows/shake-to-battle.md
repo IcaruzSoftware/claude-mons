@@ -2,8 +2,8 @@
 doc_type: architecture
 purpose: "Read this when tracing how a shake gesture becomes a battle, from cursor drag to a history entry."
 audience: agent
-last_verified: 2026-09-24
-last_verified_commit: bf1f338
+last_verified: 2026-10-03
+last_verified_commit: da1f9c0
 related_files:
   - packages/shared/src/battle/matchup.ts
   - apps/desktop/src/main/PetHost.ts
@@ -96,7 +96,8 @@ the server directly. `RemoteBattleBackend` rethrows those three codes so `Battle
 into the same refusals as above; any other failure (offline, network error, unrecognized code) is
 swallowed and treated as "no backend," and `BattleService.wildBattle` runs an offline battle against
 a Wild Mon from another nation using the shared bounded encounter distribution. The server path
-prefers weaker real opponents and falls back to that same distribution when no player qualifies.
+tries equal-level real opponents first, then expands to ±1 and ±3 levels, and falls back to that
+same distribution when no player qualifies. Recent-opponent and element-variety rules still apply.
 `isElite` labels the encounter in `BattlePlayMessage`/`BattleSummary`; XP comes from the actual
 level difference. See `docs/design/battle.md` and `docs/design/progression.md` for the rules.
 

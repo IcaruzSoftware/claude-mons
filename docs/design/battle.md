@@ -2,8 +2,8 @@
 doc_type: design
 purpose: "Read this when changing battle math, matchmaking, rewards, or the battle log shape."
 audience: agent
-last_verified: 2026-09-28
-last_verified_commit: 258acff
+last_verified: 2026-10-03
+last_verified_commit: da1f9c0
 related_files:
   - packages/shared/src/battle/battle.ts
   - packages/shared/src/battle/effects.ts
@@ -78,11 +78,10 @@ variance = 0.8 + rng() * 0.4              // uniform in [0.8, 1.2)
   a fixed per-kind table — every species has its own 8-move pool (`packages/shared/src/game/
   species.ts:Move`) as of Phase B (`BATTLE_PROTOCOL_VERSION` 3). A `charge` move's release turn
   multiplies `power` by `CHARGE_MULTIPLIER` (2.2), see progression.md.
-- **Effectiveness**: a `type: 'nation'` move uses `effectiveness(M.nation, F.nation)` (0.9, 1, or 1.2 —
-  see `packages/shared/src/game/nations.ts:effectiveness`); `type: 'neutral'` always uses `1`.
-- **Experience** (protocol 7): equal levels use 1. Higher levels deal 1.11 / 1.13 / 1.15x
-  damage at gaps +1 / +2 / +3; the lower side deals 0.89 / 0.87 / 0.85x. Gaps cap at 3.
-  This supplements the small relative stat increase at high levels; it never decides a winner.
+- **Effectiveness**: nation moves use the multipliers in `docs/design/species-and-nations.md`
+  Type cycle; neutral moves use 1.
+- **Experience** (protocol 11): `1 + 0.03 * clamp(M.level - F.level, -3, 3)`.
+  A one-level lead adds 3% damage; stat growth and elemental counters still matter.
 - **Follow-through**: one automatic opening combo per side; its multiplier and eligibility live
   in `docs/design/progression.md`. Optional `followThrough` marks the boosted action in protocol 5;
   historical logs remain stored and are never recomputed.
@@ -223,8 +222,8 @@ nations only** (`p.nation <> p_nation`) and further excludes: eggs, mons with no
 inactive > 30 days, `suspicion >= 10`, the requester themselves, and the requester's
 `last_opponent_id`.
 
-On a Rival attempt, `findOpponent` searches a rolled preferred level band, then the other common
-bands. The immediate previous opponent is excluded; other repeats wait one hour. A repeated element
+On a Rival attempt, `findOpponent` searches peers first, then nearby, then the remaining
+pool within three levels. The immediate previous opponent is excluded; other repeats wait one hour. A repeated element
 causes a different band to be searched. When no Rival is selected, online and offline battles use
 Wild or Trainer NPCs with rotating elements. SQL independently caps the level gap at five in
 `supabase/migrations/20260930000000_varied_challenges.sql`. Wild stats are 20% below Trainer stats;
@@ -246,29 +245,29 @@ at each), and asserts:
 - timeouts (`reason !== 'ko'`) stay under **2 %** of battles at level 10, under **4 %** at level 30 (a
   pre-existing, minor characteristic of the damage formula's level `scale` term, not something the
   evolution multiplier introduces — see the test's own comment);
-- a **+3 level** advantage (`sparkit` L13 vs. `pebblet` L10, 600 battles) wins between **60 % and 90 %** of
-  the time.
+- a **+3 level** advantage (`sparkit` L13 vs. `pebblet` L10, 600 battles) wins over **90 %** without
+  guaranteeing victory; this particular neutral matchup is not the overall level-gap target.
 
 If a rebalance is needed, the test's own comment says to adjust base stats in
 `packages/shared/src/game/species.ts` first, not loosen the thresholds.
 
-Two more scenarios were added for Phase A: stage-transition boundary matchups (L9 vs. L11, L24 vs.
-L26) and the stance triangle (`docs/design/progression.md` Stances). Both initially missed their
-design-doc targets by a wide margin (a 2-level gap plus the original evolution-stage multiplier
-compounded into the low side winning only ~27–28 %; the original ±18 %/±10 % stance modifiers landed
-two of the three counter pairings at 80–97 % and the third anywhere from ~37–64 %). Both were fixed
-by simulation-tuned constants, not by loosening these test bounds — the tuned magnitudes, the
-stance-mapping change that fixed the structural stance asymmetry, and the "tuned by simulation on
-2026-09-13" notes live in `docs/design/progression.md` (Evolution multipliers and Stances). The
-current, passing targets are **25–40 %** for the boundary matchups' low side and **55–62 %** (all
-three pairings within 5 points of each other) for the stance triangle.
+Stage-transition boundaries (L9/L11 and L24/L26) give the lower side a 10-25% win rate.
+The stance-counter target remains 55-62%, with all pairings within five points.
+
+`packages/shared/test/fairBattles.test.ts` also checks every elemental pairing in both battle
+positions at levels 2/5/10/30/50, one-level Earth underdogs against Ottlet, and neutral Earth
+durability. The trained-bot matrix includes default bot talents and targets 50-82% overall wins;
+actual Wild/Trainer NPCs have empty trees and reduced stats, so they are easier. Their strength
+ordering and shared encounter distribution are verified separately.
+
+## Rollout and rollback
+
+Protocol 11 ships shared formulas and matchmaking to desktop and Edge Functions. Deploy functions
+before the desktop release. No schema migration is needed; historical logs are never recomputed.
+Rollback deploys the prior backend source and a higher corrective client release restoring prior
+behavior; retain all stored logs and published tags.
 
 ## History
 
-The original plan (`docs/history/v1-design-2026-09-04.md`, §5.5) specified strict "faster acts first" turn
-order, damage variance of `0.85`–`1.0`, and a `4 %`-per-level stat growth curve. Simulation showed the strict
-turn order plus that steeper growth made a one-level edge win about 90 % of mirror matches, so the shipped
-code widened variance to `0.7`–`1.3`, made turn order probabilistic by speed, and halved stat growth to
-`2 %`/level (`packages/shared/src/game/levels.ts:statAtLevel`). `docs/history/*` is a frozen record — treat
-it as historical
-background only, not as a current spec; this file describes the code that actually ships.
+The frozen `docs/history/v1-design-2026-09-04.md` records the initial battle proposal.
+Current formulas and tests above supersede that historical proposal.

@@ -112,13 +112,13 @@ describe('balance (cross-nation round-robin)', () => {
 
   // Boundary matchups either side of a stage transition (baby/teen at 10, teen/adult at 25).
   //
-  // Protocol 6 intentionally makes easier default encounters reliable wins (90-97%).
+  // Protocol 11 lets elemental counters challenge small level leads.
   // With the smaller elemental swing, weaker defaults no longer win via a 4x type swing.
   // Keep the stat growth/stage multipliers unchanged; preparation is tested separately.
   it.each([
     ['L9 vs L11 (baby/teen boundary)', 9, 11] as const,
     ['L24 vs L26 (teen/adult boundary)', 24, 26] as const,
-  ])('%s: unprepared low side stays in the 3-10 %% upset band', (_label, lowLevel, highLevel) => {
+  ])('%s: unprepared low side stays in the 10-25 %% upset band', (_label, lowLevel, highLevel) => {
     const BATTLES_PER_PAIR = 300; // 48 cross-nation ordered pairs * 300 = 14,400 battles
     let lowWins = 0;
     let total = 0;
@@ -150,8 +150,8 @@ describe('balance (cross-nation round-robin)', () => {
     }
     const rate = lowWins / total;
     const msg = `low-level side win rate ${(rate * 100).toFixed(1)}% (n=${total})`;
-    expect(rate, msg).toBeGreaterThanOrEqual(0.03);
-    expect(rate, msg).toBeLessThanOrEqual(0.1);
+    expect(rate, msg).toBeGreaterThanOrEqual(0.1);
+    expect(rate, msg).toBeLessThanOrEqual(0.25);
   });
 
   // Stance triangle (docs/design/progression.md Stances): countering the opponent's stance should

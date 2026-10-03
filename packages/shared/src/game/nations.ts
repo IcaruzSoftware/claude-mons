@@ -70,9 +70,9 @@ export const NATION_PASSIVES: Record<Nation, { name: string; description: string
   },
 };
 
-export function effectiveness(attacker: Nation, defender: Nation): 0.9 | 1 | 1.2 {
-  if (NATION_BEATS[attacker] === defender) return 1.2;
-  if (NATION_BEATS[defender] === attacker) return 0.9;
+export function effectiveness(attacker: Nation, defender: Nation): 0.85 | 1 | 1.24 {
+  if (NATION_BEATS[attacker] === defender) return 1.24;
+  if (NATION_BEATS[defender] === attacker) return 0.85;
   return 1;
 }
 

@@ -5,15 +5,35 @@ import {
   simulateBattle,
   snapshotFor,
 } from '../src/battle/battle.ts';
-import {
-  MATCHMAKING_WINDOWS,
-  matchmakingWindowsForRoll,
-  wildEncounterLevel,
-} from '../src/battle/matchmaking.ts';
-import { effectiveness } from '../src/game/nations.ts';
+import { MATCHMAKING_WINDOWS, wildEncounterLevel } from '../src/battle/matchmaking.ts';
+import { effectiveness, NATION_BEATS } from '../src/game/nations.ts';
 
 import { stageForLevel } from '../src/game/levels.ts';
 import { SPECIES } from '../src/game/species.ts';
+
+import type { MonSnapshot } from '../src/battle/battle.ts';
+
+function mon(speciesId: string, level: number, playerId: string | null = speciesId): MonSnapshot {
+  return snapshotFor({
+    monId: speciesId,
+    playerId,
+    nickname: speciesId,
+    speciesId,
+    level,
+    stage: stageForLevel(level) as MonSnapshot['stage'],
+  });
+}
+
+/** Exercise both positions so challenger-side RNG differences cannot masquerade as balance. */
+function winRate(a: MonSnapshot, b: MonSnapshot, tag: string, count = 600): number {
+  let wins = 0;
+  for (let i = 0; i < count; i++) {
+    const flipped = i % 2 === 1;
+    const result = simulateBattle(flipped ? b : a, flipped ? a : b, `${tag}-${i}`);
+    wins += Number(result.winner === (flipped ? 'b' : 'a'));
+  }
+  return wins / count;
+}
 
 describe('passive fair battles', () => {
   it('makes Wild roughly 20% weaker than Trainers and both weaker than Rivals', () => {
@@ -77,35 +97,29 @@ describe('passive fair battles', () => {
     expect(prepared / total).toBeLessThan(0.6);
   });
 
-  it('varies rivals by level and only rarely offers +4 or +5', () => {
+  it('searches peers first and never extends beyond three levels either way', () => {
     expect(MATCHMAKING_WINDOWS).toEqual([
-      { min: -3, max: -2 },
-      { min: -1, max: 0 },
-      { min: 1, max: 2 },
-      { min: 3, max: 3 },
+      { min: 0, max: 0 },
+      { min: -1, max: 1 },
+      { min: -3, max: 3 },
     ]);
-    expect(matchmakingWindowsForRoll(0.5)[0]).toEqual({ min: -1, max: 0 });
-    expect(matchmakingWindowsForRoll(0.975)[0]).toEqual({ min: 4, max: 4 });
-    expect(matchmakingWindowsForRoll(0.995)[0]).toEqual({ min: 5, max: 5 });
     for (const level of [2, 3, 10, 30, 49, 50]) {
       let weaker = 0;
       let elite = 0;
       for (let i = 0; i < 1000; i++) {
         const encounter = wildEncounterLevel(level, i / 1000);
-        expect(Math.abs(encounter.level - level)).toBeLessThanOrEqual(5);
+        expect(Math.abs(encounter.level - level)).toBeLessThanOrEqual(3);
         expect(encounter.level).toBeGreaterThanOrEqual(2);
         expect(encounter.level).toBeLessThanOrEqual(50);
         if (encounter.level < level) weaker++;
         if (encounter.isElite) elite++;
       }
-      if (level >= 10 && level <= 45) {
-        expect(elite).toBe(60);
-        expect(weaker).toBe(550);
-      }
+      expect(elite).toBe(100);
+      if (level >= 10) expect(weaker).toBe(750);
     }
   });
 
-  it('makes weaker neutral wild opponents reliable wins throughout the Ottlet line', () => {
+  it('gives Ottlet an edge against weaker neutral opponents across its evolution line', () => {
     let upsets = 0;
     for (const level of [5, 10, 20, 30, 50]) {
       for (const foe of ['puffle', 'wispit']) {
@@ -133,7 +147,7 @@ describe('passive fair battles', () => {
             );
           }
           expect(wins / 1000, `L${level} Ottlet vs ${foe} ${gap}`).toBeGreaterThan(
-            gap === -3 ? 0.85 : 0.7,
+            gap === -3 ? 0.7 : 0.5,
           );
           upsets += 1000 - wins;
         }
@@ -142,22 +156,20 @@ describe('passive fair battles', () => {
     expect(upsets).toBeGreaterThan(0);
   });
 
-  it('mostly selects clearly weaker wild mons and varies harder encounters', () => {
+  it('mixes forgiving wild encounters with peers and varied elites', () => {
     const counts = new Map<number, number>();
     for (let i = 0; i < 3000; i++) {
       const gap = wildEncounterLevel(20, i / 3000).level - 20;
       counts.set(gap, (counts.get(gap) ?? 0) + 1);
     }
     expect(Object.fromEntries(counts)).toEqual({
-      0: 600,
-      1: 360,
-      2: 210,
-      3: 120,
-      4: 45,
-      5: 15,
-      '-1': 510,
-      '-2': 600,
-      '-3': 540,
+      0: 450,
+      1: 100,
+      2: 100,
+      3: 100,
+      '-1': 1200,
+      '-2': 900,
+      '-3': 150,
     });
   });
 
@@ -179,11 +191,102 @@ describe('passive fair battles', () => {
     }
   });
 
-  it('limits the type damage swing to 1.2 / 0.9, including neutral matchups', () => {
-    expect(effectiveness('water', 'fire')).toBe(1.2);
-    expect(effectiveness('fire', 'water')).toBe(0.9);
+  it('strengthens elemental counters and preserves neutral matchups', () => {
+    expect(effectiveness('water', 'fire')).toBe(1.24);
+    expect(effectiveness('fire', 'water')).toBe(0.85);
     expect(effectiveness('water', 'air')).toBe(1);
   });
+
+  it.each([2, 5, 10, 30, 50])('makes every elemental counter favored at level %i', (level) => {
+    for (const species of Object.values(SPECIES)) {
+      for (const foe of Object.values(SPECIES)) {
+        if (NATION_BEATS[species.nation] !== foe.nation) continue;
+        const tag = `element-${level}-${species.id}-${foe.id}`;
+        const rate = winRate(mon(species.id, level), mon(foe.id, level), tag);
+        // Hatch pools have only two moves; rarity and effects are a larger part of those fights.
+        expect(rate, tag).toBeGreaterThan(level === 2 ? 0.52 : 0.6);
+        expect(rate, tag).toBeLessThan(level === 2 ? 1 : 0.99);
+      }
+    }
+  });
+
+  it.each([20, 30, 50])(
+    'lets Earth counter Ottlet despite a one-level deficit at level %i',
+    (level) => {
+      for (const speciesId of ['pebblet', 'mossling']) {
+        const tag = `earth-underdog-${speciesId}-${level}`;
+        const rate = winRate(mon(speciesId, level - 1), mon('ottlet', level), tag, 1000);
+        expect(rate, tag).toBeGreaterThan(0.5);
+        expect(rate, tag).toBeLessThan(0.85);
+      }
+    },
+  );
+
+  it.each([5, 10, 30, 50])(
+    'keeps Earth more durable than Ottlet against neutral hits at level %i',
+    (level) => {
+      const attacker = mon('ottlet', level);
+      attacker.loadout = { moves: ['splash-dash', 'splash-dash', 'splash-dash'] };
+      const fractionTaken = (speciesId: string) => {
+        const target = mon(speciesId, level);
+        // Isolate durability from speed, move effects and elemental damage.
+        target.stats.spd = attacker.stats.spd;
+        const move = SPECIES[speciesId]!.movePool[0].id;
+        target.loadout = { moves: [move, move, move] };
+        let damage = 0;
+        for (let i = 0; i < 100; i++) {
+          const action = simulateBattle(
+            attacker,
+            target,
+            `durability-${level}-${i}`,
+          ).turns[0]!.actions.find((a) => a.actor === 'a')!;
+          damage += action.damage;
+        }
+        return damage / target.stats.hp;
+      };
+      const otter = fractionTaken('ottlet');
+      for (const speciesId of ['pebblet', 'mossling']) {
+        expect(fractionTaken(speciesId), speciesId).toBeLessThan(otter * 0.8);
+      }
+    },
+  );
+
+  it.each([5, 10, 20, 30, 50])(
+    'keeps trained bots using the encounter distribution beatable with meaningful losses at level %i',
+    (level) => {
+      let normalWins = 0;
+      let normal = 0;
+      let eliteWins = 0;
+      let elite = 0;
+      for (const species of Object.values(SPECIES)) {
+        for (const foe of Object.values(SPECIES)) {
+          if (species.nation === foe.nation) continue;
+          for (let i = 0; i < 100; i++) {
+            const encounter = wildEncounterLevel(level, (i + 0.5) / 100);
+            const won =
+              simulateBattle(
+                mon(species.id, level),
+                mon(foe.id, encounter.level, null),
+                `wild-${species.id}-${foe.id}-${level}-${i}`,
+              ).winner === 'a';
+            if (encounter.isElite) {
+              elite++;
+              eliteWins += Number(won);
+            } else {
+              normal++;
+              normalWins += Number(won);
+            }
+          }
+        }
+      }
+      const overall = (normalWins + eliteWins) / (normal + elite);
+      expect(overall).toBeGreaterThan(0.5);
+      expect(overall).toBeLessThan(0.82);
+      expect(normalWins / normal).toBeGreaterThan(0.55);
+      expect(normalWins / normal).toBeLessThan(0.86);
+      expect(eliteWins / elite).toBeLessThan(normalWins / normal - 0.08);
+    },
+  );
 
   it('automatically rewards an opening setup at most once, only on a landed offensive follow-up', () => {
     let combos = 0;
