@@ -79,3 +79,10 @@ alternate merge edges, all 47 points down a side route, auto-save, reset, native
 compact restore, and the 380×520 map. Final visual review places stances beside the core to shorten
 connections and keeps all four curved paths around it. Both backend deployment paths returned 401;
 production publication and online installation remain blocked by the external credential.
+
+Packaged Windows acceptance at be80432 passes the full offline interaction suite with no
+renderer or network errors; installer size/hash matches latest.yml and app.asar is 0.2.12.
+Visual review caught the Undertow branch caption crossing the stance heading. Move the
+stance area right within the existing map gap; no mechanics or persistence changes. The
+layout and 21 renderer acceptance tests pass after this correction. Rollback is a revert
+of this layout-only change. Rebuild and visually verify the corrected packaged map.

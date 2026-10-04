@@ -2,13 +2,13 @@
 export const SKILL_MAP_SIZE = { width: 3200, height: 2250 };
 export const SKILL_MAP_ROOT = { x: 1050, y: 1080 };
 export const STANCE_SKILL_POSITIONS = {
-  fury: { x: 1540, y: 1060 },
-  bulwark: { x: 1700, y: 1060 },
-  gale: { x: 1860, y: 1060 },
+  fury: { x: 1700, y: 1060 },
+  bulwark: { x: 1860, y: 1060 },
+  gale: { x: 2020, y: 1060 },
 };
 export const MIN_SKILL_ZOOM = 0.08;
 export const MAX_SKILL_ZOOM = 1.6;
-export const STANCE_SKILL_AREA = { x: 1430, y: 925, width: 560, height: 250 };
+export const STANCE_SKILL_AREA = { x: 1600, y: 925, width: 500, height: 250 };
 export const PASSIVE_SKILL_AREA = { x: 2130, y: 220, width: 990, height: 1420 };
 
 /** Four curved arms around the core; fork alternatives fan out tangentially. */
