@@ -32,7 +32,10 @@ jobs:
         with:
           version: latest
       - run: pnpm install --frozen-lockfile
-      - run: supabase link --project-ref "$SUPABASE_PROJECT_REF"
+      # Function-only deploys use the explicit project ref below; linking is only needed for DB push.
+      - name: Link database project
+        if: ${{ inputs.migrations }}
+        run: supabase link --project-ref "$SUPABASE_PROJECT_REF"
       - name: Push migrations
         if: ${{ inputs.migrations }}
         run: supabase db push

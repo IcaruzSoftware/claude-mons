@@ -2,7 +2,7 @@
 doc_type: runbook
 purpose: "Read this when deploying backend changes to Supabase."
 audience: both
-last_verified: 2026-09-23
+last_verified: 2026-10-04
 last_verified_commit: 1d714d1
 related_files:
   - supabase/README.md
@@ -31,6 +31,12 @@ supabase-deploy.yml --ref main`. It ran successfully end to end (link, `db push`
 deploy`) on 2026-09-23 — see [Alternative: GitHub workflow](#alternative-github-workflow). Running
 the CLI steps below locally is the second option and also works now that `SUPABASE_DB_PASSWORD` is
 correct. The Management API fallback further down is third, for when neither authenticates.
+
+For function-only updates, dispatch with `-f functions=true -f migrations=false`. The workflow
+skips database linking and deploys directly to its explicit project ref. This avoids an unnecessary
+project-status/DB dependency. Migration runs still link before DB push. Neither route changes auth
+config. If deployment itself returns Unauthorized, a valid project owner's access token is required;
+skipping the optional link does not bypass authentication.
 
 ## Steps
 
