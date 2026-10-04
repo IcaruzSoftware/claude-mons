@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'preact/hooks';
+import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
 import {
   DEFAULT_STANCE,
   EFFECT_DESCRIPTIONS,
@@ -9,6 +9,8 @@ import {
   pointsAvailable,
   sharedPassivePoints,
   singlePurchaseTree,
+  equippedMainPassive,
+  sharedPassivePrereq,
   speciesOf,
   treeSpent,
   type Stance,
@@ -54,51 +56,88 @@ function LoadoutEditor({ s, onDiscard }: { s: UiSnapshot; onDiscard: () => void 
   useEffect(() => setSaved(false), [moves, stance, tree]);
 
   const [mapOpen, setMapOpen] = useState(false);
-  const mapStart = useRef({ tree, stance });
   const mapDialog = useRef<HTMLDivElement>(null);
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!mapOpen) return;
     const previous = document.activeElement as HTMLElement | null;
     mapDialog.current?.focus();
-    return () => previous?.focus();
+    void window.monsUi.setSkillTreeOpen(true);
+    return () => {
+      void window.monsUi.setSkillTreeOpen(false);
+      previous?.focus();
+    };
   }, [mapOpen]);
-  const cancelMap = () => {
-    if (busy) return;
-    setTree(mapStart.current.tree);
-    setStance(mapStart.current.stance);
-    setMapOpen(false);
-    setErr(null);
+  const [skillSaving, setSkillSaving] = useState(false);
+  const [skillError, setSkillError] = useState<string | null>(null);
+  const skillState = useRef({ tree: savedTree, stance });
+  const confirmedSkills = useRef(skillState.current);
+  const pendingSkills = useRef<typeof skillState.current | null>(null);
+  const draining = useRef(false);
+  const persistSkills = async (next: typeof skillState.current) => {
+    skillState.current = next;
+    setTree(next.tree);
+    setStance(next.stance);
+    setSkillError(null);
+    pendingSkills.current = next;
+    if (draining.current) return;
+    draining.current = true;
+    setSkillSaving(true);
+    try {
+      while (pendingSkills.current) {
+        const submission = pendingSkills.current;
+        pendingSkills.current = null;
+        const result = await window.monsUi.setLoadout(submission);
+        if (!result.ok) throw new Error(result.error ?? 'Could not save skills');
+        confirmedSkills.current = submission;
+      }
+    } catch (error) {
+      pendingSkills.current = null;
+      skillState.current = confirmedSkills.current;
+      setTree(confirmedSkills.current.tree);
+      setStance(confirmedSkills.current.stance);
+      setSkillError(
+        `${error instanceof Error ? error.message : 'Could not save skills'}. Unsaved changes were reverted; try again.`,
+      );
+    } finally {
+      draining.current = false;
+      setSkillSaving(false);
+    }
   };
   const nodes = nationNodes(species.nation);
   const addRank = (node: TreeNode) => {
-    setTree((ranks) => {
-      const current = ranks[node.id] ?? 0;
-      if (current >= node.maxRank) return ranks;
-      if (node.prereqId && (ranks[node.prereqId] ?? 0) < 1) return ranks;
-      const spent = treeSpent(species.nation, ranks);
-      if (spent.nation + node.cost > pointsAvailable(level)) return ranks;
-      return { ...ranks, [node.id]: current + 1 };
-    });
+    const state = skillState.current,
+      ranks = state.tree;
+    if ((ranks[node.id] ?? 0) >= node.maxRank || (node.prereqId && !(ranks[node.prereqId] ?? 0)))
+      return;
+    if (treeSpent(species.nation, ranks).nation + node.cost > pointsAvailable(level)) return;
+    void persistSkills({ ...state, tree: { ...ranks, [node.id]: 1 } });
   };
   const removeRank = (node: TreeNode) => {
-    setTree((ranks) => {
-      const current = ranks[node.id] ?? 0;
-      if (current <= 0) return ranks;
-      const next = { ...ranks, [node.id]: current - 1 };
-      if (current - 1 < 1) clearDependents(nodes, node.branch, node.tier, next);
-      return next;
-    });
+    const state = skillState.current;
+    if (!(state.tree[node.id] ?? 0)) return;
+    const next = { ...state.tree, [node.id]: 0 };
+    clearDependents(nodes, node.branch, node.tier, next);
+    const main = equippedMainPassive(next);
+    if (main && !next[sharedPassivePrereq(species.nation, main).id]) next[main] = 0;
+    void persistSkills({ ...state, tree: next });
   };
-  const spent = treeSpent(species.nation, tree);
-  const sharedBudget = sharedPassivePoints(level);
-  const togglePassive = (id: string, cost: number) => {
-    const current = tree[id] ?? 0;
-    if (current > 0) {
-      setTree({ ...tree, [id]: 0 });
-    } else {
-      if (spent.shared + cost > sharedBudget) return;
-      setTree({ ...tree, [id]: 1 });
-    }
+  const changePassive = (id: string, cost: number, remove = false) => {
+    const state = skillState.current,
+      current = state.tree[id] ?? 0;
+    if (remove ? !current : current > 0) return;
+    if (
+      !remove &&
+      (equippedMainPassive(state.tree) ||
+        !(state.tree[sharedPassivePrereq(species.nation, id).id] ?? 0))
+    )
+      return;
+    if (!remove && treeSpent(species.nation, state.tree).shared + cost > sharedPassivePoints(level))
+      return;
+    void persistSkills({ ...state, tree: { ...state.tree, [id]: remove ? 0 : 1 } });
+  };
+  const changeStance = (next: Stance) => {
+    if (skillState.current.stance !== next)
+      void persistSkills({ ...skillState.current, stance: next });
   };
 
   const setSlot = (i: number, id: string) => {
@@ -122,21 +161,14 @@ function LoadoutEditor({ s, onDiscard }: { s: UiSnapshot; onDiscard: () => void 
   const movesValid = distinct && allUnlocked;
   const canPickThreeMoves = unlockedIds.size >= 3;
 
-  const save = async (treeOnly = false) => {
+  const save = async () => {
     setBusy(true);
     setErr(null);
-    const payload: SetLoadoutPayload = {};
-    if (!treeOnly || stance !== (s.battles.loadout.stance ?? DEFAULT_STANCE))
-      payload.stance = stance;
-    if (!treeOnly && movesValid) payload.moves = moves;
-    if (JSON.stringify(tree) !== JSON.stringify(rawSavedTree)) {
-      payload.tree = tree;
-    }
+    const payload: SetLoadoutPayload = movesValid ? { moves } : {};
     try {
       const r = await window.monsUi.setLoadout(payload);
       if (r.ok) {
-        if (treeOnly) setMapOpen(false);
-        else setSaved(true);
+        setSaved(true);
       } else {
         setErr(r.error ?? 'Failed to save loadout');
       }
@@ -153,7 +185,7 @@ function LoadoutEditor({ s, onDiscard }: { s: UiSnapshot; onDiscard: () => void 
       : canPickThreeMoves && !allUnlocked
         ? "One of these moves isn't unlocked yet."
         : null;
-  const saveDisabled = busy || saved || saveDisabledReason !== null;
+  const saveDisabled = busy || skillSaving || saved || saveDisabledReason !== null;
 
   return (
     <div class="section">
@@ -225,7 +257,6 @@ function LoadoutEditor({ s, onDiscard }: { s: UiSnapshot; onDiscard: () => void 
         <button
           class="skill-entry"
           onClick={() => {
-            mapStart.current = { tree: { ...tree }, stance };
             setMapOpen(true);
           }}
         >
@@ -261,7 +292,7 @@ function LoadoutEditor({ s, onDiscard }: { s: UiSnapshot; onDiscard: () => void 
             onKeyDown={(e) => {
               if (e.key === 'Escape') {
                 e.preventDefault();
-                cancelMap();
+                setMapOpen(false);
               }
               if (e.key !== 'Tab') return;
               const controls = Array.from(
@@ -284,40 +315,21 @@ function LoadoutEditor({ s, onDiscard }: { s: UiSnapshot; onDiscard: () => void 
             }}
           >
             <div class="skill-card" tabIndex={-1} ref={mapDialog}>
-              <h3>Skill Tree</h3>
-              <fieldset class="skill-fieldset" disabled={busy}>
-                <SkillTree
-                  nation={species.nation}
-                  ranks={tree}
-                  level={level}
-                  onAdd={addRank}
-                  onRemove={removeRank}
-                  onPassive={togglePassive}
-                  stance={stance}
-                  onStance={setStance}
-                />
-              </fieldset>
-              <div class="row" style={{ border: 0, justifyContent: 'space-between', marginTop: 8 }}>
-                <span class="hint">Changes apply after Save. Respec is free.</span>
-                <button
-                  disabled={busy || Object.values(tree).every((r) => !r)}
-                  onClick={() => setTree({})}
-                >
-                  Reset all
-                </button>
-              </div>
-              {err && <p class="loadout-error">Couldn't save: {err}</p>}
-              <div
-                class="skill-footer row"
-                style={{ border: 0, justifyContent: 'flex-end', gap: 8 }}
-              >
-                <button disabled={busy} onClick={cancelMap}>
-                  Cancel
-                </button>
-                <button class="primary" disabled={busy} onClick={() => void save(true)}>
-                  {busy ? 'Saving…' : 'Save'}
-                </button>
-              </div>
+              <SkillTree
+                nation={species.nation}
+                ranks={tree}
+                level={level}
+                onAdd={addRank}
+                onRemove={removeRank}
+                onPassive={changePassive}
+                equippedMoves={moves.map((id) => findMove(species, id)!)}
+                stance={stance}
+                onStance={changeStance}
+                saving={skillSaving}
+                error={skillError}
+                onReset={() => void persistSkills({ tree: {}, stance: DEFAULT_STANCE })}
+                onClose={() => setMapOpen(false)}
+              />
             </div>
           </div>
         )}
@@ -328,7 +340,7 @@ function LoadoutEditor({ s, onDiscard }: { s: UiSnapshot; onDiscard: () => void 
           </p>
         )}
         <div class="row" style={{ border: 0, justifyContent: 'flex-end', gap: 8, marginTop: 8 }}>
-          <button onClick={onDiscard} disabled={busy}>
+          <button onClick={onDiscard} disabled={busy || skillSaving}>
             Discard changes
           </button>
           <button

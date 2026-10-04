@@ -79,6 +79,7 @@ const uiApi = {
   setNickname: (nickname: string): Promise<{ ok: boolean; error: string | null }> =>
     ipcRenderer.invoke(IPC.uiSetNickname, nickname),
   syncNow: (): Promise<UiSnapshot> => ipcRenderer.invoke(IPC.uiSyncNow),
+  setSkillTreeOpen: (open: boolean): Promise<void> => ipcRenderer.invoke(IPC.uiSkillTreeOpen, open),
   refreshBattles: (): Promise<void> => ipcRenderer.invoke(IPC.uiRefreshBattles),
   setWaterEnabled: (enabled: boolean): Promise<UiSnapshot> =>
     ipcRenderer.invoke(IPC.uiSetWaterEnabled, enabled),

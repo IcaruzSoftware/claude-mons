@@ -2,8 +2,8 @@
 doc_type: design
 purpose: "Read this when redesigning a specific panel tab (Mon, Leaderboard, Battles, Settings) or planning the order of work for the panel reskin."
 audience: agent
-last_verified: 2026-10-03
-last_verified_commit: 0d5dfe3
+last_verified: 2026-10-04
+last_verified_commit: a197357
 related_files:
   - docs/design/ui-style.md
   - docs/design/progression.md
@@ -29,11 +29,9 @@ the shared components and the game-menu bar landed; see
 `docs/decisions/0019-game-style-panel-ui.md` for the decision record. Deviations found during the
 build-order's visual-capture step, still accurate against the shipped code:
 
-- **Battles: loadout, stance and talents are directly editable in the tab.** Controls hold a
-  local draft. Only Save calls `set-loadout`; Discard changes restores the saved selection.
-  The arena and matchup tips continue to reflect the saved loadout until a successful save.
-  Counter this preselects a draft stance without saving or discarding other edits. Move options
-  use explicit dark backgrounds and readable text; moves equipped in another slot are disabled.
+- **Battles: abilities and history stay compact; progression opens in the Skill Tree.**
+  Controls hold a local draft. Save persists it; Discard restores the saved selection.
+  Move options have readable dark backgrounds and disable moves equipped in another slot.
 - **Sprite bug found during this pass, fixed in the same 0.2.0 release (not by this doc).**
   Visually capturing the Mon hero, Battles arena and (by extension) the Leaderboard podium
   surfaced that every mon past baby stage rendered a blank sprite: `spriteIdFor`
@@ -154,14 +152,30 @@ The main Battle view contains Abilities (three attack slots, reorder, Save/Disca
 Skill Tree entry immediately below the slots, and Battle History. It has no arena,
 separate Talents list, passive list or stance section.
 
-The Skill Tree opens a full-panel atlas: drag to pan, wheel or plus/minus to zoom,
-Fit for the overview and Center for the core. Four nation paths include six Flow
-combos; ten shared passives form independent clusters. Solid paths indicate prerequisites,
-dotted paths indicate shared groups. Passives and ultimate nodes have larger frames.
-The unscaled inspector shows effects, cost and explicit one-time purchase/removal actions.
-Select the core for the innate passive, automatic combo and battle stance choices.
-Save applies tree/stance only and preserves unsaved attack drafts. Cancel restores the
-opening tree and stance. Free Reset all affects only the map draft.
+The Skill Tree expands the native window to a centered overview (up to 1920×1120, bounded
+by the current display's work area), then restores the compact Battle bounds on close. Only
+the map is shown. Wheel zooms around the cursor, drag pans; keyboard focus recenters nodes,
+arrow keys pan, +/- zoom, Enter learns and Delete refunds. There is no toolbar or inspector.
+Four paths each contain twelve nodes (48 total), including six Flow combos and six mastery
+purchases per path. Each path alone costs all 47 level-50 nation points.
+
+Stances and main passives occupy separate labelled map regions. Stance shows 1/1 active.
+Main passive shows 0/1 or 1/1 chosen and explains the one-slot rule. Each passive group connects
+to its required tier-6 nation capstone; other main passives show Slot full while one is chosen.
+Normal nation/Flow passives remain combinable. Hover explains cost, prerequisite, effects and
+build fit in a tooltip above the cursor, inside the map experience. The core explains the
+innate passive and automatic combo. Stances appear exclusively in the map.
+
+Learned nodes and connections glow gold; available nodes and their edges have a weaker
+highlight; locked or unaffordable nodes and edges are dimmed. Explicit labels and role icons
+identify offense, defense, tempo and elemental bonuses. Larger frames identify passives and
+capstones. Role and availability remain understandable without color.
+
+Left click learns/equips and automatically persists. Right click refunds, cascading dependants
+and any main passive whose prerequisite was removed. Reset all is unrestricted and saves
+immediately. The map has no Save/Cancel. Edits serialize so rapid clicks cannot overwrite a
+newer allocation; failure restores confirmed state and shows a retry message. Attack drafts
+remain separate. The point HUD, reset, close and brief interaction hint are part of the map.
 
 History shows the ten newest battles, sorted by their original timestamps. Resolved
 battles persist before animation ends and update the open panel immediately. Startup,
@@ -170,7 +184,7 @@ existing participant-only RLS, merging by id with local offline fights. Same-acc
 sign-in preserves cached history; switching accounts clears it. Failed fetches keep the
 cache. Late fetches cannot populate a different account.
 
-The map and fixed controls fit 440x660 and 380x520; the inspector scrolls independently.
+At 380×520, the map remains the entire view; zoom and pan expose every region without document overflow.
 The main view scrolls its history. An egg shows the hatch prompt and empty history.
 Save errors retain drafts for retry.
 

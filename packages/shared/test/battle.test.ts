@@ -12,7 +12,6 @@ import { NATIONS } from '../src/types.ts';
 import { effectiveness, otherNations, variedWildNations } from '../src/game/nations.ts';
 import { useWildForElementVariety } from '../src/battle/matchmaking.ts';
 import { SPECIES, SPECIES_IDS, rollSpecies, speciesForNation } from '../src/game/species.ts';
-import { STANCE_INFO, stanceBeats } from '../src/game/progression.ts';
 
 const snap = (speciesId: string, level: number, side: string) =>
   snapshotFor({ monId: side, playerId: side, nickname: side, speciesId, stage: 'baby', level });
@@ -145,7 +144,7 @@ describe('simulateBattle', () => {
   });
 
   it('golden log: pins the protocol so client and server cannot drift', () => {
-    expect(BATTLE_PROTOCOL_VERSION).toBe(11);
+    expect(BATTLE_PROTOCOL_VERSION).toBe(12);
     const res = simulateBattle(snap('sparkit', 10, 'a'), snap('puffle', 10, 'b'), 'golden-1');
     // If this test fails after an intentional formula change, update the fixture AND bump the
     // battle protocol version in the Edge Function; old logs keep replaying from stored snapshots.
@@ -171,48 +170,6 @@ describe('simulateBattle', () => {
 });
 
 describe('stances', () => {
-  it('form a triangle where each stance beats exactly one other', () => {
-    for (const s of Object.keys(STANCE_INFO) as Array<keyof typeof STANCE_INFO>) {
-      const beats = (Object.keys(STANCE_INFO) as Array<keyof typeof STANCE_INFO>).filter((o) =>
-        stanceBeats(s, o),
-      );
-      expect(beats).toEqual([STANCE_INFO[s].beats]);
-      expect(stanceBeats(s, s)).toBe(false);
-    }
-  });
-
-  // See packages/shared/test/balance.test.ts's stance-triangle test for the tuned target (every
-  // pairing 55-62%, all three within 5pp); this test just pins direction (the counter side wins
-  // more) and a sanity ceiling for this one pairing (fury beats gale), same species both sides.
-  it('counter bonus favors the countering stance, same species both sides', () => {
-    const a = snapshotFor({
-      monId: 'a',
-      playerId: 'a',
-      nickname: 'a',
-      speciesId: 'sparkit',
-      stage: 'teen',
-      level: 10,
-      loadout: { stance: 'fury' },
-    });
-    const b = snapshotFor({
-      monId: 'b',
-      playerId: 'b',
-      nickname: 'b',
-      speciesId: 'sparkit',
-      stage: 'teen',
-      level: 10,
-      loadout: { stance: 'gale' },
-    });
-    let wins = 0;
-    const N = 400;
-    for (let i = 0; i < N; i++) {
-      if (simulateBattle(a, b, `stance-unit-${i}`).winner === 'a') wins++;
-    }
-    const rate = wins / N;
-    expect(rate).toBeGreaterThan(0.5);
-    expect(rate).toBeLessThan(1);
-  });
-
   it('a snapshot with no loadout defaults to Bulwark (mirrors DEFAULT_STANCE)', () => {
     const a = snapshotFor({
       monId: 'a',

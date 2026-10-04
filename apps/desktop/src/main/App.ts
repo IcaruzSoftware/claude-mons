@@ -508,6 +508,10 @@ export class App {
       await this.sync?.flush();
       return this.snapshot();
     });
+    ipcMain.handle(IPC.uiSkillTreeOpen, (event, open: unknown) => {
+      if (event.sender === this.panel.browserWindow?.webContents && typeof open === 'boolean')
+        this.panel.setSkillTreeOpen(open);
+    });
     ipcMain.handle(IPC.uiRefreshBattles, () => this.refreshBattleHistory());
     ipcMain.handle(IPC.uiSetNickname, async (_e, nickname: unknown) => {
       if (typeof nickname !== 'string') return { ok: false, error: 'invalid' };

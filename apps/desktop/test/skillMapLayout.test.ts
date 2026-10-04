@@ -4,6 +4,7 @@ import {
   MAX_SKILL_ZOOM,
   MIN_SKILL_ZOOM,
   SKILL_MAP_SIZE,
+  STANCE_SKILL_POSITIONS,
   sharedSkillPosition,
   skillMapPosition,
   zoomSkillMap,
@@ -15,6 +16,7 @@ describe('skill map navigation', () => {
       const nodes = nationNodes(nation);
       const branches = [...new Set(nodes.map((n) => n.branch))];
       const positions = [
+        ...Object.values(STANCE_SKILL_POSITIONS),
         ...nodes.map((n) => skillMapPosition(branches.indexOf(n.branch), n.tier)),
         ...SHARED_PASSIVE_NODES.map((p) => sharedSkillPosition(p.id)),
       ];

@@ -1,5 +1,5 @@
 import { join } from 'node:path';
-import { BrowserWindow, screen } from 'electron';
+import { BrowserWindow, screen, type Rectangle } from 'electron';
 
 export interface PanelMemory {
   x: number;
@@ -12,6 +12,7 @@ export interface PanelMemory {
  */
 export class PanelWindow {
   private win: BrowserWindow | null = null;
+  private compactBounds: Rectangle | null = null;
 
   constructor(
     private readonly memory: () => PanelMemory | null,
@@ -45,6 +46,28 @@ export class PanelWindow {
 
   send(channel: string, payload: unknown): void {
     if (this.win && !this.win.isDestroyed()) this.win.webContents.send(channel, payload);
+  }
+
+  /** Expand only for the map, then return to the user's previous Battle window. */
+  setSkillTreeOpen(open: boolean): void {
+    const win = this.win;
+    if (!win || win.isDestroyed()) return;
+    if (open && !this.compactBounds) {
+      this.compactBounds = win.getBounds();
+      const area = screen.getDisplayMatching(this.compactBounds).workArea;
+      const width = Math.min(1920, area.width - 48),
+        height = Math.min(1120, area.height - 48);
+      win.setBounds({
+        width,
+        height,
+        x: Math.round(area.x + (area.width - width) / 2),
+        y: Math.round(area.y + (area.height - height) / 2),
+      });
+    } else if (!open && this.compactBounds) {
+      const bounds = this.compactBounds;
+      this.compactBounds = null;
+      win.setBounds(bounds);
+    }
   }
 
   private ensure(): BrowserWindow {
@@ -84,6 +107,7 @@ export class PanelWindow {
       win.hide();
     });
     win.on('moved', () => {
+      if (this.compactBounds) return;
       const b = win.getBounds();
       this.remember({ x: b.x, y: b.y });
     });

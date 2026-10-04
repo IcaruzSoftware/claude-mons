@@ -154,19 +154,7 @@ describe('balance (cross-nation round-robin)', () => {
     expect(rate, msg).toBeLessThanOrEqual(0.25);
   });
 
-  // Stance triangle (docs/design/progression.md Stances): countering the opponent's stance should
-  // land the counter side at 55-62 % for every pairing, all three within 5pp of each other.
-  //
-  // Tuned by simulation on 2026-09-13 (see CLAUDE.md's Phase A tuning task): the original +-18 %
-  // stat swing plus +-10 %/-10 % counter bonus landed two of the three pairings around 80-97 % and
-  // the third anywhere from ~37-64 % depending on species (sometimes not even an advantage), because
-  // Fury was the only stance touching both ATK and DEF (the two stats the damage ratio uses) while
-  // Bulwark and Gale each touched only one -- so pairings involving Fury swung far harder. The fix
-  // moved Bulwark's cost stat from SPD to ATK (STANCE_INFO in progression.ts) so every pairing
-  // touches the ATK/DEF axis symmetrically, and shrank the magnitudes (+2 %/-6 % grant/cost, +-2 %
-  // counter bonus, down from +-18 %/+-10 %). Same 4-species, cross-stance-pair harness as before,
-  // more battles per pairing for stability (2000/species = 8000 battles/pairing).
-  it('every stance-counter pairing lands 55-62 %, all three within 5pp of each other', () => {
+  it('conditional stance pairings stay within 40-60% with default builds', () => {
     const pairs: Array<[Stance, Stance]> = [
       ['fury', 'gale'],
       ['bulwark', 'fury'],
@@ -174,7 +162,6 @@ describe('balance (cross-nation round-robin)', () => {
     ];
     const N = 2000;
     const testSpecies = ['dripple', 'sparkit', 'puffle', 'pebblet'];
-    const rates: number[] = [];
     for (const [counterStance, losingStance] of pairs) {
       let wins = 0;
       let total = 0;
@@ -210,19 +197,13 @@ describe('balance (cross-nation round-robin)', () => {
       const rate = wins / total;
       expect(
         rate,
-        `${counterStance} vs ${losingStance} counter side won ${(rate * 100).toFixed(1)}% (n=${total})`,
-      ).toBeGreaterThanOrEqual(0.55);
+        `${counterStance} vs ${losingStance} side won ${(rate * 100).toFixed(1)}% (n=${total})`,
+      ).toBeGreaterThanOrEqual(0.4);
       expect(
         rate,
-        `${counterStance} vs ${losingStance} counter side won ${(rate * 100).toFixed(1)}% (n=${total})`,
-      ).toBeLessThanOrEqual(0.62);
-      rates.push(rate);
+        `${counterStance} vs ${losingStance} side won ${(rate * 100).toFixed(1)}% (n=${total})`,
+      ).toBeLessThanOrEqual(0.6);
     }
-    const spread = Math.max(...rates) - Math.min(...rates);
-    expect(
-      spread,
-      `pairing spread ${(spread * 100).toFixed(1)}pp: ${rates.map((r) => (r * 100).toFixed(1)).join('/')}`,
-    ).toBeLessThanOrEqual(0.05);
   });
 });
 
@@ -269,6 +250,53 @@ function archetypeLoadout(
 describe('balance (Phase B loadout archetype matrix)', () => {
   const ids = Object.keys(SPECIES);
   const BATTLES_PER_COMBO = 15; // 4 archetypes * 4 archetypes * 48 cross-nation pairs * 2 levels
+
+  it('no passive stance dominates across species, build styles and later levels', () => {
+    const wins: Record<Stance, number> = { fury: 0, bulwark: 0, gale: 0 };
+    const games: Record<Stance, number> = { fury: 0, bulwark: 0, gale: 0 };
+    for (const level of [30, 50]) {
+      for (const species of Object.values(SPECIES)) {
+        for (const build of ARCHETYPES) {
+          for (let pair = 0; pair < STANCES.length; pair++) {
+            const stanceA = STANCES[pair]!,
+              stanceB = STANCES[(pair + 1) % STANCES.length]!;
+            const input = {
+              monId: 'mirror',
+              playerId: 'mirror',
+              nickname: 'Mirror',
+              speciesId: species.id,
+              stage: 'adult' as const,
+              level,
+            };
+            const moves = archetypeLoadout(species, level, build);
+            const a = snapshotFor({ ...input, loadout: { stance: stanceA, moves } });
+            const b = snapshotFor({ ...input, loadout: { stance: stanceB, moves } });
+            for (let seed = 0; seed < 50; seed++) {
+              const result = simulateBattle(
+                a,
+                b,
+                `passive-${level}-${species.id}-${build}-${pair}-${seed}`,
+              );
+              wins[result.winner === 'a' ? stanceA : stanceB]++;
+              games[stanceA]++;
+              games[stanceB]++;
+            }
+          }
+        }
+      }
+    }
+    for (const stance of STANCES) {
+      const rate = wins[stance] / games[stance];
+      expect(
+        rate,
+        `${stance}: ${(100 * rate).toFixed(1)}% across the build matrix`,
+      ).toBeGreaterThanOrEqual(0.4);
+      expect(
+        rate,
+        `${stance}: ${(100 * rate).toFixed(1)}% across the build matrix`,
+      ).toBeLessThanOrEqual(0.6);
+    }
+  });
 
   for (const level of [10, 30] as const) {
     it(`every species x archetype combination stays balanced at level ${level}`, () => {
@@ -390,11 +418,16 @@ function greedyMaxTree(nation: Nation, level: number): Record<string, number> {
   return ranks;
 }
 
-/** Maxes every node in exactly one branch (all 6 tiers); well within budget on its own. */
-function branchOnlyTree(nation: Nation, branch: string): Record<string, number> {
+/** Spends only in one path, never exceeding the real level budget. */
+function branchOnlyTree(nation: Nation, branch: string, level: number): Record<string, number> {
   const nodes = (nodesByBranch(nation).get(branch) ?? []).sort((a, b) => a.tier - b.tier);
   const ranks: Record<string, number> = {};
-  for (const node of nodes) ranks[node.id] = node.maxRank;
+  let remaining = pointsAvailable(level);
+  for (const node of nodes) {
+    if (node.cost > remaining) break;
+    ranks[node.id] = 1;
+    remaining -= node.cost;
+  }
   return ranks;
 }
 
@@ -454,9 +487,10 @@ describe('balance (Phase C talent tree)', () => {
     branchY: string,
     speciesIds: string[],
     N: number,
+    level: number,
   ): number {
-    const treeX = branchOnlyTree(nation, branchX);
-    const treeY = branchOnlyTree(nation, branchY);
+    const treeX = branchOnlyTree(nation, branchX, level);
+    const treeY = branchOnlyTree(nation, branchY, level);
     const rateFor = (treeA: Record<string, number>, treeB: Record<string, number>, tag: string) => {
       let wins = 0;
       let total = 0;
@@ -468,7 +502,7 @@ describe('balance (Phase C talent tree)', () => {
             nickname: 'a',
             speciesId,
             stage: 'adult',
-            level: 30,
+            level,
             loadout: { tree: treeA },
           });
           const b = snapshotFor({
@@ -477,7 +511,7 @@ describe('balance (Phase C talent tree)', () => {
             nickname: 'b',
             speciesId,
             stage: 'adult',
-            level: 30,
+            level,
             loadout: { tree: treeB },
           });
           if (simulateBattle(a, b, `tree-branch-${tag}-${speciesId}-${k}`).winner === 'a') wins++;
@@ -491,31 +525,34 @@ describe('balance (Phase C talent tree)', () => {
     return (xAsA + (1 - yAsA)) / 2;
   }
 
-  it("no single branch dominates its nation's other branches at level 30", () => {
-    const N = 200;
-    for (const nation of NATIONS) {
-      // Flow is a setup branch; evaluate it with a prepared loadout separately, not a default
-      // loadout that may never use three distinct moves before the battle ends.
-      const branches = [...nodesByBranch(nation).keys()].filter((branch) => branch !== 'Flow');
-      const speciesIds = Object.keys(SPECIES).filter((id) => SPECIES[id]!.nation === nation);
-      const rates: Array<{ pair: string; rate: number }> = [];
-      for (let i = 0; i < branches.length; i++) {
-        for (let j = i + 1; j < branches.length; j++) {
-          const rate = branchPowerRate(nation, branches[i]!, branches[j]!, speciesIds, N);
-          rates.push({ pair: `${branches[i]} vs ${branches[j]}`, rate });
+  it.each([30, 50])(
+    "no single branch dominates its nation's other branches at level %i",
+    (level) => {
+      const N = 200;
+      for (const nation of NATIONS) {
+        // Flow is a setup branch; evaluate it with a prepared loadout separately, not a default
+        // loadout that may never use three distinct moves before the battle ends.
+        const branches = [...nodesByBranch(nation).keys()].filter((branch) => branch !== 'Flow');
+        const speciesIds = Object.keys(SPECIES).filter((id) => SPECIES[id]!.nation === nation);
+        const rates: Array<{ pair: string; rate: number }> = [];
+        for (let i = 0; i < branches.length; i++) {
+          for (let j = i + 1; j < branches.length; j++) {
+            const rate = branchPowerRate(nation, branches[i]!, branches[j]!, speciesIds, N, level);
+            rates.push({ pair: `${branches[i]} vs ${branches[j]}`, rate });
+          }
+        }
+        const report = rates.map((r) => `${r.pair}: ${(r.rate * 100).toFixed(1)}%`).join('\n');
+        for (const { pair, rate } of rates) {
+          expect(
+            rate,
+            `${nation} ${pair} win rate ${(rate * 100).toFixed(1)}%\n${report}`,
+          ).toBeGreaterThanOrEqual(0.4);
+          expect(
+            rate,
+            `${nation} ${pair} win rate ${(rate * 100).toFixed(1)}%\n${report}`,
+          ).toBeLessThanOrEqual(0.6);
         }
       }
-      const report = rates.map((r) => `${r.pair}: ${(r.rate * 100).toFixed(1)}%`).join('\n');
-      for (const { pair, rate } of rates) {
-        expect(
-          rate,
-          `${nation} ${pair} win rate ${(rate * 100).toFixed(1)}%\n${report}`,
-        ).toBeGreaterThanOrEqual(0.4);
-        expect(
-          rate,
-          `${nation} ${pair} win rate ${(rate * 100).toFixed(1)}%\n${report}`,
-        ).toBeLessThanOrEqual(0.6);
-      }
-    }
-  });
+    },
+  );
 });

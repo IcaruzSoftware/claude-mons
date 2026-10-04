@@ -72,6 +72,7 @@ beforeEach(() => {
   (window as unknown as { monsUi: unknown }).monsUi = {
     setLoadout,
     refreshBattles: vi.fn().mockResolvedValue(undefined),
+    setSkillTreeOpen: vi.fn().mockResolvedValue(undefined),
   };
   consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
 });
@@ -136,19 +137,17 @@ it('updates the open History with the newest battle ahead of login-time entries'
   ).toEqual(['new-battle', 'login-battle']);
 });
 
-it('consolidates old multi-rank talents without charging a respec', async () => {
+it('consolidates old multi-rank talents on the next automatic skill edit', async () => {
   render(h(BattlesView, { s: snapshotFor('water', { 'water:current:1': 3 }) }), container);
   await flush();
-  const save = Array.from(container.querySelectorAll('button')).find(
-    (button) => button.textContent === 'Save',
-  )!;
-  fire(save, 'click');
+  fire(container.querySelector('.skill-entry')!, 'click');
   await flush();
-  expect(setLoadout).toHaveBeenCalledWith(
-    expect.objectContaining({
-      tree: { 'water:current:1': 1 },
-    }),
-  );
+  fire(container.querySelector('[data-node-id="water:current:2"]')!, 'click');
+  await flush();
+  expect(setLoadout).toHaveBeenCalledWith({
+    stance: 'bulwark',
+    tree: { 'water:current:1': 1, 'water:current:2': 1 },
+  });
 });
 
 it('keeps move edits local across snapshots, blocks duplicate picks, and discards explicitly', async () => {
@@ -211,7 +210,7 @@ it('retains a draft after a failed save and permits retry without reopening an e
   expect(container.querySelector('.loadout-error')).toBeNull();
 });
 
-describe('zoomable skill map', () => {
+describe('automatic skill map', () => {
   async function open(s: UiSnapshot) {
     render(h(BattlesView, { s }), container);
     await flush();
@@ -219,72 +218,158 @@ describe('zoomable skill map', () => {
     await flush();
     return container.querySelector('.skill-overlay')!;
   }
-  async function clickText(scope: Element, label: string) {
-    const button = Array.from(scope.querySelectorAll('button')).find(
-      (b) => b.textContent?.trim() === label,
-    )!;
-    expect(button).toBeTruthy();
-    fire(button, 'click');
+  async function click(scope: Element, selector: string, event = 'click') {
+    fire(scope.querySelector(selector)!, event);
     await flush();
   }
   for (const nation of NATIONS) {
     for (const species of speciesForNation(nation)) {
-      it(`${species.id}: renders all four paths, Flow and shared passives`, async () => {
+      it(`${species.id}: opens only the map with all abilities and three stance passives`, async () => {
         const s = snapshotFor(nation, {});
         s.pet.speciesId = species.id;
         const overlay = await open(s);
-        expect(overlay.querySelectorAll('[data-node-id]')).toHaveLength(24);
+        expect(overlay.querySelectorAll('[data-node-id]')).toHaveLength(48);
         expect(overlay.querySelectorAll('[data-passive-id]')).toHaveLength(10);
+        expect(overlay.querySelectorAll('[data-stance-id]')).toHaveLength(3);
         expect(overlay.querySelectorAll('.map-branch-label')).toHaveLength(4);
-        expect(overlay.querySelector(`[data-node-id="${nation}:flow:6"]`)).toBeTruthy();
+        expect(overlay.querySelector('.skill-detail, .map-toolbar, .skill-footer')).toBeNull();
+        expect(
+          [...overlay.querySelectorAll('button')].some((button) => button.textContent === 'Save'),
+        ).toBe(false);
         expect(overlay.textContent).not.toContain('Planned');
       });
     }
   }
-  it('buys Flow talents once and saves only the tree while retaining the attack draft', async () => {
+  it('learns once on left click, autosaves without moves and keeps attack drafts', async () => {
     const overlay = await open(snapshotFor('water', {}));
     const select = container.querySelector<HTMLSelectElement>('.mv-select')!;
-    const replacement = Array.from(select.options).find(
-      (o) => !o.disabled && o.value !== select.value,
+    const replacement = [...select.options].find(
+      (option) => !option.disabled && option.value !== select.value,
     )!.value;
     select.value = replacement;
     fire(select, 'change');
     await flush();
-    fire(overlay.querySelector('[data-node-id="water:flow:1"]')!, 'click');
-    await flush();
-    await clickText(overlay, 'Unlock · 1 pts');
-    expect(overlay.querySelector('.skill-actions .primary')!.hasAttribute('disabled')).toBe(true);
-    await clickText(overlay, 'Save');
-    expect(setLoadout).toHaveBeenLastCalledWith({ tree: { 'water:flow:1': 1 } });
-    expect(container.querySelector<HTMLSelectElement>('.mv-select')!.value).toBe(replacement);
+    await click(overlay, '[data-node-id="water:flow:1"]');
+    expect(setLoadout).toHaveBeenLastCalledWith({ tree: { 'water:flow:1': 1 }, stance: 'bulwark' });
+    expect(overlay.querySelector('[data-node-id="water:flow:1"]')!.getAttribute('data-state')).toBe(
+      'Learned',
+    );
+    await click(overlay, '[data-node-id="water:flow:1"]');
+    expect(setLoadout).toHaveBeenCalledTimes(1);
+    expect(select.value).toBe(replacement);
+    await click(overlay, '[aria-label="Close Skill Tree"]');
+    expect(container.querySelector('.skill-overlay')).toBeNull();
+    expect(setLoadout).toHaveBeenCalledTimes(1);
   });
-  it('cancels additions and cascades removal through actual prerequisites', async () => {
-    const overlay = await open(snapshotFor('water', { 'water:flow:1': 1, 'water:flow:2': 1 }));
-    fire(overlay.querySelector('[data-node-id="water:flow:1"]')!, 'click');
-    await flush();
-    await clickText(overlay, 'Remove');
+  it('refunds actual prerequisites on right click and resets every skill at any time', async () => {
+    const overlay = await open(
+      snapshotFor('water', { 'water:flow:1': 1, 'water:flow:2': 1, 'shared:stone-skin': 1 }),
+    );
+    await click(overlay, '[data-node-id="water:flow:1"]', 'contextmenu');
     expect(overlay.querySelectorAll('[data-node-id].learned')).toHaveLength(0);
-    await clickText(overlay, 'Cancel');
-    expect(setLoadout).not.toHaveBeenCalled();
-    fire(container.querySelector('.skill-entry')!, 'click');
+    expect(setLoadout.mock.calls.at(-1)![0].tree['water:flow:2']).toBe(0);
+    await click(overlay, '[data-passive-id="shared:stone-skin"]', 'contextmenu');
+    expect(overlay.querySelectorAll('[data-passive-id].learned')).toHaveLength(0);
+    await click(overlay, '[data-stance-id="fury"]');
+    const reset = [...overlay.querySelectorAll('button')].find(
+      (button) => button.textContent === 'Reset all',
+    )!;
+    fire(reset, 'click');
     await flush();
-    expect(container.querySelectorAll('[data-node-id].learned')).toHaveLength(2);
+    expect(setLoadout).toHaveBeenLastCalledWith({ tree: {}, stance: 'bulwark' });
+    expect(reset.disabled).toBe(false);
+    fire(reset, 'click');
+    await flush();
+    expect(setLoadout).toHaveBeenLastCalledWith({ tree: {}, stance: 'bulwark' });
   });
-  it('enforces separate passive points and exposes zoom controls without spending points', async () => {
+  it('shows hover explanations in the map and distinguishes locked, unaffordable and learned roles', async () => {
+    const overlay = await open(snapshotFor('water', { 'water:current:1': 1 }));
+    const locked = overlay.querySelector('[data-node-id="water:current:3"]')!;
+    locked.dispatchEvent(new MouseEvent('pointerenter', { clientX: 200, clientY: 350 }));
+    await flush();
+    expect(overlay.querySelector('[role="tooltip"]')!.textContent).toContain('Requires Millrace');
+    await click(overlay, '[data-node-id="water:current:3"]');
+    expect(setLoadout).not.toHaveBeenCalled();
+    expect(locked.getAttribute('data-state')).toBe('Locked');
+    expect(
+      overlay.querySelector('[data-node-id="water:current:1"]')!.getAttribute('data-role'),
+    ).toBe('offense');
+    expect(overlay.querySelector('[data-stance-id="bulwark"]')!.getAttribute('data-role')).toBe(
+      'defense',
+    );
+    expect(overlay.querySelector('[data-stance-id="gale"]')!.getAttribute('data-role')).toBe(
+      'tempo',
+    );
+    expect(overlay.querySelector('.map-core')!.getAttribute('data-role')).toBe('elemental');
+    await click(overlay, '[data-passive-id="shared:stone-skin"]');
+    const unavailable = overlay.querySelector('[data-passive-id="shared:deep-roots"]')!;
+    expect(unavailable.getAttribute('data-state')).toBe('Locked');
+    await click(overlay, '[data-passive-id="shared:deep-roots"]');
+    expect(setLoadout).not.toHaveBeenCalled();
+  });
+  it('allows one main passive plus a stance, refunding frees the slot and gate refunds cascade', async () => {
+    const core = Object.fromEntries(
+      nationNodes('water')
+        .filter((n) => n.branch === 'Undertow' && n.tier <= 7)
+        .map((n) => [n.id, 1]),
+    );
+    const snapshot = snapshotFor('water', core);
+    snapshot.progress.level = 50;
+    const overlay = await open(snapshot);
+    await click(overlay, '[data-passive-id="shared:stone-skin"]');
+    await click(overlay, '[data-stance-id="gale"]');
+    expect(overlay.querySelectorAll('[data-passive-id].learned')).toHaveLength(1);
+    expect(overlay.querySelector('.map-main-passive-area')!.textContent).toContain('1/1');
+    expect(
+      overlay.querySelector('[data-passive-id="shared:deep-roots"]')!.getAttribute('data-state'),
+    ).toBe('Passive slot occupied');
+    const calls = setLoadout.mock.calls.length;
+    await click(overlay, '[data-passive-id="shared:deep-roots"]');
+    expect(setLoadout).toHaveBeenCalledTimes(calls);
+    await click(overlay, '[data-node-id="water:undertow:7"]', 'contextmenu');
+    expect(overlay.querySelectorAll('[data-passive-id].learned')).toHaveLength(1);
+    await click(overlay, '[data-passive-id="shared:stone-skin"]', 'contextmenu');
+    expect(overlay.querySelector('.map-main-passive-area')!.textContent).toContain('0/1');
+    await click(overlay, '[data-passive-id="shared:deep-roots"]');
+    expect(setLoadout.mock.calls.at(-1)![0].tree['shared:deep-roots']).toBe(1);
+    await click(overlay, '[data-node-id="water:undertow:6"]', 'contextmenu');
+    expect(setLoadout.mock.calls.at(-1)![0].tree['shared:deep-roots']).toBe(0);
+    expect(overlay.querySelectorAll('[data-passive-id].learned')).toHaveLength(0);
+    expect(overlay.querySelector('[data-stance-id="gale"]')!.getAttribute('aria-pressed')).toBe(
+      'true',
+    );
+  });
+  it('serializes rapid edits and persists the newest allocation without overwriting it', async () => {
+    let resolveFirst!: (value: { ok: boolean; error: null }) => void;
+    setLoadout.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveFirst = resolve;
+      }),
+    );
     const overlay = await open(snapshotFor('water', {}));
-    fire(overlay.querySelector('[data-passive-id="shared:stone-skin"]')!, 'click');
+    await click(overlay, '[data-node-id="water:current:1"]');
+    await click(overlay, '[data-node-id="water:current:2"]');
+    await click(overlay, '[data-stance-id="gale"]');
+    expect(setLoadout).toHaveBeenCalledTimes(1);
+    expect(overlay.querySelector('.map-hud')!.textContent).toContain('Saving');
+    resolveFirst({ ok: true, error: null });
     await flush();
-    await clickText(overlay, 'Unlock · 3 passive pts');
-    fire(overlay.querySelector('[data-passive-id="shared:deep-roots"]')!, 'click');
-    await flush();
-    expect(overlay.querySelector('.skill-actions .primary')!.hasAttribute('disabled')).toBe(true);
-    fire(overlay.querySelector('[aria-label="Zoom in"]')!, 'click');
-    await flush();
-    expect(overlay.querySelector('output')!.textContent).toBe('90%');
-    fire(overlay.querySelector('[aria-label="Zoom out"]')!, 'click');
-    await flush();
-    expect(overlay.querySelector('output')!.textContent).toBe('75%');
-    await clickText(overlay, 'Save');
-    expect(setLoadout).toHaveBeenLastCalledWith({ tree: { 'shared:stone-skin': 1 } });
+    expect(setLoadout).toHaveBeenCalledTimes(2);
+    expect(setLoadout).toHaveBeenLastCalledWith({
+      stance: 'gale',
+      tree: { 'water:current:1': 1, 'water:current:2': 1 },
+    });
+    expect(overlay.querySelectorAll('[data-stance-id].learned')).toHaveLength(1);
+    expect(overlay.querySelector('.map-hud')!.textContent).toContain('Automatically saved');
+  });
+  it('rolls back an unsuccessful autosave visibly and permits retry', async () => {
+    const overlay = await open(snapshotFor('water', {}));
+    setLoadout.mockRejectedValueOnce(new Error('offline'));
+    await click(overlay, '[data-node-id="water:current:1"]');
+    expect(overlay.querySelectorAll('[data-node-id].learned')).toHaveLength(0);
+    expect(overlay.querySelector('.map-hud')!.textContent).toContain('reverted');
+    await click(overlay, '[data-node-id="water:current:1"]');
+    expect(overlay.querySelectorAll('[data-node-id].learned')).toHaveLength(1);
+    expect(overlay.querySelector('.map-hud')!.textContent).not.toContain('reverted');
   });
 });

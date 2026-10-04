@@ -34,10 +34,11 @@ import { statAtLevel } from '../game/levels.ts';
 import { effectiveness } from '../game/nations.ts';
 import {
   DEFAULT_STANCE,
-  STANCE_COUNTER_DEALT_MULT,
-  STANCE_COUNTER_TAKEN_MULT,
-  applyStanceModifiers,
-  stanceBeats,
+  FURY_DAMAGE_MULT,
+  BULWARK_DAMAGE_MULT,
+  BULWARK_HP_THRESHOLD,
+  GALE_DAMAGE_MULT,
+  type Stance,
   type MonLoadout,
 } from '../game/progression.ts';
 import { defaultLoadoutMoveIds, findMove, speciesOf, type Move } from '../game/species.ts';
@@ -65,7 +66,7 @@ export interface MonSnapshot {
   stage: Exclude<Stage, 'egg'>;
   level: number;
   /** already scaled to `level` -- stage multiplier and (Phase C) the mon's tree stat nodes, in
-   * that order, both before stance -- and stored so old logs replay after rebalances. */
+   * that order, both before combat -- and stored so old logs replay after rebalances. */
   stats: Stats;
   /**
    * `stance` defaults to `DEFAULT_STANCE` and `moves` to `defaultLoadoutMoveIds` (see
@@ -100,6 +101,8 @@ export interface BattleAction {
   nationPassive?: 'ignite' | 'soak';
   /** Name of a talent combo activated by this action, if one was used. */
   comboTalent?: string;
+  /** Conditional stances that affected this direct hit; absent in pre-v12 logs. */
+  stancePassives?: Array<{ side: Side; stance: Stance }>;
 }
 
 export interface BattleTurn {
@@ -134,8 +137,8 @@ export const FOLLOW_THROUGH_MULT = 1.2;
  * Phoenix Reborn/Second Breath KO interceptions -- none of which add or remove an `rng()` call by
  * themselves, but the golden log's *values* change because the formula does).
  */
-// v11: stronger elemental counters, bounded 3% level bonuses and gentler opening combos.
-export const BATTLE_PROTOCOL_VERSION = 11;
+// v12: conditional build passives replace stance counters and unconditional stat modifiers.
+export const BATTLE_PROTOCOL_VERSION = 12;
 
 const levelScale = (l: number): number => (l + 24) / 25;
 export const DOUBLE_STRIKE_CHANCE = 0.08;
@@ -160,8 +163,7 @@ export function statsAtLevel(base: Stats, level: number): Stats {
 
 /** Folds a resolved tree's summed stat-node bonuses -- plus any `flatStat` capstone (Water's Deep
  * Reserve, Earth's Old Growth: "Max HP +N% flat, stacks with tier 1/2") -- into already
- * level-scaled stats (docs/design/talent-tree.md: "after stage multiplier, before stance"). Rounds
- * the same way `applyStanceModifiers` does. */
+ * level-scaled stats (docs/design/talent-tree.md: "after stage multiplier, before combat"). Rounds each stat to the nearest integer. */
 function applyTreeStatBonus(stats: Stats, resolved: ResolvedTree): Stats {
   const pct: Partial<Record<keyof Stats, number>> = { ...resolved.statBonusPct };
   for (const capstone of resolved.capstones) {
@@ -269,20 +271,11 @@ export function simulateBattle(a: MonSnapshot, b: MonSnapshot, seed: string): Ba
   const scale = levelScale((a.level + b.level) / 2);
   const turns: BattleTurn[] = [];
 
-  // Stances (docs/design/progression.md): fixed for the whole battle, so computed once here rather
-  // than per-turn. They do not add an RNG draw (no new call inserted into the protocol below), but
-  // they do change the stats/damage formula, hence BATTLE_PROTOCOL_VERSION.
-  const stance: Record<Side, ReturnType<typeof stanceOf>> = { a: stanceOf(a), b: stanceOf(b) };
-  const effStats: Record<Side, Stats> = {
-    a: applyStanceModifiers(a.stats, stance.a),
-    b: applyStanceModifiers(b.stats, stance.b),
-  };
-  // At most one side counters the other's stance (a rock-paper-scissors triangle never ties two
-  // distinct stances); if both picked the same stance, neither counters.
-  const counters: Record<Side, boolean> = {
-    a: stanceBeats(stance.a, stance.b),
-    b: stanceBeats(stance.b, stance.a),
-  };
+  const stance: Record<Side, Stance> = { a: stanceOf(a), b: stanceOf(b) };
+  const effStats: Record<Side, Stats> = { a: a.stats, b: b.stats };
+  const tempo: Record<Side, { turn: number; moveId: string } | null> = { a: null, b: null };
+  // The entire telegraph turn is protected, independent of which side acts first.
+  const charging: Record<Side, boolean> = { a: false, b: false };
 
   const loadoutMoves: Record<Side, [Move, Move, Move]> = {
     a: resolveLoadoutMoves(a),
@@ -361,7 +354,7 @@ export function simulateBattle(a: MonSnapshot, b: MonSnapshot, seed: string): Ba
     }),
   };
 
-  /** Effective ATK/SPD for `side` right now: base (stance-modified) stats, minus any active
+  /** Effective ATK/SPD for `side` right now: snapshot stats, minus any active
    * `def_down`-riding ATK/SPD cut from Earth's Fissure Reckoning / Water's Abyssal Pull capstones
    * (docs/design/talent-tree.md). DEF is handled separately at the point of use, since a
    * Supernova crit (Fire's capstone) needs to see the *un-debuffed* DEF for that one action. */
@@ -464,6 +457,9 @@ export function simulateBattle(a: MonSnapshot, b: MonSnapshot, seed: string): Ba
     turnNum: number,
     doubleStrike = false,
   ): BattleAction => {
+    const tempoReady =
+      !doubleStrike && tempo[me]?.turn === turnNum - 1 && tempo[me]?.moveId !== move.id;
+    if (!doubleStrike) tempo[me] = null;
     const M = mons[me];
     const nationEff = effectiveness(M.nation, mons[foe].nation);
     const meStats = liveStats(me);
@@ -647,6 +643,16 @@ export function simulateBattle(a: MonSnapshot, b: MonSnapshot, seed: string): Ba
         .filter(Boolean)
         .join(' + ') || undefined;
 
+    const exploit =
+      !doubleStrike && stance[me] === 'fury' && foeDebuffed && (crit || charge === 'release');
+    const tempoHit = stance[me] === 'gale' && tempoReady && actedFirst[me];
+    const brace =
+      stance[foe] === 'bulwark' &&
+      (charging[foe] || hp[foe] / mons[foe].stats.hp <= BULWARK_HP_THRESHOLD);
+    const stancePassives: NonNullable<BattleAction['stancePassives']> = [];
+    if (exploit || tempoHit) stancePassives.push({ side: me, stance: stance[me] });
+    if (brace) stancePassives.push({ side: foe, stance: 'bulwark' });
+
     // A small, bounded level bonus leaves room for elemental counters.
     const levelGap = Math.max(-3, Math.min(3, M.level - mons[foe].level));
     const experience = 1 + 0.03 * levelGap;
@@ -664,8 +670,8 @@ export function simulateBattle(a: MonSnapshot, b: MonSnapshot, seed: string): Ba
       talentDamage *
       critMultiplier *
       variance *
-      (counters[me] ? STANCE_COUNTER_DEALT_MULT : 1) *
-      (counters[foe] ? STANCE_COUNTER_TAKEN_MULT : 1);
+      (exploit ? FURY_DAMAGE_MULT : tempoHit ? GALE_DAMAGE_MULT : 1) *
+      (brace ? BULWARK_DAMAGE_MULT : 1);
     let damage = Math.max(1, Math.floor(raw));
     if (mons[foe].nation === 'earth') {
       damage = Math.max(1, Math.floor(damage * EARTH_DAMAGE_MULT));
@@ -774,6 +780,7 @@ export function simulateBattle(a: MonSnapshot, b: MonSnapshot, seed: string): Ba
       }
       talents[me].recentMoves = [...talents[me].recentMoves.slice(-1), move.id];
       talents[me].lastPriorityId = move.effect === 'priority' ? move.id : null;
+      if (move.effect === 'priority') tempo[me] = { turn: turnNum, moveId: move.id };
       if (move.effect === 'drain') {
         const drainBonus = hasTalent(me, 'slow-leak')
           ? 0.04
@@ -861,6 +868,7 @@ export function simulateBattle(a: MonSnapshot, b: MonSnapshot, seed: string): Ba
       ...(charge ? { charge } : {}),
       ...(nationPassive ? { nationPassive } : {}),
       ...(comboTalent ? { comboTalent } : {}),
+      ...(stancePassives.length ? { stancePassives } : {}),
     };
   };
 
@@ -869,6 +877,8 @@ export function simulateBattle(a: MonSnapshot, b: MonSnapshot, seed: string): Ba
     tookDamageThisTurn.b = false;
     const pickA = pickMove('a', t);
     const pickB = pickMove('b', t);
+    charging.a = pickA.charge === 'telegraph';
+    charging.b = pickB.charge === 'telegraph';
     pickedPriority.a = pickA.move.effect === 'priority';
     pickedPriority.b = pickB.move.effect === 'priority';
     const priorityA = pickA.move.effect === 'priority';
@@ -896,7 +906,7 @@ export function simulateBattle(a: MonSnapshot, b: MonSnapshot, seed: string): Ba
       } else {
         // Turn order is probabilistic by speed (P(a first) = spd_a / (spd_a + spd_b)) so a
         // one-point speed edge does not decide every turn; a hard "faster always first" rule made
-        // +1 level ≈ 90 %. Uses stance-modified (and, Phase C, def_down-debuffed) speed, same as
+        // +1 level ≈ 90 %. Uses live, def_down-debuffed speed, same as
         // in-battle dodge/crit math above.
         const spdA = liveStats('a').spd;
         const spdB = liveStats('b').spd;

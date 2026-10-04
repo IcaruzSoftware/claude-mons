@@ -13,13 +13,7 @@
  * simply no talent-tree facts when `loadout.tree` is absent.
  */
 import { NATION_INFO, effectiveness } from '../game/nations.ts';
-import {
-  DEFAULT_STANCE,
-  STANCES,
-  STANCE_INFO,
-  stanceBeats,
-  type Stance,
-} from '../game/progression.ts';
+import { DEFAULT_STANCE, STANCE_INFO, type Stance } from '../game/progression.ts';
 import { defaultLoadoutMoveIds, findMove, speciesOf, type Move } from '../game/species.ts';
 import { treeSummary } from '../game/tree.ts';
 import type { MonSnapshot } from './battle.ts';
@@ -117,16 +111,10 @@ function hasStoneSkin(tree: Record<string, number> | undefined): boolean {
   return !!tree && (tree['shared:stone-skin'] ?? 0) > 0;
 }
 
-/** The stance that counters `s` (the one stance whose `beats` is `s`) -- the reverse lookup
- * `STANCE_INFO` doesn't offer directly (it only records what a stance *beats*, not what beats it). */
-function counterOf(s: Stance): Stance {
-  return STANCES.find((c) => STANCE_INFO[c].beats === s)!;
-}
-
 export interface MatchupExplanation {
   /** e.g. "Water hits Fire hard." / "Fire hits Water hard -- brace for it." / "Water and Earth trade evenly." */
   nationLine: string;
-  /** e.g. "Their Bulwark counters your Fury." / "Your Fury counters their Gale." / "Both use Bulwark -- no stance edge either way." */
+  /** Names the equipped conditional passives, without implying a stance counter. */
   stanceLine: string;
   /** e.g. "Opens with Drip Tap (always acts first)." */
   openerLine: string;
@@ -136,9 +124,6 @@ export interface MatchupExplanation {
   topBranchLine: string | null;
   /** One concrete, rule-derived suggestion (see module doc for the priority order). */
   suggestion: string;
-  /** Set only when `suggestion` recommends a stance switch; drives the Battles tab's "Counter
-   * this" button, which pre-selects this stance in the loadout editor without saving it. */
-  suggestedStance: Stance | null;
 }
 
 /**
@@ -172,18 +157,7 @@ export function explainMatchup(me: MonSnapshot, opp: MonSnapshot): MatchupExplan
 
   const meStance = me.loadout?.stance ?? DEFAULT_STANCE;
   const oppStance = opp.loadout?.stance ?? DEFAULT_STANCE;
-  const oppCountersMe = meStance !== oppStance && stanceBeats(oppStance, meStance);
-
-  let stanceLine: string;
-  if (meStance === oppStance) {
-    stanceLine = `Both use ${stanceName(meStance)} -- no stance edge either way.`;
-  } else if (oppCountersMe) {
-    stanceLine = `Their ${stanceName(oppStance)} counters your ${stanceName(meStance)}.`;
-  } else {
-    // The triangle has no ties between distinct stances, so if the opponent doesn't counter me,
-    // I counter them (`stanceBeats(meStance, oppStance)` is always true here).
-    stanceLine = `Your ${stanceName(meStance)} counters their ${stanceName(oppStance)}.`;
-  }
+  const stanceLine = `Your ${stanceName(meStance)}: ${STANCE_INFO[meStance].passive}. Their ${stanceName(oppStance)}: ${STANCE_INFO[oppStance].passive}.`;
 
   const oppMoves = resolveMoves(opp);
   const opener = oppMoves[0];
@@ -198,18 +172,12 @@ export function explainMatchup(me: MonSnapshot, opp: MonSnapshot): MatchupExplan
     : null;
 
   let suggestion: string;
-  let suggestedStance: Stance | null = null;
   const shieldMove = hasShieldFirst(oppMoves);
   const stoneSkin = hasStoneSkin(opp.loadout?.tree);
 
-  if (oppCountersMe) {
-    suggestedStance = counterOf(oppStance);
-    suggestion = `Switch to ${stanceName(suggestedStance)} to counter ${stanceName(oppStance)}.`;
-  } else if (shieldMove || stoneSkin) {
+  if (shieldMove || stoneSkin) {
     const shieldLabel = stoneSkin ? 'Stone Skin' : shieldMove!.name;
     suggestion = `Burn beats ${shieldLabel}'s single-hit shield.`;
-  } else if (oppStance === 'gale') {
-    suggestion = `A true-hit opener ignores their ${stanceName(oppStance)} dodge.`;
   } else if (oppAtk > 1) {
     suggestion = `Avoid trading nation-type hits -- ${oppName} hits back hard.`;
   } else if (meAtk > 1) {
@@ -225,6 +193,5 @@ export function explainMatchup(me: MonSnapshot, opp: MonSnapshot): MatchupExplan
     finisherLine,
     topBranchLine,
     suggestion,
-    suggestedStance,
   };
 }

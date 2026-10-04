@@ -4,6 +4,11 @@ import {
   NATION_INFO,
   NATION_PASSIVES,
   STANCES,
+  STANCE_INFO,
+  equippedMainPassive,
+  sharedPassivePrereq,
+  stanceBuildHint,
+  type Move,
   SHARED_PASSIVE_NODES,
   nationNodes,
   pointsAvailable,
@@ -17,15 +22,90 @@ import { Glyph, type GlyphName } from '../../ui/Glyph.tsx';
 import {
   SKILL_MAP_SIZE,
   SKILL_MAP_ROOT,
+  STANCE_SKILL_POSITIONS,
+  STANCE_SKILL_AREA,
+  PASSIVE_SKILL_AREA,
   SHARED_SKILL_GROUPS,
-  MIN_SKILL_ZOOM,
-  MAX_SKILL_ZOOM,
   skillMapPosition,
   sharedSkillPosition,
   zoomSkillMap,
 } from './skillMapLayout.ts';
 
-/** A navigable skill atlas. Selection inspects; only explicit unlock actions spend points. */
+const ROLE_LABELS = {
+  offense: 'Offensive',
+  defense: 'Defensive',
+  tempo: 'Tempo',
+  elemental: 'Elemental',
+};
+type SkillRole = keyof typeof ROLE_LABELS;
+const DEFENSIVE_PASSIVES = new Set([
+  'slow-leak',
+  'watershed',
+  'undercurrent',
+  'flashover',
+  'canopy-cover',
+  'mulch-layer',
+  'load-bearing',
+  'reinforced-crust',
+  'fog-bank',
+  'static-charge',
+  'kindled-recovery',
+  'flow-state',
+]);
+const TEMPO_PASSIVES = new Set(['slipstream', 'thermal-lift', 'quick-setup']);
+const SHARED_ROLES: Record<string, SkillRole> = {
+  'stone-skin': 'defense',
+  'deep-roots': 'defense',
+  bedrock: 'defense',
+  wildfire: 'offense',
+  aftershock: 'offense',
+  tailwind: 'offense',
+  'tidal-recovery': 'defense',
+  updraft: 'tempo',
+  'second-breath': 'defense',
+  'ember-heart': 'offense',
+};
+const STANCE_ROLES: Record<Stance, SkillRole> = {
+  fury: 'offense',
+  bulwark: 'defense',
+  gale: 'tempo',
+};
+function skillRole(node: TreeNode, moves: readonly Move[]): SkillRole {
+  if (node.stat) return node.stat === 'atk' ? 'offense' : node.stat === 'spd' ? 'tempo' : 'defense';
+  if (node.kind === 'moveUpgrade') {
+    const move = moves[node.slot - 1];
+    return move?.effect === 'drain' || move?.effect === 'shield_first'
+      ? 'defense'
+      : move?.type === 'nation'
+        ? 'elemental'
+        : 'offense';
+  }
+  if (node.capstone) {
+    const kind = node.capstone.kind;
+    if (kind === 'flatStat')
+      return node.capstone.stat === 'atk'
+        ? 'offense'
+        : node.capstone.stat === 'spd'
+          ? 'tempo'
+          : 'defense';
+    return ['flatStat', 'phoenix', 'hitFloor', 'damageCap'].includes(kind)
+      ? 'defense'
+      : ['chargeInstant', 'actFirstAfterDamage', 'defDownAlsoSpd'].includes(kind)
+        ? 'tempo'
+        : kind === 'critMultiplier'
+          ? 'elemental'
+          : 'offense';
+  }
+  return node.passive === 'pressure-head'
+    ? 'elemental'
+    : DEFENSIVE_PASSIVES.has(node.passive ?? '')
+      ? 'defense'
+      : TEMPO_PASSIVES.has(node.passive ?? '')
+        ? 'tempo'
+        : 'offense';
+}
+
+/** Direct manipulation map: click buys, context click refunds, every mutation autosaves. */
 export function SkillTree({
   nation,
   ranks,
@@ -35,53 +115,69 @@ export function SkillTree({
   onPassive,
   stance,
   onStance,
+  equippedMoves,
+  onReset,
+  onClose,
+  saving,
+  error,
 }: {
   nation: Nation;
   ranks: Record<string, number>;
   level: number;
   onAdd: (node: TreeNode) => void;
   onRemove: (node: TreeNode) => void;
-  onPassive: (id: string, cost: number) => void;
+  onPassive: (id: string, cost: number, remove?: boolean) => void;
   stance: Stance;
   onStance: (stance: Stance) => void;
+  equippedMoves: readonly Move[];
+  onReset: () => void;
+  onClose: () => void;
+  saving: boolean;
+  error: string | null;
 }) {
-  const nodes = nationNodes(nation);
-  const branches = [...new Set(nodes.map((n) => n.branch))];
-  const [selected, setSelected] = useState<string>(nodes[0]!.id);
-  const viewport = useRef<HTMLDivElement>(null);
-  const [view, setView] = useState({ x: 0, y: 0, zoom: 0.75 });
-  const drag = useRef<{
-    x: number;
-    y: number;
-    originX: number;
-    originY: number;
-    moved: boolean;
-  } | null>(null);
-  const node = nodes.find((n) => n.id === selected);
-  const passive = SHARED_PASSIVE_NODES.find((p) => p.id === selected);
-  const spent = treeSpent(nation, ranks);
-  const remaining = pointsAvailable(level) - spent.nation;
-  const sharedRemaining = sharedPassivePoints(level) - spent.shared;
-  const rank = ranks[selected] ?? 0;
-  const prereq = nodes.find((n) => n.id === node?.prereqId);
-  const locked = Boolean(prereq && !(ranks[prereq.id] ?? 0));
+  const nodes = nationNodes(nation),
+    branches = [...new Set(nodes.map((n) => n.branch))];
   const position = (n: TreeNode) => skillMapPosition(branches.indexOf(n.branch), n.tier);
-  const description = (node ?? passive)?.description
-    .replace(/ \(not yet wired.*$/, '.')
-    .replace(/ \(rank 3 may instead.*$/, '.');
-
-  const center = () => {
-    const el = viewport.current;
-    if (el)
-      setView({
-        x: el.clientWidth / 2 - SKILL_MAP_ROOT.x * 0.75,
-        y: el.clientHeight / 2 - SKILL_MAP_ROOT.y * 0.75,
-        zoom: 0.75,
-      });
-  };
+  const spent = treeSpent(nation, ranks),
+    remaining = pointsAvailable(level) - spent.nation;
+  const mainPassive = equippedMainPassive(ranks);
+  const sharedState = (id: string, cost: number) =>
+    (ranks[id] ?? 0) > 0
+      ? 'Learned'
+      : mainPassive
+        ? 'Passive slot occupied'
+        : !(ranks[sharedPassivePrereq(nation, id).id] ?? 0)
+          ? 'Locked'
+          : sharedPassivePoints(level) - spent.shared < cost
+            ? 'Not enough points'
+            : 'Available';
+  const sharedRemaining = sharedPassivePoints(level) - spent.shared;
+  const viewport = useRef<HTMLDivElement>(null),
+    tooltip = useRef<HTMLDivElement>(null);
+  const [view, setView] = useState({ x: 0, y: 0, zoom: 0.75 });
+  const [selected, setSelected] = useState('flow');
+  const [hover, setHover] = useState<{ id: string; x: number; y: number } | null>(null);
+  const drag = useRef<{ x: number; y: number; originX: number; originY: number } | null>(null);
   useEffect(() => {
-    center();
     const el = viewport.current!;
+    const center = () => {
+      const zoom = Math.max(
+        0.6,
+        Math.min(
+          1,
+          (el.clientWidth - 100) / SKILL_MAP_SIZE.width,
+          (el.clientHeight - 120) / SKILL_MAP_SIZE.height,
+        ),
+      );
+      setView({
+        x: (el.clientWidth - SKILL_MAP_SIZE.width * zoom) / 2,
+        y: (el.clientHeight - SKILL_MAP_SIZE.height * zoom) / 2,
+        zoom,
+      });
+    };
+    center();
+    const observer = new ResizeObserver(center);
+    observer.observe(el);
     const wheel = (e: WheelEvent) => {
       e.preventDefault();
       const box = el.getBoundingClientRect();
@@ -93,109 +189,105 @@ export function SkillTree({
       );
     };
     el.addEventListener('wheel', wheel, { passive: false });
-    return () => el.removeEventListener('wheel', wheel);
+    return () => {
+      observer.disconnect();
+      el.removeEventListener('wheel', wheel);
+    };
   }, []);
-  const zoom = (factor: number) => {
-    const el = viewport.current!;
-    setView((v) =>
-      zoomSkillMap(v, v.zoom * factor, { x: el.clientWidth / 2, y: el.clientHeight / 2 }),
-    );
-  };
-  const fit = () => {
-    const el = viewport.current!;
-    const scale = Math.max(
-      MIN_SKILL_ZOOM,
-      Math.min(
-        (el.clientWidth - 24) / SKILL_MAP_SIZE.width,
-        (el.clientHeight - 24) / SKILL_MAP_SIZE.height,
-      ),
-    );
-    setView({
-      x: (el.clientWidth - SKILL_MAP_SIZE.width * scale) / 2,
-      y: (el.clientHeight - SKILL_MAP_SIZE.height * scale) / 2,
-      zoom: scale,
+  const showTip = (id: string, x: number, y: number) =>
+    setHover({
+      id,
+      x: Math.max(8, Math.min(x - 12, innerWidth - 308)),
+      y: Math.max(8, y - (tooltip.current?.offsetHeight ?? 240) - 18),
     });
-  };
-  const pick = (id: string) => {
-    if (!drag.current?.moved) setSelected(id);
-  };
-  const passiveGlyphs: Record<string, GlyphName> = {
-    'shared:stone-skin': 'gear',
-    'shared:deep-roots': 'leaf',
-    'shared:bedrock': 'gear',
-    'shared:wildfire': 'flame',
-    'shared:aftershock': 'spark',
-    'shared:tailwind': 'wind',
-    'shared:tidal-recovery': 'drop',
-    'shared:updraft': 'wind',
-    'shared:second-breath': 'mon',
-    'shared:ember-heart': 'flame',
-  };
-  const glyph = (n: TreeNode): GlyphName =>
-    n.kind === 'capstone'
+  const events = (id: string, p: { x: number; y: number }) => ({
+    onPointerEnter: (e: PointerEvent) => showTip(id, e.clientX, e.clientY),
+    onPointerMove: (e: PointerEvent) => showTip(id, e.clientX, e.clientY),
+    onPointerLeave: () => setHover(null),
+    onBlur: () => setHover(null),
+    onFocus: (e: FocusEvent) => {
+      const button = e.currentTarget as HTMLElement;
+      if (!button.matches(':focus-visible')) return;
+      const el = viewport.current!;
+      setView((v) => ({
+        ...v,
+        x: el.clientWidth / 2 - p.x * v.zoom,
+        y: el.clientHeight / 2 - p.y * v.zoom,
+      }));
+      const box = el.getBoundingClientRect();
+      showTip(id, box.x + box.width / 2, box.y + box.height / 2);
+    },
+  });
+  const stateOf = (node: TreeNode) =>
+    (ranks[node.id] ?? 0) > 0
+      ? 'Learned'
+      : node.prereqId && !(ranks[node.prereqId] ?? 0)
+        ? 'Locked'
+        : remaining < node.cost
+          ? 'Not enough points'
+          : 'Available';
+  const classes = (state: string) =>
+    state === 'Learned'
+      ? ' learned'
+      : state === 'Locked' || state === 'Passive slot occupied'
+        ? ' gated'
+        : state === 'Not enough points'
+          ? ' unaffordable'
+          : '';
+  const badge = (state: string, cost: number) =>
+    state === 'Learned'
+      ? '✓ Learned'
+      : state === 'Locked'
+        ? 'Locked'
+        : state === 'Passive slot occupied'
+          ? 'Slot full'
+          : state === 'Not enough points'
+            ? 'Need points'
+            : `${cost} pts`;
+  const glyph = (node: TreeNode): GlyphName =>
+    node.kind === 'capstone'
       ? 'spark'
-      : n.kind === 'passive'
+      : node.kind === 'passive'
         ? 'leaf'
-        : n.kind === 'moveUpgrade'
+        : node.kind === 'moveUpgrade' || node.stat === 'atk'
           ? 'swords'
-          : n.stat === 'atk'
-            ? 'swords'
-            : n.stat === 'spd'
-              ? 'wind'
-              : n.stat === 'hp'
-                ? 'drop'
-                : 'gear';
-
+          : node.stat === 'spd'
+            ? 'wind'
+            : node.stat === 'hp'
+              ? 'drop'
+              : 'gear';
+  const hoveredNode = nodes.find((node) => node.id === hover?.id);
+  const hoveredPassive = SHARED_PASSIVE_NODES.find((node) => node.id === hover?.id);
+  const hoveredStance = STANCES.find((id) => `stance:${id}` === hover?.id);
+  const title =
+    hoveredNode?.name ??
+    hoveredPassive?.name ??
+    (hoveredStance
+      ? `${STANCE_INFO[hoveredStance].name} · ${STANCE_INFO[hoveredStance].passive}`
+      : `${NATION_INFO[nation].name} · Flow`);
   return (
     <div class={`skill-tree ${nation}`}>
-      <div class="skill-budget" aria-live="polite">
-        <b>{remaining} skill points</b>
-        <span>{sharedRemaining} passive points</span>
-      </div>
-      <div class="map-toolbar" aria-label="Skill map controls">
-        <button
-          aria-label="Zoom out"
-          disabled={view.zoom <= MIN_SKILL_ZOOM}
-          onClick={() => zoom(1 / 1.2)}
-        >
-          −
-        </button>
-        <output aria-label="Zoom level">{Math.round(view.zoom * 100)}%</output>
-        <button
-          aria-label="Zoom in"
-          disabled={view.zoom >= MAX_SKILL_ZOOM}
-          onClick={() => zoom(1.2)}
-        >
-          +
-        </button>
-        <button onClick={fit}>Fit</button>
-        <button onClick={center}>Center</button>
-      </div>
-      <p class="map-help">Drag to explore · Scroll to zoom · Select a skill to inspect</p>
       <div
         class="skill-map-viewport"
         ref={viewport}
         tabIndex={0}
         role="region"
         aria-label="Skill map"
+        onContextMenu={(e) => e.preventDefault()}
         onPointerDown={(e) => {
           if (e.button !== 0 || (e.target as Element).closest('button')) return;
-          drag.current = {
-            x: e.clientX,
-            y: e.clientY,
-            originX: view.x,
-            originY: view.y,
-            moved: false,
-          };
+          setHover(null);
+          drag.current = { x: e.clientX, y: e.clientY, originX: view.x, originY: view.y };
           e.currentTarget.setPointerCapture(e.pointerId);
         }}
         onPointerMove={(e) => {
           const start = drag.current;
-          if (!start) return;
-          const dx = e.clientX - start.x,
-            dy = e.clientY - start.y;
-          if (Math.abs(dx) + Math.abs(dy) > 4) start.moved = true;
-          setView((v) => ({ ...v, x: start.originX + dx, y: start.originY + dy }));
+          if (start)
+            setView((v) => ({
+              ...v,
+              x: start.originX + e.clientX - start.x,
+              y: start.originY + e.clientY - start.y,
+            }));
         }}
         onPointerUp={() => {
           drag.current = null;
@@ -214,15 +306,15 @@ export function SkillTree({
           if (offset) {
             e.preventDefault();
             setView((v) => ({ ...v, x: v.x + offset[0]!, y: v.y + offset[1]! }));
-          } else if (e.key === '+' || e.key === '=') {
+          } else if (['+', '=', '-'].includes(e.key)) {
             e.preventDefault();
-            zoom(1.2);
-          } else if (e.key === '-') {
-            e.preventDefault();
-            zoom(1 / 1.2);
-          } else if (e.key === 'Home') {
-            e.preventDefault();
-            center();
+            const el = viewport.current!;
+            setView((v) =>
+              zoomSkillMap(v, v.zoom * (e.key === '-' ? 1 / 1.2 : 1.2), {
+                x: el.clientWidth / 2,
+                y: el.clientHeight / 2,
+              }),
+            );
           }
         }}
       >
@@ -240,17 +332,18 @@ export function SkillTree({
             height={SKILL_MAP_SIZE.height}
             aria-hidden="true"
           >
-            <circle class="map-orbit" cx={600} cy={470} r={180} />
-            <circle class="map-orbit" cx={600} cy={470} r={375} />
-            {nodes.map((n) => {
-              const from = n.prereqId
-                ? position(nodes.find((p) => p.id === n.prereqId)!)
-                : SKILL_MAP_ROOT;
-              const to = position(n);
+            <circle class="map-orbit" cx={SKILL_MAP_ROOT.x} cy={SKILL_MAP_ROOT.y} r={180} />
+            <circle class="map-orbit" cx={SKILL_MAP_ROOT.x} cy={SKILL_MAP_ROOT.y} r={375} />
+            {nodes.map((node) => {
+              const from = node.prereqId
+                  ? position(nodes.find((n) => n.id === node.prereqId)!)
+                  : SKILL_MAP_ROOT,
+                to = position(node);
               return (
                 <line
-                  key={n.id}
-                  class={`map-edge${(ranks[n.id] ?? 0) > 0 ? ' learned' : ''}`}
+                  key={node.id}
+                  class={`map-edge${classes(stateOf(node))}${stateOf(node) === 'Available' ? ' available' : ''}`}
+                  data-edge-id={node.id}
                   x1={from.x}
                   y1={from.y}
                   x2={to.x}
@@ -258,194 +351,314 @@ export function SkillTree({
                 />
               );
             })}
-            {SHARED_SKILL_GROUPS.map((g) => (
-              <g key={g.name}>
-                <line class="map-shared-edge" x1={600} y1={470} x2={g.x} y2={g.y} />
-                {g.ids.map((slug) => {
-                  const p = sharedSkillPosition(`shared:${slug}`);
-                  return (
-                    <line key={slug} class="map-shared-edge" x1={g.x} y1={g.y} x2={p.x} y2={p.y} />
-                  );
-                })}
-              </g>
+            {STANCES.map((id) => (
+              <line
+                key={id}
+                class={`map-shared-edge${stance === id ? ' learned' : ' available'}`}
+                data-edge-id={`stance:${id}`}
+                x1={SKILL_MAP_ROOT.x}
+                y1={SKILL_MAP_ROOT.y}
+                x2={STANCE_SKILL_POSITIONS[id].x}
+                y2={STANCE_SKILL_POSITIONS[id].y}
+              />
             ))}
+            {SHARED_SKILL_GROUPS.map((group) => {
+              const gate = sharedPassivePrereq(nation, `shared:${group.ids[0]}`),
+                from = position(gate);
+              const groupState = group.ids.some((id) => (ranks[`shared:${id}`] ?? 0) > 0)
+                ? 'Learned'
+                : sharedState(`shared:${group.ids[0]}`, 3);
+              return (
+                <g key={group.name}>
+                  <path
+                    class={`map-shared-edge${classes(groupState)}${groupState === 'Available' ? ' available' : ''}`}
+                    fill="none"
+                    d={`M ${from.x} ${from.y} C ${from.x + 70} ${from.y + 130}, ${group.x - 100} ${group.y - 180}, ${group.x} ${group.y}`}
+                  />
+                  {group.ids.map((slug) => {
+                    const to = sharedSkillPosition(`shared:${slug}`),
+                      state = sharedState(`shared:${slug}`, 3);
+                    return (
+                      <line
+                        key={slug}
+                        data-edge-id={`shared:${slug}`}
+                        class={`map-shared-edge${classes(state)}${state === 'Available' ? ' available' : ''}`}
+                        x1={group.x}
+                        y1={group.y}
+                        x2={to.x}
+                        y2={to.y}
+                      />
+                    );
+                  })}
+                </g>
+              );
+            })}
           </svg>
+          <div
+            class="map-choice-area map-stance-area"
+            style={{
+              left: STANCE_SKILL_AREA.x,
+              top: STANCE_SKILL_AREA.y,
+              width: STANCE_SKILL_AREA.width,
+              height: STANCE_SKILL_AREA.height,
+            }}
+          >
+            <b>Stance · 1/1 active</b>
+            <small>{STANCE_INFO[stance].name} · Choose one for free</small>
+          </div>
+          <div
+            class="map-choice-area map-main-passive-area"
+            style={{
+              left: PASSIVE_SKILL_AREA.x,
+              top: PASSIVE_SKILL_AREA.y,
+              width: PASSIVE_SKILL_AREA.width,
+              height: PASSIVE_SKILL_AREA.height,
+            }}
+          >
+            <b>Main passive · {mainPassive ? '1/1' : '0/1'} chosen</b>
+            <small>
+              {mainPassive
+                ? `${SHARED_PASSIVE_NODES.find((node) => node.id === mainPassive)!.name} active · Refund it to choose another`
+                : 'Only ONE main passive · Complete a core branch to unlock'}
+              <br />
+              Normal skills and Flow bonuses remain combinable.
+            </small>
+          </div>
           <button
+            data-role="elemental"
             class={`map-node map-core${selected === 'flow' ? ' selected' : ''}`}
-            style={{ left: 600, top: 470 }}
-            onClick={() => pick('flow')}
-            aria-label="Flow"
-            aria-pressed={selected === 'flow'}
+            style={{ left: SKILL_MAP_ROOT.x, top: SKILL_MAP_ROOT.y }}
+            {...events('flow', SKILL_MAP_ROOT)}
+            aria-label={`${NATION_INFO[nation].name} Flow, always active`}
+            onClick={() => setSelected('flow')}
           >
             <Glyph name="mon" size={32} />
-            <span class="map-node-name">{NATION_INFO[nation].name} · Flow</span>
-          </button>
-          {branches.map((b, i) => (
-            <span
-              class="map-branch-label"
-              key={b}
-              style={{ left: [260, 590, 965, 1330][i], top: [430, 255, 440, 580][i] }}
-            >
-              {b}
+            <span class="map-node-name">
+              {NATION_INFO[nation].name} · Flow<small>Elemental · Always active</small>
             </span>
-          ))}
-          {nodes.map((n) => {
-            const p = position(n),
-              r = ranks[n.id] ?? 0;
-            const gated = Boolean(n.prereqId && !(ranks[n.prereqId] ?? 0));
+          </button>
+          {STANCES.map((id) => {
+            const p = STANCE_SKILL_POSITIONS[id],
+              info = STANCE_INFO[id];
             return (
               <button
-                key={n.id}
-                data-node-id={n.id}
-                aria-label={n.name}
-                aria-pressed={selected === n.id}
-                class={`map-node${n.kind === 'passive' ? ' map-passive' : ''}${n.tier === 6 ? ' map-ultimate' : ''}${r > 0 ? ' learned' : ''}${gated ? ' gated' : ''}${selected === n.id ? ' selected' : ''}`}
+                key={id}
+                {...events(`stance:${id}`, p)}
+                data-stance-id={id}
+                data-role={STANCE_ROLES[id]}
+                aria-label={`${info.name}: ${info.passive}, ${stance === id ? 'Equipped' : 'Available'}, choose one`}
+                aria-pressed={stance === id}
+                class={`map-node map-passive${stance === id ? ' learned' : ''}${selected === `stance:${id}` ? ' selected' : ''}`}
                 style={{ left: p.x, top: p.y }}
-                onClick={() => pick(n.id)}
-                onFocus={(e) => {
-                  if (!e.currentTarget.matches(':focus-visible')) return;
-                  const el = viewport.current!;
-                  setView((v) => ({
-                    ...v,
-                    x: el.clientWidth / 2 - p.x * v.zoom,
-                    y: el.clientHeight / 2 - p.y * v.zoom,
-                  }));
+                onClick={() => {
+                  setSelected(`stance:${id}`);
+                  onStance(id);
+                }}
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  if (stance === id) onStance('bulwark');
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Delete' && stance === id) {
+                    e.preventDefault();
+                    onStance('bulwark');
+                  }
                 }}
               >
-                <Glyph name={glyph(n)} size={n.kind === 'capstone' ? 28 : 20} />
-                <span class="map-node-rank">
-                  {n.maxRank > 1 ? `${r}/${n.maxRank}` : r ? '✓' : `${n.cost} pts`}
-                </span>
+                <Glyph
+                  name={id === 'fury' ? 'swords' : id === 'bulwark' ? 'gear' : 'wind'}
+                  size={24}
+                />
+                <span class="map-node-rank">{stance === id ? '✓ Equipped' : 'Free'}</span>
                 <span class="map-node-name">
-                  {n.name}
+                  {info.name}
                   <small>
-                    {n.kind === 'capstone'
-                      ? 'Ultimate · Passive'
-                      : n.kind === 'passive'
-                        ? n.branch === 'Flow'
-                          ? 'Combo · Passive'
-                          : 'Passive'
-                        : n.kind === 'moveUpgrade'
-                          ? 'Move upgrade'
-                          : 'Stat boost'}
+                    {info.passive} · {ROLE_LABELS[STANCE_ROLES[id]]}
                   </small>
                 </span>
               </button>
             );
           })}
-          {SHARED_SKILL_GROUPS.map((g) => (
-            <span class="map-cluster-label" key={g.name} style={{ left: g.x, top: g.y }}>
-              {g.name}
-              <small>Shared · No prerequisite</small>
+          {branches.map((branch, i) => (
+            <span
+              class="map-branch-label"
+              key={branch}
+              style={{ left: [240, 620, 1000, 1380][i], top: 20 }}
+            >
+              {branch}
             </span>
           ))}
-          {SHARED_PASSIVE_NODES.map((p) => {
-            const pos = sharedSkillPosition(p.id),
-              active = (ranks[p.id] ?? 0) > 0;
+          {nodes.map((node) => {
+            const p = position(node),
+              state = stateOf(node),
+              role = skillRole(node, equippedMoves);
             return (
               <button
-                key={p.id}
-                data-passive-id={p.id}
-                aria-label={p.name}
-                aria-pressed={selected === p.id}
-                class={`map-node map-passive map-shared-node${active ? ' learned' : ''}${selected === p.id ? ' selected' : ''}`}
-                style={{ left: pos.x, top: pos.y }}
-                onClick={() => pick(p.id)}
-                onFocus={(e) => {
-                  if (!e.currentTarget.matches(':focus-visible')) return;
-                  const el = viewport.current!;
-                  setView((v) => ({
-                    ...v,
-                    x: el.clientWidth / 2 - pos.x * v.zoom,
-                    y: el.clientHeight / 2 - pos.y * v.zoom,
-                  }));
+                key={node.id}
+                {...events(node.id, p)}
+                data-node-id={node.id}
+                data-role={role}
+                data-state={state}
+                aria-label={`${node.name} · ${ROLE_LABELS[role]} · ${state}`}
+                aria-pressed={state === 'Learned'}
+                class={`map-node${node.kind === 'passive' ? ' map-passive' : ''}${node.kind === 'capstone' ? ' map-ultimate' : ''}${classes(state)}${state === 'Available' ? ' available' : ''}${selected === node.id ? ' selected' : ''}`}
+                style={{ left: p.x, top: p.y }}
+                onClick={() => {
+                  setSelected(node.id);
+                  onAdd(node);
+                }}
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  onRemove(node);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Delete') {
+                    e.preventDefault();
+                    onRemove(node);
+                  }
                 }}
               >
-                <Glyph name={passiveGlyphs[p.id]!} size={24} />
-                <span class="map-node-rank">{active ? '✓' : `${p.cost} pts`}</span>
+                <Glyph name={glyph(node)} size={node.kind === 'capstone' ? 28 : 20} />
+                <span class="map-node-rank">{badge(state, node.cost)}</span>
                 <span class="map-node-name">
-                  {p.name}
-                  <small>Passive · Once</small>
+                  {node.tier === 12 ? 'Ascendance' : node.name}
+                  <small>
+                    {ROLE_LABELS[role]} ·{' '}
+                    {node.kind === 'capstone'
+                      ? node.tier === 12
+                        ? 'Ascendance'
+                        : 'Ultimate'
+                      : node.kind === 'passive'
+                        ? node.branch === 'Flow'
+                          ? 'Combo'
+                          : 'Passive'
+                        : node.kind === 'moveUpgrade'
+                          ? 'Move'
+                          : 'Stat'}
+                  </small>
+                </span>
+              </button>
+            );
+          })}
+          {SHARED_SKILL_GROUPS.map((group) => (
+            <span
+              class="map-cluster-label"
+              key={group.name}
+              style={{ left: group.x, top: group.y }}
+            >
+              {group.name}
+              <small>Requires {sharedPassivePrereq(nation, `shared:${group.ids[0]}`).name}</small>
+            </span>
+          ))}
+          {SHARED_PASSIVE_NODES.map((node) => {
+            const p = sharedSkillPosition(node.id),
+              role = SHARED_ROLES[node.id.slice(7)]!;
+            const state = sharedState(node.id, node.cost);
+            return (
+              <button
+                key={node.id}
+                {...events(node.id, p)}
+                data-passive-id={node.id}
+                data-role={role}
+                data-state={state}
+                aria-label={`${node.name} · ${ROLE_LABELS[role]} · ${state}`}
+                aria-pressed={state === 'Learned'}
+                class={`map-node map-passive map-shared-node${classes(state)}${state === 'Available' ? ' available' : ''}${selected === node.id ? ' selected' : ''}`}
+                style={{ left: p.x, top: p.y }}
+                onClick={() => {
+                  setSelected(node.id);
+                  onPassive(node.id, node.cost);
+                }}
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  onPassive(node.id, node.cost, true);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Delete') {
+                    e.preventDefault();
+                    onPassive(node.id, node.cost, true);
+                  }
+                }}
+              >
+                <Glyph
+                  name={role === 'defense' ? 'gear' : role === 'tempo' ? 'wind' : 'flame'}
+                  size={24}
+                />
+                <span class="map-node-rank">{badge(state, node.cost)}</span>
+                <span class="map-node-name">
+                  {node.name}
+                  <small>{ROLE_LABELS[role]} · Passive</small>
                 </span>
               </button>
             );
           })}
         </div>
       </div>
-      <div class="map-legend">
-        <span>Solid paths: prerequisites</span>
-        <span>Dotted paths: shared groups</span>
+      <div class="map-hud" aria-live="polite">
+        <b>{remaining} skill points</b>
+        <span>{sharedRemaining} passive points</span>
+        <small>{error ?? (saving ? 'Saving…' : 'Automatically saved')}</small>
       </div>
-      <div class="skill-detail" aria-live="polite" role="region" aria-label="Skill details">
-        {selected === 'flow' ? (
-          <>
-            <span class="skill-kind">Core mechanic · Always active</span>
-            <h4>{NATION_INFO[nation].name} · Flow</h4>
-            <p>
-              {NATION_PASSIVES[nation].name}: {NATION_PASSIVES[nation].description}
-            </p>
-            <p>
-              Burn / DEF down → Priority, True hit, Crit up or Charge. Automatic combo: +
-              {Math.round((FOLLOW_THROUGH_MULT - 1) * 100)}% damage once per battle; stronger
-              against higher-level opponents.
-            </p>
-            <div class="skill-actions" aria-label="Battle stance">
-              {STANCES.map((id) => (
-                <button key={id} aria-pressed={stance === id} onClick={() => onStance(id)}>
-                  {id[0]!.toUpperCase() + id.slice(1)}
-                </button>
-              ))}
-            </div>
-            <p class="hint">
-              Fury: +ATK, beats Gale · Bulwark: +DEF, beats Fury · Gale: +SPD, beats Bulwark
-            </p>
-          </>
-        ) : (
-          <>
-            <span class="skill-kind">
-              {node
-                ? `${node.branch} · Tier ${node.tier}${node.maxRank === 1 ? ' · Once' : ''}`
-                : 'Shared passive · Unlock once'}
-            </span>
-            <h4>{(node ?? passive)!.name}</h4>
-            <p>{description}</p>
-            <p class="hint">
-              {(node ?? passive)!.cost} {node ? 'skill' : 'passive'} points · {rank}/
-              {(node ?? passive)!.maxRank}
-              {prereq
-                ? ` · Requires ${prereq.name}`
-                : node
-                  ? ' · Root skill'
-                  : ' · Points earned at levels 15, 30 and 45'}
-            </p>
-            <div class="skill-actions">
-              <button
-                disabled={rank === 0}
-                onClick={() => (node ? onRemove(node) : onPassive(passive!.id, passive!.cost))}
-              >
-                Remove{node && node.maxRank > 1 ? ' rank' : passive ? ' passive' : ''}
-              </button>
-              <button
-                class="primary"
-                disabled={
-                  locked ||
-                  rank >= (node ?? passive)!.maxRank ||
-                  (node ? remaining : sharedRemaining) < (node ?? passive)!.cost
-                }
-                onClick={() => (node ? onAdd(node) : onPassive(passive!.id, passive!.cost))}
-              >
-                {rank >= (node ?? passive)!.maxRank
-                  ? 'Unlocked'
-                  : locked
-                    ? 'Locked'
-                    : (node ? remaining : sharedRemaining) < (node ?? passive)!.cost
-                      ? 'Need more points'
-                      : `Unlock · ${(node ?? passive)!.cost}${passive ? ' passive' : ''} pts`}
-              </button>
-            </div>
-          </>
-        )}
+      <div class="map-menu">
+        <button onClick={onReset}>Reset all</button>
+        <button onClick={onClose} aria-label="Close Skill Tree">
+          ×
+        </button>
       </div>
+      <p class="map-instructions">
+        Left click: learn · Right click: refund · Scroll: zoom · Drag: explore
+      </p>
+      {hover && (
+        <div
+          ref={tooltip}
+          class="map-tooltip"
+          role="tooltip"
+          style={{ left: hover.x, top: hover.y }}
+        >
+          <b>{title}</b>
+          {hoveredNode || hoveredPassive ? (
+            <>
+              <p>{(hoveredNode ?? hoveredPassive)!.description}</p>
+              <p>
+                {hoveredNode
+                  ? ROLE_LABELS[skillRole(hoveredNode, equippedMoves)]
+                  : ROLE_LABELS[SHARED_ROLES[hoveredPassive!.id.slice(7)]!]}{' '}
+                ·{' '}
+                {hoveredNode
+                  ? stateOf(hoveredNode)
+                  : sharedState(hoveredPassive!.id, hoveredPassive!.cost)}
+              </p>
+              <p>
+                {(hoveredNode ?? hoveredPassive)!.cost} {hoveredNode ? 'skill' : 'passive'} points ·
+                Buy once
+                {hoveredPassive
+                  ? ` · Only ONE main passive · Requires ${sharedPassivePrereq(nation, hoveredPassive.id).name}`
+                  : ''}
+                {hoveredNode?.prereqId
+                  ? ` · Requires ${nodes.find((n) => n.id === hoveredNode.prereqId)!.name}`
+                  : ''}
+              </p>
+            </>
+          ) : hoveredStance ? (
+            <>
+              <p>{STANCE_INFO[hoveredStance].description}</p>
+              <p>{stanceBuildHint(hoveredStance, equippedMoves)}</p>
+              <p>Free · One stance active · Click to equip. Right click restores Bulwark.</p>
+            </>
+          ) : (
+            <>
+              <p>
+                {NATION_PASSIVES[nation].name}: {NATION_PASSIVES[nation].description}
+              </p>
+              <p>
+                Burn / DEF down into Priority, True hit, Crit up or Charge: +
+                {Math.round((FOLLOW_THROUGH_MULT - 1) * 100)}% damage once per battle; stronger
+                against higher-level opponents.
+              </p>
+            </>
+          )}
+        </div>
+      )}
     </div>
   );
 }

@@ -57,6 +57,7 @@ export const IPC = {
   uiSetNickname: 'ui:set-nickname',
   uiSyncNow: 'ui:sync-now',
   uiRefreshBattles: 'ui:refresh-battles',
+  uiSkillTreeOpen: 'ui:skill-tree-open',
   uiSetWaterEnabled: 'ui:set-water-enabled',
   uiSetWaterInterval: 'ui:set-water-interval',
   battleSetStance: 'battle:set-stance',

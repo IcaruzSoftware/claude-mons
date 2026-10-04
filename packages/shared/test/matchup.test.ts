@@ -37,15 +37,11 @@ describe('explainMatchup', () => {
     });
     const r = explainMatchup(me, opp);
     expect(r.nationLine).toBe('Water hits Fire hard.');
-    expect(r.stanceLine).toBe('Your Bulwark counters their Fury.');
+    expect(r.stanceLine).toBe('Your Bulwark: Brace. Their Fury: Exploit.');
     expect(r.suggestion).toBe('Lean on nation-type moves -- Water hits Fire hard.');
-    expect(r.suggestedStance).toBeNull();
   });
 
   it('flags a nation-type disadvantage and suggests avoiding the trade', () => {
-    // Stances are chosen so *I* counter the opponent's stance (bulwark beats fury) -- this isolates
-    // the nation-disadvantage rule, which only applies once the higher-priority stance-counter rule
-    // (the opponent countering me) does not.
     const me = snap('sparkit', 25, {
       stance: 'bulwark',
       moves: ['spark-nip', 'hot-reload', 'force-push'],
@@ -56,9 +52,8 @@ describe('explainMatchup', () => {
     });
     const r = explainMatchup(me, opp);
     expect(r.nationLine).toBe('Water hits Fire hard -- brace for it.');
-    expect(r.stanceLine).toBe('Your Bulwark counters their Fury.');
+    expect(r.stanceLine).toBe('Your Bulwark: Brace. Their Fury: Exploit.');
     expect(r.suggestion).toBe('Avoid trading nation-type hits -- Water hits back hard.');
-    expect(r.suggestedStance).toBeNull();
   });
 
   it('reports a neutral nation matchup and a neutral fallback suggestion when nothing else applies', () => {
@@ -72,12 +67,11 @@ describe('explainMatchup', () => {
     });
     const r = explainMatchup(me, opp);
     expect(r.nationLine).toBe('Water and Air trade evenly.');
-    expect(r.stanceLine).toBe('Both use Bulwark -- no stance edge either way.');
+    expect(r.stanceLine).toBe('Your Bulwark: Brace. Their Bulwark: Brace.');
     expect(r.suggestion).toBe('No clear edge either way -- play it by the numbers.');
-    expect(r.suggestedStance).toBeNull();
   });
 
-  it('suggests switching stance when the opponent counters mine', () => {
+  it('describes passive roles without recommending a stance counter', () => {
     const me = snap('dripple', 25, {
       stance: 'fury',
       moves: ['drip-tap', 'stream-splash', 'ripple-step'],
@@ -87,12 +81,11 @@ describe('explainMatchup', () => {
       moves: ['puff', 'gust-draft', 'thunderclap'],
     });
     const r = explainMatchup(me, opp);
-    expect(r.stanceLine).toBe('Their Bulwark counters your Fury.');
-    expect(r.suggestion).toBe('Switch to Gale to counter Bulwark.');
-    expect(r.suggestedStance).toBe('gale');
+    expect(r.stanceLine).toBe('Your Fury: Exploit. Their Bulwark: Brace.');
+    expect(r.suggestion).toBe('No clear edge either way -- play it by the numbers.');
   });
 
-  it('does not suggest a stance switch when the player already counters the opponent', () => {
+  it('does not derive an advantage from stance ids alone', () => {
     const me = snap('pebblet', 25, {
       stance: 'gale',
       moves: ['pebble-toss', 'bedrock-slam', 'monolith-drop'],
@@ -102,8 +95,7 @@ describe('explainMatchup', () => {
       moves: ['spark-nip', 'hot-reload', 'force-push'],
     });
     const r = explainMatchup(me, opp);
-    expect(r.stanceLine).toBe('Your Gale counters their Bulwark.');
-    expect(r.suggestedStance).toBeNull();
+    expect(r.stanceLine).toBe('Your Gale: Tempo. Their Bulwark: Brace.');
     expect(r.suggestion).toBe('No clear edge either way -- play it by the numbers.');
   });
 
@@ -116,7 +108,6 @@ describe('explainMatchup', () => {
     const r = explainMatchup(me, opp);
     expect(r.finisherLine).toBe('Finishes with Backpressure (shields their first hit taken).');
     expect(r.suggestion).toBe("Burn beats Backpressure's single-hit shield.");
-    expect(r.suggestedStance).toBeNull();
   });
 
   it('suggests burn against the Stone Skin shared passive, naming the passive', () => {
@@ -136,7 +127,7 @@ describe('explainMatchup', () => {
     expect(toRoman(5)).toBe('V');
   });
 
-  it('suggests a true-hit opener against a Gale opponent when no other edge applies first', () => {
+  it('does not claim that Gale grants dodge', () => {
     const me = snap('pebblet', 25, {
       stance: 'fury',
       moves: ['pebble-toss', 'bedrock-slam', 'monolith-drop'],
@@ -146,9 +137,8 @@ describe('explainMatchup', () => {
       moves: ['puff', 'gust-draft', 'thunderclap'],
     });
     const r = explainMatchup(me, opp);
-    expect(r.stanceLine).toBe('Your Fury counters their Gale.');
-    expect(r.suggestion).toBe('A true-hit opener ignores their Gale dodge.');
-    expect(r.suggestedStance).toBeNull();
+    expect(r.stanceLine).toBe('Your Fury: Exploit. Their Gale: Tempo.');
+    expect(r.suggestion).toBe('Avoid trading nation-type hits -- Air hits back hard.');
   });
 
   it('defaults stance/moves and skips tree facts for an opponent snapshot with no loadout at all', () => {
@@ -160,7 +150,7 @@ describe('explainMatchup', () => {
     expect(opp.loadout).toBeUndefined();
     const r = explainMatchup(me, opp);
     // defaults to DEFAULT_STANCE ('bulwark') for the opponent, and defaultLoadoutMoveIds for moves.
-    expect(r.stanceLine).toBe('Both use Bulwark -- no stance edge either way.');
+    expect(r.stanceLine).toBe('Your Bulwark: Brace. Their Bulwark: Brace.');
     expect(r.openerLine).toBe('Opens with Spark Nip (always acts first).');
     expect(r.topBranchLine).toBeNull();
   });
@@ -187,7 +177,7 @@ describe('explainMatchup', () => {
     });
     expect(() => explainMatchup(me, opp)).not.toThrow();
     const r = explainMatchup(me, opp);
-    expect(r.stanceLine).toBe('Both use Bulwark -- no stance edge either way.');
+    expect(r.stanceLine).toBe('Your Bulwark: Brace. Their Bulwark: Brace.');
   });
 });
 

@@ -1,3 +1,4 @@
+import { STANCE_INFO } from '@claude-mons/shared';
 import type { BattleAction, MonSnapshot, Side, Stimulus } from '@claude-mons/shared';
 import type { AnimName } from '@claude-mons/sprites';
 import type { BattlePlayMessage } from '../../common/ipc.ts';
@@ -145,6 +146,11 @@ export class BattlePlayer {
     const target: Side = action.actor === 'a' ? 'b' : 'a';
     const actor = this.name(action.actor);
     const foe = this.name(target);
+    if (action.stancePassives?.length) {
+      return action.stancePassives
+        .map((trigger) => `${this.name(trigger.side)}: ${STANCE_INFO[trigger.stance].passive}`)
+        .join(' · ');
+    }
     if (action.nationPassive === 'ignite') return `${actor}'s Fire trait ignites ${foe}`;
     if (action.nationPassive === 'soak') return `${actor}'s Water trait slows ${foe}`;
     if (action.comboTalent) return `${actor}'s ${action.comboTalent} combo!`;

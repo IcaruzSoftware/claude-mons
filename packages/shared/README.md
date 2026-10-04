@@ -29,7 +29,7 @@ Build is a no-op; the source is consumed directly. Consumed by Deno via a sync o
 | `src/game/nations.ts` | Nation metadata, palettes, type effectiveness | NationInfo, NATION_INFO, NATION_BEATS; effectiveness(), otherNations() |
 | `src/game/nickname.ts` | Nickname validation + deterministic generator | NICKNAME_RE, RESERVED, BLOCKLIST; validateNickname(), generateNickname() |
 | `src/game/species.ts` | Species table (8), rarity rolls, display names, move pools | Species, SPECIES, SPECIES_IDS, Move; speciesOf(), rollSpecies(), unlockedMoves(), findMove(), defaultLoadoutMoveIds() |
-| `src/game/progression.ts` | Battle stances, loadout shape, respec rules (progression Phase A) | Stance, STANCES, DEFAULT_STANCE, STANCE_INFO, MonLoadout, RESPEC_FREE_BELOW_LEVEL, RESPEC_COOLDOWN_MS; isStance(), stanceBeats(), applyStanceModifiers(), validateLoadout() |
+| `src/game/progression.ts` | Battle stances, loadout shape, respec rules (progression Phase A) | Stance, STANCES, DEFAULT_STANCE, STANCE_INFO, MonLoadout, isStance(), stanceBuildHint(), validateLoadout() |
 | `src/game/tree.ts` | Talent tree: node tables, point budgets, validation (progression Phase C; full tables in `docs/design/talent-tree.md`) | TreeNodeKind, StatKey, TreeNode, SharedPassiveNode, CapstoneEffect, TREE_NODES, SHARED_PASSIVE_NODES; validateTree(), treeSpent(), pointsAvailable(), sharedPassivePoints(), treeSummary(), resolveTree() |
 | `src/battle/rng.ts` | Seedable PRNG (cyrb128 → sfc32) | Rng, makeRng() — bit-exact across V8 and Deno |
 | `src/battle/effects.ts` | Move-effect ids, magnitudes, and side-effect state (progression Phase B) | EffectId, EFFECT_IDS, EFFECT_DESCRIPTIONS; isEffectId(), initSideEffectState(), burnTickDamage() |

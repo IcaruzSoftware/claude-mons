@@ -42,22 +42,20 @@ battle code uses them. A mon's battle stats are `statsAtLevel()`
 (`packages/shared/src/battle/battle.ts:statsAtLevel`), which applies
 `packages/shared/src/game/levels.ts:statAtLevel` to each of `hp`, `atk`, `def`, `spd` independently.
 `snapshotFor` then folds in the mon's talent-tree stat/flat-stat-capstone bonuses (Phase C,
-`docs/design/talent-tree.md`) before stance; the tree's move-upgrade/capstone nodes and shared
+`docs/design/talent-tree.md`) before combat; the tree's move-upgrade/capstone nodes and shared
 passives change the formula below directly (crit chance/multiplier, `def_down`/`burn`/`shield_first`
 magnitudes, turn order) — numbers live in `docs/design/talent-tree.md`.
 
 ## Stances
 
-A mon's `MonSnapshot.loadout?.stance` (default `DEFAULT_STANCE` when unset, e.g. for a pre-Phase-A
-stored snapshot) modifies its effective `atk`/`def`/`spd` for the whole battle before the damage
-formula below runs, and grants a flat damage-dealt/damage-taken bonus against the stance it counters.
-Numbers, names and the rock-paper-scissors triangle live in `docs/design/progression.md` Stances;
-this doc only notes where it plugs in: `packages/shared/src/game/progression.ts:applyStanceModifiers`
-computes the modified stats once per battle (not per turn — a stance is fixed for the whole fight),
-and `stanceBeats` decides which side (if either) gets the counter multiplier
-(`STANCE_COUNTER_DEALT_MULT` / `STANCE_COUNTER_TAKEN_MULT`) applied in `simulateBattle`'s `act()`.
-Stance does not change RNG call order, but it does change the stats/damage formula, hence
-`BATTLE_PROTOCOL_VERSION` bumping to 2 for Phase A.
+A mon equips one conditional build passive in `MonSnapshot.loadout?.stance`, defaulting to
+`DEFAULT_STANCE` for absent fields. Names, numbers and activation rules live in
+`docs/design/progression.md` Stances. `simulateBattle` checks those conditions per direct hit,
+then multiplies raw damage by the attacker's qualifying Exploit/Tempo and defender's qualifying
+Brace factors. Stances no longer modify stats or counter one another.
+Protocol 12 adds optional `BattleAction.stancePassives` entries with the side and stance that
+actually triggered. `apps/desktop/src/renderer/pet/BattlePlayer.ts` displays their passive names.
+Earlier logs omit that field and replay unchanged from stored actions. No new RNG draws are added.
 
 ## Damage formula (as shipped)
 
@@ -87,7 +85,7 @@ variance = 0.8 + rng() * 0.4              // uniform in [0.8, 1.2)
   historical logs remain stored and are never recomputed.
 - **Defense (DEF)**: the DEF reduction curve has diminishing returns. DEF = K prevents 50% of
   direct damage; DEF = 2K prevents about 67%; it never grants immunity. Effective DEF includes
-  stance, defense-down and Deep Roots. Burn remains a max-HP effect, independent of DEF.
+  defense-down and Deep Roots. Burn remains a max-HP effect, independent of DEF.
 - **Crit**: chance `clamp(0.08 + (M.spd - F.spd) / (250 * scale), 0.03, 0.30)`; ordinary crits
   multiply damage by 1.75. Crit-up adds 20 percentage points (ceiling 60%); talent overrides
   remain explicit. Maelstrom increases nation crits to 1.9x.
@@ -252,7 +250,7 @@ If a rebalance is needed, the test's own comment says to adjust base stats in
 `packages/shared/src/game/species.ts` first, not loosen the thresholds.
 
 Stage-transition boundaries (L9/L11 and L24/L26) give the lower side a 10-25% win rate.
-The stance-counter target remains 55-62%, with all pairings within five points.
+Default-build conditional stance pairings target 40-60%; activation tests verify their build dependency.
 
 `packages/shared/test/fairBattles.test.ts` also checks every elemental pairing in both battle
 positions at levels 2/5/10/30/50, one-level Earth underdogs against Ottlet, and neutral Earth
@@ -262,7 +260,7 @@ ordering and shared encounter distribution are verified separately.
 
 ## Rollout and rollback
 
-Protocol 11 ships shared formulas and matchmaking to desktop and Edge Functions. Deploy functions
+Protocol 12 ships conditional stance formulas to desktop and Edge Functions. Deploy functions
 before the desktop release. No schema migration is needed; historical logs are never recomputed.
 Rollback deploys the prior backend source and a higher corrective client release restoring prior
 behavior; retain all stored logs and published tags.

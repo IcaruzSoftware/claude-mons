@@ -22,8 +22,8 @@ installer remains available locally. Saved rank maps remain valid in both point-
 ## Checklist
 - [x] Port map to current main, all four paths and latest purchase semantics.
 - [x] Full checks and offline UI QA.
-- [ ] Push source, deploy functions, publish release and verify assets.
-- [ ] Install released Windows binary, restart and verify version.
+- [x] Push source, deploy functions, publish release and verify assets.
+- [x] Install released Windows binary, restart and verify version.
 
 ## Follow-up scope before publication
 Battle shows only Abilities, Skill Tree and History. Remove duplicate talents/arena; stance
@@ -39,3 +39,9 @@ Deno checks pass after shared sync. Fresh production renderer CDP confirms minim
 actual recent fight, 24+10 nodes, wheel/buttons, drag, Fit/Center, one-time buys, budgets,
 save round-trip, cancel/cascade and 380x520 layout. No renderer/network errors.
 Focus scrolling fixed with a non-scrollable clipped viewport.
+
+Published v0.2.11 at a197357; backend run 37121658794 and release run 37121829976 passed.
+Published installer SHA512 verified, extracted package version/update manifest checked,
+packaged offline QA passed. Installed silently with explicit per-user destination, then
+restarted installed app (PID 52644). Version 0.2.11, identity/species/loadout preserved.
+Backup: %TEMP%/cloudmon-release-0.2.11/profile-before-install.

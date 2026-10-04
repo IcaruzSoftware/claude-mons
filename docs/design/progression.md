@@ -2,7 +2,7 @@
 doc_type: design
 purpose: "Read this when changing moves, stances, talents, matchmaking windows, streaks or evolution stat multipliers, or building the loadout editor."
 audience: agent
-last_verified: 2026-10-03
+last_verified: 2026-10-04
 last_verified_commit: da1f9c0
 related_files:
   - packages/shared/src/battle/battle.ts
@@ -145,26 +145,28 @@ slot selection and combat timing are unchanged; no clicks or timing inputs are a
 
 ## Stances
 
-Three stances in a rock-paper-scissors triangle: each grants +2% to one stat and costs −2% on
-another (independently tunable, not opposed-and-equal). Countering the opponent's stance grants
-2.1% more damage dealt and 2.1% less damage taken for the whole battle.
+Protocol 12 replaces the stance triangle and flat stat trade-offs with one equipped build passive.
+Choose a stance for free in the Skill Tree; existing ids and saved choices remain valid.
 
-| Stance | Grants | Costs | Beats | Loses to |
-|---|---|---|---|---|
-| Fury | ATK +2% | DEF −2% | Gale | Bulwark |
-| Bulwark | DEF +2% | ATK −2% | Fury | Gale |
-| Gale | SPD +2% | ATK −2% | Bulwark | Fury |
+| Stance | Passive | Activation and payoff |
+|---|---|---|
+| Fury | Exploit | +8% direct damage on a crit or charged release against a foe already affected by Burn or DEF down |
+| Bulwark | Brace | 10% less direct damage during a charge telegraph turn or at <=35% HP before the hit |
+| Gale | Tempo | +10% direct damage when acting first with a different move the turn immediately after landing Priority |
 
-**Tuned by simulation on 2026-09-13** (`packages/shared/src/game/progression.ts`; original spec was
-±18% grant/cost, ±10% counter bonus): two of three counter pairings won 80-97% of the time (Fury
-alone touched both ATK and DEF, giving pairings against it a "double" swing), the third as low as
-~37%. Fix: shrink the magnitudes above *and* move Bulwark's cost stat from SPD to ATK, so all three
-pairings touch ATK/DEF symmetrically — lands every pairing at 55-62%; see
-`packages/shared/test/balance.test.ts`'s stance-triangle test.
+The hit that applies a debuff cannot Exploit that new debuff. Tempo's window is consumed by
+repetition, a miss, acting second or telegraphing; a landed repeated Priority opens a fresh
+window for the following turn. Double strikes neither receive offensive stance bonuses nor
+consume/rearm Tempo. Brace protects the entire telegraph turn regardless of initiative, not
+the release turn; instant-charge talents remove that window. It can protect double strikes,
+but never burn ticks. Its low-HP condition checks HP before each individual hit.
+The shared metadata and build hints live in `packages/shared/src/game/progression.ts`.
+`packages/shared/test/stancePassives.test.ts` checks activation, missed windows, real damage,
+instant charge and unusable builds. No new RNG draws are added.
 
 ## Talent tree
 
-4 branches of 6 single-purchase nodes per nation, plus a small shared-passive pool, spent from level 4
+4 branches of 12 single-purchase nodes per nation, plus a small shared-passive pool, spent from level 4
 (47 points by level 50). Full node tables, the shared-passive list, the respec rule and the
 "tuned by simulation" magnitudes all live in `docs/design/talent-tree.md` -- this section is
 just the pointer so this doc stays under its length budget.
@@ -177,7 +179,7 @@ The stage multipliers remain unchanged. Protocol 11 leaves room for elemental co
 the unprepared lower-level side wins 10-25% at evolution boundaries (9/11 and 24/26).
 Prepared +3 challenges still win 30-60% in the opening-combo matrix. A bounded experience multiplier keeps level differences relevant
 late in the game (see battle.md Damage formula).
-All equal-level species, archetype, stance and talent balance bounds remain unchanged.
+Equal-level species, archetype and talent balance bounds remain unchanged; passive stances use the non-dominance target below.
 
 ## Matchmaking and streaks
 
@@ -223,38 +225,19 @@ the mon's level (unlocked moves and the talent tree's node/prereq/budget rules �
 the loadout actually equipped. `MonState` (`packages/shared/src/api.ts`) carries the mon's own
 `loadout`, `unlockedMoveIds`, `treePoints`/`sharedPassivePoints` and `lastRespecAt` so the client
 renders the loadout editor without a separate call. `apps/desktop/src/renderer/panel/views/
-Battles.tsx` hosts that editor (move dropdowns with reorder, locked moves greyed with "unlocks at
-level N", the stance picker, a Talents section — see `docs/design/talent-tree.md`) and, since Phase
-D, "Recent opponents" cards — see below.
+Battles.tsx` shows abilities, the Skill Tree entry and the latest battle history. Stances,
+nation talents and main passives are exclusively inside the map. Left click autosaves; right
+click refunds; Reset all is free. Exactly one main passive plus one stance may be equipped. Map roles and availability are documented in `docs/design/ui-panels.md`.
 
-## Recent-opponent intel
+## Matchup explanations
 
-Phase D adds no new battle math -- a read-only explainer over facts the battle system already
-computes, so the Battles tab can teach a player *why* a recent fight went the way it did, without a
-server round-trip. The shared pure `explainMatchup(me, opp)` (`packages/shared/src/battle/
-matchup.ts`, `MonSnapshot` on both sides) returns `nationLine` (which side's nation type has the
-advantage, or an even trade — `effectiveness()`, `packages/shared/src/game/nations.ts`), `stanceLine`
-(whether either stance counters the other, `stanceBeats()`), `openerLine`/`finisherLine` (the
-opponent's loadout slot 1/3 move name plus a one-line gloss), `topBranchLine` (the opponent's
-highest-ranked talent branch, `treeSummary()`, `docs/design/talent-tree.md`, or null with no spent
-tree), and one rule-derived `suggestion` (`suggestedStance` set only for a stance-switch tip), first
-match wins:
-
-1. opponent's stance counters mine -> switch to the stance that counters theirs;
-2. opponent has `shield_first` equipped or the Stone Skin passive -> `burn` ignores a one-hit shield;
-3. opponent is in Gale (SPD grant raises dodge chance) -> a `true_hit` opener ignores dodge;
-4. my nation type is resisted by theirs -> avoid trading nation-type hits;
-5. my nation type has the advantage -> lean on nation-type moves;
-6. none of the above -> a neutral fallback line.
-Every field falls back the same way `snapshotFor`/`resolveLoadoutMoves` do for a pre-field snapshot
-(absent `loadout` -> `DEFAULT_STANCE` + `defaultLoadoutMoveIds`, absent `tree` -> no branch line) --
-`packages/shared/test/matchup.test.ts` covers this and the rule priority above (12 cases). The
-Battles tab's "Recent opponents" cards (last 10, `apps/desktop/src/renderer/panel/views/
-Battles.tsx`) call `explainMatchup` with `opp` rebuilt from the recorded `BattleSummary.opponent` and
-`me` rebuilt from the player's *current* loadout, re-run on every render so the explanation and the
-"Counter this" button (pre-selects `suggestedStance` without saving it) track loadout edits without a
-round-trip. Each card also shows the opponent's nation badge, species + level, stance, its 3 move
-names, and a "Branch RankSum" badge (e.g. "Tremor III") from the same `topBranch`/`toRoman` helpers.
+The shared pure `explainMatchup(me, opp)` in `packages/shared/src/battle/matchup.ts` remains a
+read-only helper over snapshots. It names each equipped passive without claiming a stance
+counter or recommending a switch. Suggestions prioritize Burn against single-hit shields,
+then elemental advantage/disadvantage, then a neutral fallback. Missing loadouts use the same
+stance/move defaults as battle snapshots; missing trees omit branch facts.
+The Battle panel's compact history does not display this helper's detailed explanations.
+`packages/shared/test/matchup.test.ts` verifies facts, fallbacks and suggestion priority.
 
 ## Balance targets
 
@@ -266,15 +249,14 @@ count tractable):
 
 - every species stays within **35–65%** win rate (unchanged threshold from `docs/design/battle.md`);
 - no single archetype exceeds **60%** win rate (measured: all 8 level × archetype combos landed 46–55%);
-- the stance triangle holds at **55–62%** for the counter side, every pairing within 5 points of each
-  other (see Stances above);
+- same-species default-build stance pairings stay within **40–60%** across four species; there is no universal stance counter (see Stances above);
 - boundary matchups (level 9 vs. 11, level 24 vs. 26) land the low-level side at **10–25%** (see
   Evolution multipliers above);
 - Phase C's talent-tree matrix (a maxed tree vs. an empty one, and every pair of a nation's branches
   against each other) — see `docs/design/talent-tree.md` Balance targets.
 
 Any change to `simulateBattle`'s RNG call order resets the golden log snapshot (`docs/design/battle.md`
-Determinism contract) and bumps `BATTLE_PROTOCOL_VERSION` (**11** for the current combat rules).
+Determinism contract) and bumps `BATTLE_PROTOCOL_VERSION` (**12** for the current combat rules).
 
 ## Phases
 

@@ -36,7 +36,7 @@ export interface TreeNode {
   branch: string;
   /** loadout slot this branch's move-upgrade node (tier 5) applies to. */
   slot: LoadoutSlot;
-  tier: 1 | 2 | 3 | 4 | 5 | 6;
+  tier: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12;
   name: string;
   kind: TreeNodeKind;
   maxRank: number;
@@ -47,6 +47,8 @@ export interface TreeNode {
   prereqId: string | null;
   /** present only for `kind: 'stat'`. */
   stat?: StatKey;
+  /** Larger late-path stat purchases; early nodes keep STAT_PCT_PER_RANK. */
+  statBonusPct?: number;
   /** Passive behavior key consumed by the battle simulator. */
   passive?: string;
   /** Present only for `kind: 'capstone'`. */
@@ -71,6 +73,40 @@ interface BranchSpec {
   tier4: { name: string; description: string };
   tier5: string;
   tier6: { name: string; description: string; capstone: CapstoneEffect };
+}
+
+/** Six late-path purchases bring each individual route to the entire 47-point level-50 budget. */
+function masteryNodes(
+  nation: Nation,
+  branch: string,
+  slot: LoadoutSlot,
+  identity: StatKey,
+): TreeNode[] {
+  const stats: StatKey[] = [identity, 'hp', 'def', 'spd', 'atk', identity];
+  return [4, 5, 5, 6, 6, 7].map((cost, index) => {
+    const tier = (index + 7) as TreeNode['tier'],
+      stat = stats[index]!,
+      pct = cost * 0.0015;
+    return {
+      id: `${nation}:${slugify(branch)}:${tier}`,
+      nation,
+      branch,
+      slot,
+      tier,
+      name:
+        tier === 12
+          ? `${branch} Ascendance`
+          : `${branch} ${['Mastery', 'Vitality', 'Guard', 'Tempo', 'Force'][index]}`,
+      kind: tier === 12 ? 'capstone' : 'stat',
+      maxRank: 1,
+      cost,
+      description: `+${(pct * 100).toFixed(2)}% ${stat.toUpperCase()}. ${tier === 12 ? 'Final specialization: the full path uses all 47 skill points.' : 'Deepen this path. Buy once.'}`,
+      prereqId: `${nation}:${slugify(branch)}:${tier - 1}`,
+      ...(tier === 12
+        ? { capstone: { kind: 'flatStat' as const, stat, pct } }
+        : { stat, statBonusPct: pct }),
+    };
+  });
 }
 
 function buildBranch(spec: BranchSpec): TreeNode[] {
@@ -161,7 +197,7 @@ function buildBranch(spec: BranchSpec): TreeNode[] {
       capstone: spec.tier6.capstone,
     },
   ];
-  return nodes;
+  return [...nodes, ...masteryNodes(spec.nation, spec.branch, spec.slot, spec.stat)];
 }
 
 /** `1 - DEF_DOWN_MULT`: the flat fraction a mon's own `def_down` cuts DEF by (docs/design/
@@ -459,8 +495,8 @@ const COMBO_BRANCHES = [
   },
 ] as const;
 const comboNodes: TreeNode[] = (['water', 'fire', 'earth', 'air'] as const).flatMap((nation) =>
-  COMBO_BRANCHES.flatMap(({ branch, slot, nodes }) =>
-    nodes.map(([name, description], i) => ({
+  COMBO_BRANCHES.flatMap(({ branch, slot, nodes }) => [
+    ...nodes.map(([name, description], i) => ({
       id: `${nation}:${slugify(branch)}:${i + 1}`,
       nation,
       branch,
@@ -474,19 +510,21 @@ const comboNodes: TreeNode[] = (['water', 'fire', 'earth', 'air'] as const).flat
       passive: slugify(name),
       prereqId: i === 0 ? null : `${nation}:${slugify(branch)}:${i}`,
     })),
-  ),
+    ...masteryNodes(nation, branch, slot, 'spd'),
+  ]),
 );
 
-/** 24 single-purchase nodes per nation, costing 56 points against a budget of 47. */
+/** 48 single-purchase nodes per nation: each of four complete paths costs 47 points. */
 export const TREE_NODES: Record<string, TreeNode> = Object.fromEntries(
   [...BRANCHES.flatMap(buildBranch), ...comboNodes].map((n) => [n.id, n]),
 );
 
 /** Read old saved trees without discarding purchases or charging a respec for rank consolidation. */
 export function singlePurchaseTree(ranks: Record<string, number> = {}): Record<string, number> {
+  const main = equippedMainPassive(ranks);
   return Object.fromEntries(
     Object.entries(ranks)
-      .filter(([, rank]) => rank > 0)
+      .filter(([id, rank]) => rank > 0 && (!isSharedPassiveId(id) || id === main))
       .map(([id]) => [id, 1]),
   );
 }
@@ -535,6 +573,32 @@ export function isSharedPassiveId(id: string): boolean {
   return id.startsWith('shared:');
 }
 
+/** One main passive slot. Stable roster order makes old multi-passive trees deterministic. */
+export function equippedMainPassive(ranks: Record<string, number> = {}): string | null {
+  return SHARED_PASSIVE_NODES.find((node) => (ranks[node.id] ?? 0) > 0)?.id ?? null;
+}
+
+/** Main passives finish a matching nation branch; the limit applies across all four groups. */
+export function sharedPassivePrereq(nation: Nation, id: string): TreeNode {
+  const wanted: StatKey = ['stone-skin', 'deep-roots', 'bedrock'].some(
+    (slug) => id === `shared:${slug}`,
+  )
+    ? 'def'
+    : ['tidal-recovery', 'second-breath'].some((slug) => id === `shared:${slug}`)
+      ? 'hp'
+      : ['tailwind', 'updraft'].some((slug) => id === `shared:${slug}`)
+        ? 'spd'
+        : 'atk';
+  const nodes = nationNodes(nation);
+  const branch =
+    nodes.find((node) => node.tier === 1 && node.stat === wanted)?.branch ??
+    (wanted === 'spd'
+      ? 'Flow'
+      : nodes.find((node) => node.tier === 1 && node.stat === (wanted === 'def' ? 'hp' : 'def'))!
+          .branch);
+  return nodes.find((node) => node.branch === branch && node.tier === 6)!;
+}
+
 // --- point budgets --------------------------------------------------------------------------
 
 /**
@@ -545,15 +609,10 @@ export function pointsAvailable(level: number): number {
   return Math.max(0, Math.min(level, 50) - 3);
 }
 
-/**
- * Shared-passive points: a small, separate pool (docs/design/progression.md notes the exact
- * slotting is a Phase C implementation detail). One pick every 15 levels starting at 15, capped
- * at the full 10-passive roster's realistic budget of 9 points (three purchases) -- enough to matter without dwarfing the
- * nation tree's 47-point budget.
- */
-export const MAX_SHARED_PASSIVE_POINTS = 9;
+/** One main-passive purchase, unlocked from level 15. Refunds are always free. */
+export const MAX_SHARED_PASSIVE_POINTS = 3;
 export function sharedPassivePoints(level: number): number {
-  return Math.min(MAX_SHARED_PASSIVE_POINTS, Math.floor(Math.max(0, level) / 15) * 3);
+  return level >= 15 ? MAX_SHARED_PASSIVE_POINTS : 0;
 }
 
 /** Points already spent in each pool (ignores unknown/wrong-nation ids rather than throwing, same
@@ -570,7 +629,7 @@ export function treeSpent(
     if (!rank || rank < 1) continue;
     if (isSharedPassiveId(id)) {
       const node = SHARED_PASSIVE_BY_ID[id];
-      if (node) sharedSpent += node.cost;
+      if (node && id === equippedMainPassive(ranks)) sharedSpent += node.cost;
       continue;
     }
     const node = TREE_NODES[id];
@@ -581,7 +640,8 @@ export function treeSpent(
 
 // --- validation -------------------------------------------------------------------------------
 
-export type TreeErrorCode = 'TREE_UNKNOWN_NODE' | 'TREE_RANK' | 'TREE_PREREQ' | 'TREE_OVER_BUDGET';
+export type TreeErrorCode =
+  'TREE_UNKNOWN_NODE' | 'TREE_RANK' | 'TREE_PREREQ' | 'TREE_OVER_BUDGET' | 'TREE_PASSIVE_LIMIT';
 export type ValidateTreeResult = { ok: true } | { ok: false; code: TreeErrorCode; reason: string };
 
 function findNode(nation: Nation, id: string): TreeNode | SharedPassiveNode | undefined {
@@ -600,9 +660,17 @@ export function validateTree(
   nation: Nation,
   level: number,
   ranks: Record<string, number>,
+  existingTree: Record<string, number> = {},
 ): ValidateTreeResult {
   let nationSpent = 0;
   let sharedSpent = 0;
+  const mainPassives = SHARED_PASSIVE_NODES.filter((node) => (ranks[node.id] ?? 0) > 0);
+  if (mainPassives.length > 1)
+    return {
+      ok: false,
+      code: 'TREE_PASSIVE_LIMIT',
+      reason: 'Only one main passive may be learned. Refund the current passive first.',
+    };
   for (const [id, rank] of Object.entries(ranks)) {
     if (rank === 0) continue;
     if (!Number.isInteger(rank) || rank < 0) {
@@ -628,8 +696,19 @@ export function validateTree(
         };
       }
     }
-    if (isSharedPassiveId(id)) sharedSpent += node.cost;
-    else nationSpent += node.cost;
+    if (isSharedPassiveId(id)) {
+      const prereq = sharedPassivePrereq(nation, id);
+      if (
+        !(ranks[prereq.id] ?? 0) &&
+        !(id === equippedMainPassive(existingTree) && !(existingTree[prereq.id] ?? 0))
+      )
+        return {
+          ok: false,
+          code: 'TREE_PREREQ',
+          reason: `${node.name} requires ${prereq.name} first`,
+        };
+      sharedSpent += node.cost;
+    } else nationSpent += node.cost;
   }
   const nationBudget = pointsAvailable(level);
   if (nationSpent > nationBudget) {
@@ -735,14 +814,15 @@ export function resolveTree(
   for (const [id, rank] of Object.entries(ranks)) {
     if (!rank || rank < 1) continue;
     if (isSharedPassiveId(id)) {
-      if (SHARED_PASSIVE_BY_ID[id])
+      if (SHARED_PASSIVE_BY_ID[id] && id === equippedMainPassive(ranks))
         sharedPassives.add(id.slice('shared:'.length) as SharedPassiveSlug);
       continue;
     }
     const node = TREE_NODES[id];
     if (!node || node.nation !== nation) continue;
     if (node.kind === 'stat' && node.stat) {
-      statBonusPct[node.stat] = (statBonusPct[node.stat] ?? 0) + STAT_PCT_PER_RANK;
+      statBonusPct[node.stat] =
+        (statBonusPct[node.stat] ?? 0) + (node.statBonusPct ?? STAT_PCT_PER_RANK);
     } else if (node.kind === 'moveUpgrade') {
       moveUpgradeBySlot[node.slot] = {
         effectMult: MOVE_UPGRADE_EFFECT_MULT,
@@ -763,7 +843,7 @@ export function defaultBotTree(nation: Nation, level: number): Record<string, nu
   const ranks: Record<string, number> = {};
   if (budget <= 0) return ranks;
   const branch = nationNodes(nation)
-    .filter((n) => n.branch === nationNodes(nation)[0]!.branch)
+    .filter((n) => n.tier <= 6 && n.branch === nationNodes(nation)[0]!.branch)
     .sort((a, b) => a.tier - b.tier);
   let remaining = budget;
   for (const node of branch) {

@@ -3,10 +3,11 @@
  * shape that future phases (move pool, talent tree) extend without breaking stored snapshots.
  */
 import { findMove, speciesOf, unlockedMoves } from './species.ts';
-import { isRespec, validateTree } from './tree.ts';
-import type { Nation, Stats } from '../types.ts';
+import { isRespec, validateTree, singlePurchaseTree } from './tree.ts';
+import type { Nation } from '../types.ts';
+import type { EffectId } from '../battle/effects.ts';
 
-/** Battle stance: a rock-paper-scissors triangle of +-2% stat trade-offs. */
+/** Battle stance: one equipped, conditional build passive. */
 export type Stance = 'fury' | 'bulwark' | 'gale';
 export const STANCES: readonly Stance[] = ['fury', 'bulwark', 'gale'] as const;
 
@@ -21,63 +22,55 @@ export function isStance(value: unknown): value is Stance {
   return typeof value === 'string' && (STANCES as readonly string[]).includes(value);
 }
 
-interface StanceInfo {
-  /** Multiplicative modifiers applied to the mon's level-scaled stats for the whole battle. */
-  modifiers: { atk: number; def: number; spd: number };
-  /** The stance this one beats (grants the counter bonus against it). */
-  beats: Stance;
-}
+export const FURY_DAMAGE_MULT = 1.08;
+export const BULWARK_DAMAGE_MULT = 0.9;
+export const BULWARK_HP_THRESHOLD = 0.35;
+export const GALE_DAMAGE_MULT = 1.1;
 
-/**
- * Grant/cost magnitudes, tuned by simulation on 2026-09-13 (see docs/design/progression.md Stances
- * and CLAUDE.md's Phase A tuning task). Decoupled on purpose: the grant (what a stance boosts) and
- * the cost (what it gives up) no longer have to be equal and opposite, which is what let the sweep
- * find a much smaller, working pair instead of the original +-18%.
- */
-const STANCE_GRANT = 1.02; // +2% to the stance's boosted stat
-const STANCE_COST = 0.98; // -2% to the stance's traded-off stat
-
-/**
- * docs/design/progression.md Stances table. Bulwark's cost stat was moved from SPD to ATK (Gale's
- * stays ATK) during the same tuning pass: with the original SPD cost, Bulwark and Gale were the only
- * two stances that never touched the ATK/DEF axis the damage formula actually uses, while Fury
- * touched both (ATK grant *and* DEF cost) -- so pairings involving Fury swung far harder than
- * Bulwark-vs-Gale, no matter how the magnitudes were scaled. Moving Bulwark's cost onto ATK makes
- * all three pairings touch ATK/DEF symmetrically (Fury costs DEF, Bulwark and Gale both cost ATK),
- * which is what let the sweep hit a tight, evenly-spread band. Flavor still reads cleanly: Bulwark
- * and Gale both give up raw power for their specialty (bulk or speed); Fury gives up survivability
- * for power.
- */
-export const STANCE_INFO: Record<Stance, StanceInfo> = {
-  fury: { modifiers: { atk: STANCE_GRANT, def: STANCE_COST, spd: 1 }, beats: 'gale' },
-  bulwark: { modifiers: { atk: STANCE_COST, def: STANCE_GRANT, spd: 1 }, beats: 'fury' },
-  gale: { modifiers: { atk: STANCE_COST, def: 1, spd: STANCE_GRANT }, beats: 'bulwark' },
+export const STANCE_INFO: Record<Stance, { name: string; passive: string; description: string }> = {
+  fury: {
+    name: 'Fury',
+    passive: 'Exploit',
+    description:
+      '+8% direct damage on critical hits or charged releases against a foe already affected by Burn or DEF down. The hit that applies the debuff does not qualify.',
+  },
+  bulwark: {
+    name: 'Bulwark',
+    passive: 'Brace',
+    description:
+      'Take 10% less direct damage during a charge telegraph turn or while at 35% HP or less before the hit. Burn bypasses Brace; instant charges have no telegraph window.',
+  },
+  gale: {
+    name: 'Gale',
+    passive: 'Tempo',
+    description:
+      '+10% direct damage when acting first with a different move on the turn immediately after landing Priority. A miss or charge telegraph consumes the window.',
+  },
 };
 
-/** True when `a` counters `b` (grants `a` the counter bonus for the whole battle). */
-export function stanceBeats(a: Stance, b: Stance): boolean {
-  return STANCE_INFO[a].beats === b;
-}
-
-/**
- * Counter bonus: +2% damage dealt / -2% damage taken for the whole battle, tuned by simulation on
- * 2026-09-13 (down from +-10%; see docs/design/progression.md Stances). Combined with the smaller
- * STANCE_GRANT/STANCE_COST above, this is what lands every stance-counter pairing in the 55-62% band
- * the design doc targets, instead of the 80-97% (and, for one pairing, sub-50%) the original +-18%
- * stat swing plus +-10% counter bonus produced.
- */
-export const STANCE_COUNTER_DEALT_MULT = 1.021;
-export const STANCE_COUNTER_TAKEN_MULT = 0.979;
-
-/** Applies a stance's stat modifiers. HP is never affected by stance. */
-export function applyStanceModifiers(stats: Stats, stance: Stance): Stats {
-  const m = STANCE_INFO[stance].modifiers;
-  return {
-    hp: stats.hp,
-    atk: Math.round(stats.atk * m.atk),
-    def: Math.round(stats.def * m.def),
-    spd: Math.round(stats.spd * m.spd),
-  };
+/** A hint about the actual draft, not a promise that conditional effects will trigger. */
+export function stanceBuildHint(
+  stance: Stance,
+  moves: readonly { effect: EffectId | null }[],
+): string {
+  const has = (effect: EffectId) => moves.some((move) => move.effect === effect);
+  if (stance === 'fury') {
+    const setup = has('burn') || has('def_down');
+    const payoff = has('crit_up') || has('charge');
+    return setup && payoff
+      ? 'Build fit: debuff opener > Crit up or Charge. Keep the debuff alive until the payoff lands.'
+      : setup
+        ? 'Your attacks can set up Exploit. Crit up or Charge makes the payoff more reliable.'
+        : 'No Burn or DEF-down attack equipped. Exploit depends on innate traits, talents or shared passives applying a debuff first.';
+  }
+  if (stance === 'bulwark') {
+    return has('charge')
+      ? 'Build fit: Brace protects the telegraph turn. Instant-charge talents remove that window; low-HP protection still works.'
+      : 'No charge equipped: Brace only helps at low HP. Drain or survival passives can keep that window useful.';
+  }
+  return has('priority')
+    ? 'Build fit: Priority > a different attack next turn. Acting first is required; repeating Priority does not cash in Tempo.'
+    : 'No Priority equipped: Tempo cannot activate with these attacks. Equip Priority before a different follow-up.';
 }
 
 /**
@@ -107,7 +100,8 @@ export type LoadoutErrorCode =
   | 'TREE_UNKNOWN_NODE'
   | 'TREE_RANK'
   | 'TREE_PREREQ'
-  | 'TREE_OVER_BUDGET';
+  | 'TREE_OVER_BUDGET'
+  | 'TREE_PASSIVE_LIMIT';
 
 export type ValidateLoadoutResult =
   | { ok: true; loadout: MonLoadout; isRespec: boolean }
@@ -196,10 +190,25 @@ export function validateLoadout(
       const legacyRank = context.existingTree?.[id] ?? 0;
       ranks[id] = rank > 1 && legacyRank >= rank ? 1 : rank;
     }
-    const treeResult = validateTree(context.nation, context.level, ranks);
+    // Older clients may resend unchanged multi-passive trees. Consolidate existing purchases,
+    // but never accept newly submitted multiple passives.
+    const requestedPassives = Object.keys(ranks).filter(
+      (id) => id.startsWith('shared:') && ranks[id]! > 0,
+    );
+    const consolidated =
+      requestedPassives.length > 1 &&
+      requestedPassives.every((id) => (context.existingTree?.[id] ?? 0) > 0)
+        ? singlePurchaseTree(ranks)
+        : ranks;
+    const treeResult = validateTree(
+      context.nation,
+      context.level,
+      consolidated,
+      context.existingTree,
+    );
     if (!treeResult.ok) return { ok: false, code: treeResult.code, reason: treeResult.reason };
-    isRespecResult = isRespec(context.existingTree ?? {}, ranks);
-    loadout.tree = ranks;
+    isRespecResult = isRespec(context.existingTree ?? {}, consolidated);
+    loadout.tree = consolidated;
   }
   return { ok: true, loadout, isRespec: isRespecResult };
 }

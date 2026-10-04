@@ -2,8 +2,8 @@
 doc_type: reference
 purpose: "Release notes and version history; check this when seeing claude-mons updates or deciding what version to expect features in."
 audience: both
-last_verified: 2026-10-03
-last_verified_commit: 0d5dfe3
+last_verified: 2026-10-04
+last_verified_commit: a197357
 related_files:
   - docs/history/v1-handoff-2026-09-04.md
   - docs/README.md
@@ -18,6 +18,26 @@ related_files:
 # Changelog
 
 All notable changes to claude-mons are documented here. See [Keep a Changelog](https://keepachangelog.com/) for format details.
+
+## [0.2.12] - 2026-10-04
+
+### Changed
+
+- Open only a centered Skill Tree map in an automatically enlarged window. Wheel zoom, drag pan,
+  hover explanations above the cursor, left-click learning and right-click refunds need no toolbar
+  or inspector. Every edit autosaves; Reset all works anytime. Closing restores the compact window.
+- Expand every path to twelve single-purchase abilities with rising mastery costs. Any one path
+  can spend all 47 nation skill points through level 50, without buying unrelated branches.
+- Give learned nodes and edges a gold glow, available choices a gentle highlight and unavailable
+  choices dim connections. Role colors and labels distinguish offense, defense, tempo and elements.
+- Separate stances and main passives into labelled map areas. Equip one main passive plus one
+  stance; main passives require the matching path's original capstone and cost three separate points.
+  Normal nation and Flow bonuses remain combinable. Legacy selections normalize on the next edit.
+- Replace stance counters and flat stat trade-offs with build passives: Fury's Exploit rewards
+  crit/charge into debuffs, Bulwark's Brace protects charging/low HP, and Gale's Tempo rewards a
+  fast follow-up after Priority. Hover hints explain how they fit the selected attacks.
+- Record triggered stance passives in battle logs. Protocol 12 preserves stored replays and
+  requires no data migration. Existing species, level, archetype and tree balance bounds are retained.
 
 ## [0.2.11] - 2026-10-03
 

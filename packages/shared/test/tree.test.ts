@@ -4,6 +4,8 @@ import {
   SHARED_PASSIVE_NODES,
   TREE_NODES,
   defaultBotTree,
+  sharedPassivePrereq,
+  equippedMainPassive,
   isRespec,
   nationNodes,
   pointsAvailable,
@@ -18,16 +20,16 @@ import { NATIONS } from '../src/types.ts';
 import { validateLoadout } from '../src/game/progression.ts';
 
 describe('tree data', () => {
-  it('every nation has 4 branches of 6 single-purchase nodes', () => {
+  it('every nation has 4 branches of 12 single-purchase nodes', () => {
     for (const nation of NATIONS) {
       const nodes = nationNodes(nation);
-      expect(nodes).toHaveLength(24);
+      expect(nodes).toHaveLength(48);
       const branches = new Set(nodes.map((n) => n.branch));
       expect(branches.size).toBe(4);
       expect(nodes.every((node) => node.maxRank === 1)).toBe(true);
       for (const branch of branches) {
         const tiers = nodes.filter((n) => n.branch === branch).map((n) => n.tier);
-        expect(tiers.sort()).toEqual([1, 2, 3, 4, 5, 6]);
+        expect(tiers.sort((a, b) => a - b)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
       }
     }
   });
@@ -42,10 +44,10 @@ describe('tree data', () => {
     }
   });
 
-  it('all 4 branches cost 56 points (47-point budget forces specialization)', () => {
+  it('all four paths each support spending the entire 47-point budget', () => {
     for (const nation of NATIONS) {
       const total = nationNodes(nation).reduce((sum, n) => sum + n.cost * n.maxRank, 0);
-      expect(total).toBe(56);
+      expect(total).toBe(188);
     }
     expect(pointsAvailable(50)).toBe(47);
   });
@@ -70,11 +72,11 @@ describe('pointsAvailable / sharedPassivePoints', () => {
     expect(pointsAvailable(999)).toBe(47);
   });
 
-  it('grants shared-passive points every 15 levels, capped at 9', () => {
+  it('grants one main-passive budget at level 15, capped at 3', () => {
     expect(sharedPassivePoints(14)).toBe(0);
     expect(sharedPassivePoints(15)).toBe(3);
-    expect(sharedPassivePoints(30)).toBe(6);
-    expect(sharedPassivePoints(45)).toBe(9);
+    expect(sharedPassivePoints(30)).toBe(3);
+    expect(sharedPassivePoints(45)).toBe(3);
     expect(sharedPassivePoints(50)).toBe(MAX_SHARED_PASSIVE_POINTS);
   });
 });
@@ -124,16 +126,74 @@ describe('validateTree', () => {
     });
   });
 
-  it('validates the shared-passive pool independently of the nation budget', () => {
-    const ok = validateTree('fire', 15, { 'shared:stone-skin': 1 });
-    expect(ok).toEqual({ ok: true });
-    const over = validateTree('fire', 15, {
-      'shared:stone-skin': 1,
-      'shared:deep-roots': 1,
+  it('requires a matching completed core branch and limits main passives to one', () => {
+    const gate = sharedPassivePrereq('fire', 'shared:stone-skin');
+    const chain = Object.fromEntries(
+      nationNodes('fire')
+        .filter((node) => node.branch === gate.branch && node.tier <= 6)
+        .map((node) => [node.id, 1]),
+    );
+    expect(validateTree('fire', 50, { 'shared:stone-skin': 1 })).toMatchObject({
+      ok: false,
+      code: 'TREE_PREREQ',
     });
-    expect(over).toMatchObject({ ok: false, code: 'TREE_OVER_BUDGET' });
+    expect(validateTree('fire', 50, { ...chain, 'shared:stone-skin': 1 })).toEqual({ ok: true });
+    expect(
+      validateTree('fire', 50, { ...chain, 'shared:stone-skin': 1, 'shared:deep-roots': 1 }),
+    ).toMatchObject({ ok: false, code: 'TREE_PASSIVE_LIMIT' });
+    expect(
+      validateTree('fire', 14, { 'shared:stone-skin': 1 }, { 'shared:stone-skin': 1 }),
+    ).toMatchObject({ ok: false, code: 'TREE_OVER_BUDGET' });
+    expect(
+      validateTree('fire', 15, { 'shared:stone-skin': 1 }, { 'shared:stone-skin': 1 }),
+    ).toEqual({ ok: true });
+    expect(
+      validateTree(
+        'fire',
+        50,
+        { ...chain, [gate.id]: 0, 'shared:stone-skin': 1 },
+        { ...chain, 'shared:stone-skin': 1 },
+      ),
+    ).toMatchObject({ ok: false, code: 'TREE_PREREQ' });
   });
-
+  it('lets every nation and every path consume all level-50 points without another branch', () => {
+    for (const nation of NATIONS) {
+      const nodes = nationNodes(nation);
+      for (const branch of new Set(nodes.map((node) => node.branch))) {
+        const path = nodes.filter((node) => node.branch === branch).sort((a, b) => a.tier - b.tier);
+        for (let level = 4; level <= 50; level++) {
+          const ranks: Record<string, number> = {};
+          let remaining = pointsAvailable(level);
+          for (const node of path) {
+            if (remaining < node.cost) break;
+            ranks[node.id] = 1;
+            remaining -= node.cost;
+          }
+          expect(validateTree(nation, level, ranks)).toEqual({ ok: true });
+          if (level === 50) {
+            expect(remaining).toBe(0);
+            expect(Object.keys(ranks)).toHaveLength(12);
+          }
+        }
+      }
+    }
+  });
+  it('keeps only one legacy main passive in UI, budgets and fresh battle resolution', () => {
+    const legacy = { 'shared:bedrock': 1, 'shared:aftershock': 1 };
+    expect(equippedMainPassive(legacy)).toBe('shared:bedrock');
+    expect(singlePurchaseTree(legacy)).toEqual({ 'shared:bedrock': 1 });
+    expect(treeSpent('fire', legacy).shared).toBe(3);
+    expect([...resolveTree('fire', legacy).sharedPassives]).toEqual(['bedrock']);
+    expect(
+      validateLoadout(
+        { tree: legacy },
+        { nation: 'fire', speciesId: 'sparkit', level: 50, existingTree: legacy },
+      ),
+    ).toMatchObject({ ok: true, loadout: { tree: { 'shared:bedrock': 1 } } });
+    expect(
+      validateLoadout({ tree: legacy }, { nation: 'fire', speciesId: 'sparkit', level: 50 }),
+    ).toMatchObject({ ok: false, code: 'TREE_PASSIVE_LIMIT' });
+  });
   // Regression guard: the validator must accept a real, legal allocation for EVERY nation's own
   // tree, not just water/fire. A legal allocation is built the way the loadout editor builds one --
   // walking each branch tier by tier so prereqs are always satisfied -- and spent right up to the
