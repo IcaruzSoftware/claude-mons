@@ -1405,12 +1405,6 @@ input.nick {
   stroke: var(--skill-color);
   filter: drop-shadow(0 0 4px var(--skill-color));
 }
-.map-shared-edge {
-  stroke: var(--parchment);
-  stroke-width: 2;
-  stroke-dasharray: 5 8;
-  opacity: 0.3;
-}
 .map-node {
   position: absolute;
   transform: translate(-50%, -50%);
@@ -1515,9 +1509,6 @@ input.nick {
   text-align: center;
   font-size: 14px;
   padding: 8px 12px;
-  background: var(--ink);
-  border: 1px solid var(--line);
-  border-radius: 4px;
 }
 .map-cluster-label small {
   display: block;
@@ -1731,46 +1722,52 @@ input.nick {
   opacity: 0.45;
   border-color: color-mix(in srgb, var(--role-color) 30%, var(--line));
 }
-.map-edge.learned,
-.map-shared-edge.learned {
+.map-edge.learned {
   stroke: #f5cc63;
   stroke-width: 5;
   opacity: 1;
   stroke-dasharray: none;
   filter: drop-shadow(0 0 4px #f5cc6340);
 }
-.map-edge.available,
-.map-shared-edge.available {
+.map-edge.available {
   stroke: #9caa8b;
   opacity: 0.65;
 }
 .map-edge.gated,
-.map-edge.unaffordable,
-.map-shared-edge.unaffordable {
+.map-edge.unaffordable {
   stroke: var(--line);
   opacity: 0.24;
   filter: none;
 }
 
-.map-choice-area {
+.map-choice-caption {
   position: absolute;
-  padding: 16px;
-  border: 2px solid #667277;
-  border-radius: 14px;
-  background: #14191ca6;
+  transform: translate(-50%, -50%);
+  width: 360px;
+  text-align: center;
   pointer-events: none;
   color: var(--parchment);
 }
-.map-choice-area b {
+.map-choice-caption b {
   display: block;
   font: 22px var(--font-display);
 }
-.map-choice-area small {
+.map-choice-caption small {
   display: block;
   margin-top: 6px;
   font-size: 14px;
   line-height: 1.4;
   color: var(--fg-dim);
+}
+.map-shared-node[data-state='Passive slot occupied'] {
+  opacity: 0.3;
+  filter: saturate(0.15);
+  border-color: #65515b;
+  background: #1c161b;
+}
+.map-shared-node.gated.selected {
+  opacity: 0.3;
+  outline-color: #65515b;
 }
 .map-node-name {
   font-size: 16px;
@@ -1785,19 +1782,6 @@ input.nick {
 .map-cluster-label small {
   font-size: 13px;
 }
-.map-shared-edge.gated {
-  stroke: var(--line);
-  opacity: 0.24;
-  filter: none;
-}
-
-.map-main-passive-area {
-  border-color: #b9905855;
-}
-.map-stance-area {
-  border-color: #92aeca55;
-}
-
 .map-branch-label {
   text-align: center;
 }
@@ -1807,4 +1791,11 @@ input.nick {
   letter-spacing: 0;
   color: var(--fg-dim);
   margin-top: 5px;
+}
+
+.map-main-passive-area {
+  width: 480px;
+}
+.map-stance-area {
+  width: 280px;
 }

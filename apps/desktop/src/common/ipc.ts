@@ -317,7 +317,7 @@ export interface UiSnapshot {
 
 /** `battle:set-loadout` request payload; all fields optional, same as `SetLoadoutRequest`. */
 export interface SetLoadoutPayload {
-  stance?: Stance;
+  stance?: Stance | null;
   moves?: string[];
   /** `{ [nodeId]: rank }` (docs/design/talent-tree.md). */
   tree?: Record<string, number>;

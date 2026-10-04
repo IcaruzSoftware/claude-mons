@@ -155,9 +155,11 @@ export function explainMatchup(me: MonSnapshot, opp: MonSnapshot): MatchupExplan
   else if (oppAtk > 1) nationLine = `${oppName} hits ${meName} hard -- brace for it.`;
   else nationLine = `${meName} and ${oppName} trade evenly.`;
 
-  const meStance = me.loadout?.stance ?? DEFAULT_STANCE;
-  const oppStance = opp.loadout?.stance ?? DEFAULT_STANCE;
-  const stanceLine = `Your ${stanceName(meStance)}: ${STANCE_INFO[meStance].passive}. Their ${stanceName(oppStance)}: ${STANCE_INFO[oppStance].passive}.`;
+  const meStance = me.loadout?.stance === undefined ? DEFAULT_STANCE : me.loadout.stance;
+  const oppStance = opp.loadout?.stance === undefined ? DEFAULT_STANCE : opp.loadout.stance;
+  const describeStance = (stance: Stance | null) =>
+    stance ? `${stanceName(stance)}: ${STANCE_INFO[stance].passive}` : 'stance: Missing';
+  const stanceLine = `Your ${describeStance(meStance)}. Their ${describeStance(oppStance)}.`;
 
   const oppMoves = resolveMoves(opp);
   const opener = oppMoves[0];

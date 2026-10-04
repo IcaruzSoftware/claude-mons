@@ -7,15 +7,11 @@ import { isRespec, validateTree, singlePurchaseTree } from './tree.ts';
 import type { Nation } from '../types.ts';
 import type { EffectId } from '../battle/effects.ts';
 
-/** Battle stance: one equipped, conditional build passive. */
+/** Battle stance: at most one equipped, conditional build passive. */
 export type Stance = 'fury' | 'bulwark' | 'gale';
 export const STANCES: readonly Stance[] = ['fury', 'bulwark', 'gale'] as const;
 
-/**
- * Default stance for a mon with no loadout set yet (existing mons predating this migration, and
- * brand-new mons before their first `set-loadout` call). The design doc's Stances table does not
- * name a default; Bulwark is used per CLAUDE.md's Phase A instructions.
- */
+/** Legacy snapshots and bots without a stance field keep Bulwark; explicit null means none. */
 export const DEFAULT_STANCE: Stance = 'bulwark';
 
 export function isStance(value: unknown): value is Stance {
@@ -79,7 +75,8 @@ export function stanceBuildHint(
  * `mons.loadout` column do not need a breaking shape change when those phases ship.
  */
 export interface MonLoadout {
-  stance?: Stance;
+  /** null explicitly clears the selection; undefined preserves the legacy fallback. */
+  stance?: Stance | null;
   moves?: string[];
   tree?: Record<string, number>;
 }
@@ -134,7 +131,7 @@ export function validateLoadout(
   const body = input as Record<string, unknown>;
   const loadout: MonLoadout = {};
   if (body.stance !== undefined) {
-    if (!isStance(body.stance))
+    if (body.stance !== null && !isStance(body.stance))
       return { ok: false, code: 'INVALID_STANCE', reason: 'invalid stance' };
     loadout.stance = body.stance;
   }

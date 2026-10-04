@@ -30,8 +30,10 @@ All notable changes to claude-mons are documented here. See [Keep a Changelog](h
   can spend all 47 nation skill points through level 50, without buying unrelated branches.
 - Give learned nodes and edges a gold glow, available choices a gentle highlight and unavailable
   choices dim connections. Role colors and labels distinguish offense, defense, tempo and elements.
-- Separate stances and main passives into labelled map areas. Equip one main passive plus one
-  stance; main passives require the matching path's original capstone and cost three separate points.
+- Place main passives directly between the radial paths, with no containers or connections.
+  Stances are independent choices with no edges. Selected nodes glow; other main passives dim.
+  Main passives unlock at level 10 and cost three separate points; equip at most one.
+  Clearing a stance displays Missing and removes its passive bonus.
   Normal nation and Flow bonuses remain combinable. Legacy selections normalize on the next edit.
 - Replace stance counters and flat stat trade-offs with build passives: Fury's Exploit rewards
   crit/charge into debuffs, Bulwark's Brace protects charging/low HP, and Gale's Tempo rewards a

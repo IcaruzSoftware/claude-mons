@@ -161,9 +161,10 @@ six Flow combos and six mastery purchases per path. Two three-way mastery forks 
 defense or tempo, with one choice per fork. The following skill accepts any chosen alternative.
 Every route costs all 47 level-50 nation points.
 
-Stances and main passives occupy separate labelled map regions. Stance shows 1/1 active.
-Main passive shows 0/1 or 1/1 chosen and explains the one-slot rule. Each passive group connects
-to its required tier-6 nation capstone; other main passives show Slot full while one is chosen.
+Main passives occupy the gaps between the radial paths, directly on the board without a
+container. Stances are a nearby independent selection. Neither has connection lines; the
+selected node itself glows gold. Stance displays Missing when explicitly cleared. Main passive
+shows 0/1 or 1/1, unlocks at level 10, and dims the other choices while one is selected.
 Normal nation/Flow passives remain combinable. Hover explains cost, prerequisite, effects and
 build fit in a tooltip above the cursor, inside the map experience. The core explains the
 innate passive and automatic combo. Stances appear exclusively in the map.
@@ -174,7 +175,7 @@ identify offense, defense, tempo and elemental bonuses. Larger frames identify p
 capstones. Role and availability remain understandable without color.
 
 Left click learns/equips and automatically persists. Right click refunds, cascading dependants
-and any main passive whose prerequisite was removed. Reset all is unrestricted and saves
+within the chosen path. Main passives remain independent. Reset all is unrestricted and saves
 immediately. The map has no Save/Cancel. Edits serialize so rapid clicks cannot overwrite a
 newer allocation; failure restores confirmed state and shows a retry message. Attack drafts
 remain separate. The point HUD, reset, close and brief interaction hint are part of the map.

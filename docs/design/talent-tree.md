@@ -36,22 +36,19 @@ move slot; tier 6 is the original capstone. Tiers 7–12 deepen the same route w
 of cost ×0.15% (0.6%–1.05% per purchase), ending in an Ascendance capstone. Their stat sequence
 is path identity, HP, DEF, SPD, ATK, path identity. Flow's identity is SPD.
 
-Main passives cost three separate points; this pool grants three at level 15 and stays capped
-at three. Exactly one may be equipped. Each group requires the appropriate nation tier-6
-capstone: Resilience uses the defensive branch, Pressure the offensive branch, Momentum the
-speed branch (Flow fallback), Recovery the HP branch (defensive fallback). The authoritative
-mapping is `sharedPassivePrereq`. Normal nation talents and Flow bonuses remain combinable;
-they do not occupy the main-passive slot. A free stance occupies its own independent slot.
+Main passives cost three separate points; this pool grants three at level 10 and stays capped
+at three. Exactly one may be equipped. The passives sit directly in the gaps between the four
+paths, without containers or connections. Their only unlock gate is level 10. Normal nation
+skills and Flow bonuses remain combinable; they do not occupy the main-passive slot. A free
+stance occupies its own independent slot. Unselected passives dim while one is equipped.
 
 Legacy multi-ranks resolve as one purchase. Legacy multiple main passives resolve to the first
 owned entry in the stable shared-passive roster; extra purchases cease consuming points. The
 next automatic edit submits this normalized map. The server tolerates trusted previously-owned
 multi-ranks/passives only to normalize them; new duplicates or multiple main passives are rejected.
-A previously owned canonical passive without its new prerequisite is grandfathered. Removing a
-normally-earned prerequisite refunds that passive too; removing later mastery leaves it intact.
 
 Left click purchases and autosaves immediately. Right click refunds a node and its dependants.
-Reset all clears the tree and restores the default stance immediately, with no cooldown or cost.
+Reset all clears the tree and stance selection immediately, with no cooldown or cost.
 Failed saves visibly restore the last confirmed allocation and permit retry. Skill edits never
 submit unsaved attack drafts. No database migration is needed because loadouts are JSON.
 

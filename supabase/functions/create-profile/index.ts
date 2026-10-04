@@ -56,7 +56,7 @@ serve(async (req) => {
 
     const { data: monData, error: monError } = await db
       .from('mons')
-      .insert({ player_id: uid })
+      .insert({ player_id: uid, loadout: { stance: null } })
       .select('*')
       .single();
     if (monError) throw new Error(`mons insert: ${monError.message}`);
@@ -112,7 +112,7 @@ serve(async (req) => {
     // Should not happen (mons row is created with the player) but heal instead of failing.
     const { data, error: healError } = await db
       .from('mons')
-      .insert({ player_id: uid })
+      .insert({ player_id: uid, loadout: { stance: null } })
       .select('*')
       .single();
     if (healError) throw new Error(`mons insert: ${healError.message}`);

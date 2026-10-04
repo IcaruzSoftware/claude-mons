@@ -279,11 +279,11 @@ describe('automatic skill map', () => {
     )!;
     fire(reset, 'click');
     await flush();
-    expect(setLoadout).toHaveBeenLastCalledWith({ tree: {}, stance: 'bulwark' });
+    expect(setLoadout).toHaveBeenLastCalledWith({ tree: {}, stance: null });
     expect(reset.disabled).toBe(false);
     fire(reset, 'click');
     await flush();
-    expect(setLoadout).toHaveBeenLastCalledWith({ tree: {}, stance: 'bulwark' });
+    expect(setLoadout).toHaveBeenLastCalledWith({ tree: {}, stance: null });
   });
   it('shows hover explanations in the map and distinguishes locked, unaffordable and learned roles', async () => {
     const overlay = await open(snapshotFor('water', { 'water:current:1': 1 }));
@@ -304,13 +304,12 @@ describe('automatic skill map', () => {
       'tempo',
     );
     expect(overlay.querySelector('.map-core')!.getAttribute('data-role')).toBe('elemental');
-    await click(overlay, '[data-passive-id="shared:stone-skin"]');
     const unavailable = overlay.querySelector('[data-passive-id="shared:deep-roots"]')!;
-    expect(unavailable.getAttribute('data-state')).toBe('Locked');
+    expect(unavailable.getAttribute('data-state')).toBe('Available');
     await click(overlay, '[data-passive-id="shared:deep-roots"]');
-    expect(setLoadout).not.toHaveBeenCalled();
+    expect(setLoadout.mock.calls.at(-1)![0].tree['shared:deep-roots']).toBe(1);
   });
-  it('allows one main passive plus a stance, refunding frees the slot and gate refunds cascade', async () => {
+  it('allows one independent main passive plus a stance and refunds free its slot', async () => {
     const core = Object.fromEntries(
       nationNodes('water')
         .filter((n) => n.branch === 'Undertow' && n.tier <= 7 && !n.choiceOffset)
@@ -336,8 +335,8 @@ describe('automatic skill map', () => {
     await click(overlay, '[data-passive-id="shared:deep-roots"]');
     expect(setLoadout.mock.calls.at(-1)![0].tree['shared:deep-roots']).toBe(1);
     await click(overlay, '[data-node-id="water:undertow:6"]', 'contextmenu');
-    expect(setLoadout.mock.calls.at(-1)![0].tree['shared:deep-roots']).toBe(0);
-    expect(overlay.querySelectorAll('[data-passive-id].learned')).toHaveLength(0);
+    expect(setLoadout.mock.calls.at(-1)![0].tree['shared:deep-roots']).toBe(1);
+    expect(overlay.querySelectorAll('[data-passive-id].learned')).toHaveLength(1);
     expect(overlay.querySelector('[data-stance-id="gale"]')!.getAttribute('aria-pressed')).toBe(
       'true',
     );

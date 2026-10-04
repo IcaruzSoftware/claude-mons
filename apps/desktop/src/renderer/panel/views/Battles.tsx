@@ -1,6 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
 import {
-  DEFAULT_STANCE,
   EFFECT_DESCRIPTIONS,
   defaultLoadoutMoveIds,
   displayName,
@@ -10,7 +9,6 @@ import {
   sharedPassivePoints,
   singlePurchaseTree,
   equippedMainPassive,
-  sharedPassivePrereq,
   speciesOf,
   treeSpent,
   treePrerequisiteMet,
@@ -48,7 +46,7 @@ function LoadoutEditor({ s, onDiscard }: { s: UiSnapshot; onDiscard: () => void 
     storedMoves !== undefined && storedMoves.length === 3 && !storedIsValid;
 
   const [moves, setMoves] = useState<[string, string, string]>(initial);
-  const [stance, setStance] = useState<Stance>(s.battles.loadout.stance ?? 'bulwark');
+  const [stance, setStance] = useState<Stance | null>(s.battles.loadout.stance ?? null);
   const rawSavedTree = s.battles.loadout.tree ?? {};
   const savedTree = singlePurchaseTree(rawSavedTree);
   const [tree, setTree] = useState<Record<string, number>>(savedTree);
@@ -123,25 +121,18 @@ function LoadoutEditor({ s, onDiscard }: { s: UiSnapshot; onDiscard: () => void 
     if (!(state.tree[node.id] ?? 0)) return;
     const next = { ...state.tree, [node.id]: 0 };
     clearDependents(nodes, node.branch, node.tier, next);
-    const main = equippedMainPassive(next);
-    if (main && !next[sharedPassivePrereq(species.nation, main).id]) next[main] = 0;
     void persistSkills({ ...state, tree: next });
   };
   const changePassive = (id: string, cost: number, remove = false) => {
     const state = skillState.current,
       current = state.tree[id] ?? 0;
     if (remove ? !current : current > 0) return;
-    if (
-      !remove &&
-      (equippedMainPassive(state.tree) ||
-        !(state.tree[sharedPassivePrereq(species.nation, id).id] ?? 0))
-    )
-      return;
+    if (!remove && equippedMainPassive(state.tree)) return;
     if (!remove && treeSpent(species.nation, state.tree).shared + cost > sharedPassivePoints(level))
       return;
     void persistSkills({ ...state, tree: { ...state.tree, [id]: remove ? 0 : 1 } });
   };
-  const changeStance = (next: Stance) => {
+  const changeStance = (next: Stance | null) => {
     if (skillState.current.stance !== next)
       void persistSkills({ ...skillState.current, stance: next });
   };
@@ -325,7 +316,7 @@ function LoadoutEditor({ s, onDiscard }: { s: UiSnapshot; onDiscard: () => void 
                 onStance={changeStance}
                 saving={skillSaving}
                 error={skillError}
-                onReset={() => void persistSkills({ tree: {}, stance: DEFAULT_STANCE })}
+                onReset={() => void persistSkills({ tree: {}, stance: null })}
                 onClose={() => setMapOpen(false)}
               />
             </div>

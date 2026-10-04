@@ -227,7 +227,7 @@ the loadout actually equipped. `MonState` (`packages/shared/src/api.ts`) carries
 renders the loadout editor without a separate call. `apps/desktop/src/renderer/panel/views/
 Battles.tsx` shows abilities, the Skill Tree entry and the latest battle history. Stances,
 nation talents and main passives are exclusively inside the map. Left click autosaves; right
-click refunds; Reset all is free. Exactly one main passive plus one stance may be equipped. Map roles and availability are documented in `docs/design/ui-panels.md`.
+click refunds; Reset all is free. At most one main passive (from level 10) plus one stance may be equipped. An explicitly cleared stance is stored as null and grants no stance bonus; missing legacy stance fields keep the old Bulwark fallback. Map roles and availability are documented in `docs/design/ui-panels.md`.
 
 ## Matchup explanations
 

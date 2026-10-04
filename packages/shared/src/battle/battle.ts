@@ -213,7 +213,7 @@ export function snapshotFor(input: {
     stats,
     loadout: {
       ...loadout,
-      stance: loadout?.stance ?? DEFAULT_STANCE,
+      stance: loadout?.stance === undefined ? DEFAULT_STANCE : loadout.stance,
       moves,
       ...(tree ? { tree } : {}),
     },
@@ -236,7 +236,7 @@ export function npcSnapshot(snapshot: MonSnapshot, kind: 'wild' | 'trainer'): Mo
 }
 
 function stanceOf(m: MonSnapshot) {
-  return m.loadout?.stance ?? DEFAULT_STANCE;
+  return m.loadout?.stance === undefined ? DEFAULT_STANCE : m.loadout.stance;
 }
 
 /** Resolves a snapshot's 3 equipped moves as `Move` objects, defaulting/repairing as needed. */
@@ -271,7 +271,7 @@ export function simulateBattle(a: MonSnapshot, b: MonSnapshot, seed: string): Ba
   const scale = levelScale((a.level + b.level) / 2);
   const turns: BattleTurn[] = [];
 
-  const stance: Record<Side, Stance> = { a: stanceOf(a), b: stanceOf(b) };
+  const stance: Record<Side, Stance | null> = { a: stanceOf(a), b: stanceOf(b) };
   const effStats: Record<Side, Stats> = { a: a.stats, b: b.stats };
   const tempo: Record<Side, { turn: number; moveId: string } | null> = { a: null, b: null };
   // The entire telegraph turn is protected, independent of which side acts first.
@@ -650,7 +650,7 @@ export function simulateBattle(a: MonSnapshot, b: MonSnapshot, seed: string): Ba
       stance[foe] === 'bulwark' &&
       (charging[foe] || hp[foe] / mons[foe].stats.hp <= BULWARK_HP_THRESHOLD);
     const stancePassives: NonNullable<BattleAction['stancePassives']> = [];
-    if (exploit || tempoHit) stancePassives.push({ side: me, stance: stance[me] });
+    if (exploit || tempoHit) stancePassives.push({ side: me, stance: exploit ? 'fury' : 'gale' });
     if (brace) stancePassives.push({ side: foe, stance: 'bulwark' });
 
     // A small, bounded level bonus leaves room for elemental counters.

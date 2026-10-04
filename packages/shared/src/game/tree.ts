@@ -618,27 +618,6 @@ export function equippedMainPassive(ranks: Record<string, number> = {}): string 
   return SHARED_PASSIVE_NODES.find((node) => (ranks[node.id] ?? 0) > 0)?.id ?? null;
 }
 
-/** Main passives finish a matching nation branch; the limit applies across all four groups. */
-export function sharedPassivePrereq(nation: Nation, id: string): TreeNode {
-  const wanted: StatKey = ['stone-skin', 'deep-roots', 'bedrock'].some(
-    (slug) => id === `shared:${slug}`,
-  )
-    ? 'def'
-    : ['tidal-recovery', 'second-breath'].some((slug) => id === `shared:${slug}`)
-      ? 'hp'
-      : ['tailwind', 'updraft'].some((slug) => id === `shared:${slug}`)
-        ? 'spd'
-        : 'atk';
-  const nodes = nationNodes(nation);
-  const branch =
-    nodes.find((node) => node.tier === 1 && node.stat === wanted)?.branch ??
-    (wanted === 'spd'
-      ? 'Flow'
-      : nodes.find((node) => node.tier === 1 && node.stat === (wanted === 'def' ? 'hp' : 'def'))!
-          .branch);
-  return nodes.find((node) => node.branch === branch && node.tier === 6)!;
-}
-
 // --- point budgets --------------------------------------------------------------------------
 
 /**
@@ -649,10 +628,10 @@ export function pointsAvailable(level: number): number {
   return Math.max(0, Math.min(level, 50) - 3);
 }
 
-/** One main-passive purchase, unlocked from level 15. Refunds are always free. */
+/** One main-passive purchase, unlocked from level 10. Refunds are always free. */
 export const MAX_SHARED_PASSIVE_POINTS = 3;
 export function sharedPassivePoints(level: number): number {
-  return level >= 15 ? MAX_SHARED_PASSIVE_POINTS : 0;
+  return level >= 10 ? MAX_SHARED_PASSIVE_POINTS : 0;
 }
 
 /** Points already spent in each pool (ignores unknown/wrong-nation ids rather than throwing, same
@@ -705,7 +684,7 @@ export function validateTree(
   nation: Nation,
   level: number,
   ranks: Record<string, number>,
-  existingTree: Record<string, number> = {},
+  _existingTree: Record<string, number> = {},
 ): ValidateTreeResult {
   let nationSpent = 0;
   let sharedSpent = 0;
@@ -746,16 +725,6 @@ export function validateTree(
         };
     }
     if (isSharedPassiveId(id)) {
-      const prereq = sharedPassivePrereq(nation, id);
-      if (
-        !(ranks[prereq.id] ?? 0) &&
-        !(id === equippedMainPassive(existingTree) && !(existingTree[prereq.id] ?? 0))
-      )
-        return {
-          ok: false,
-          code: 'TREE_PREREQ',
-          reason: `${node.name} requires ${prereq.name} first`,
-        };
       sharedSpent += node.cost;
     } else nationSpent += node.cost;
   }

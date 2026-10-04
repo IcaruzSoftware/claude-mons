@@ -1,15 +1,15 @@
 /** Layout only: the map follows the actual prerequisite graph. */
-export const SKILL_MAP_SIZE = { width: 3200, height: 2250 };
-export const SKILL_MAP_ROOT = { x: 1050, y: 1080 };
+export const SKILL_MAP_SIZE = { width: 2450, height: 2250 };
+export const SKILL_MAP_ROOT = { x: 1225, y: 1125 };
 export const STANCE_SKILL_POSITIONS = {
-  fury: { x: 1700, y: 1060 },
-  bulwark: { x: 1860, y: 1060 },
-  gale: { x: 2020, y: 1060 },
+  fury: { x: 1745, y: 965 },
+  bulwark: { x: 1745, y: 1125 },
+  gale: { x: 1745, y: 1285 },
 };
 export const MIN_SKILL_ZOOM = 0.08;
 export const MAX_SKILL_ZOOM = 1.6;
-export const STANCE_SKILL_AREA = { x: 1600, y: 925, width: 500, height: 250 };
-export const PASSIVE_SKILL_AREA = { x: 2130, y: 220, width: 990, height: 1420 };
+export const STANCE_SKILL_LABEL = { x: 1745, y: 790 };
+export const PASSIVE_SKILL_LABEL = { x: 1225, y: 150 };
 
 /** Four curved arms around the core; fork alternatives fan out tangentially. */
 function radialPosition(branch: number, radius: number, tangent: number) {
@@ -29,20 +29,23 @@ export function skillMapPosition(branch: number, tier: number, choiceOffset = 0)
   );
 }
 export function skillBranchLabelPosition(branch: number) {
-  return radialPosition(branch, 400, 210);
+  return radialPosition(branch, 400, -210);
 }
 export const SHARED_SKILL_GROUPS = [
-  { name: 'Resilience', x: 2310, y: 450, ids: ['stone-skin', 'deep-roots', 'bedrock'] },
-  { name: 'Pressure', x: 2760, y: 450, ids: ['wildfire', 'aftershock', 'ember-heart'] },
-  { name: 'Momentum', x: 2310, y: 1150, ids: ['tailwind', 'updraft'] },
-  { name: 'Recovery', x: 2760, y: 1150, ids: ['tidal-recovery', 'second-breath'] },
+  { name: 'Resilience', x: 575, y: 775, ids: ['stone-skin', 'deep-roots', 'bedrock'] },
+  { name: 'Pressure', x: 1225, y: 290, ids: ['wildfire', 'aftershock', 'ember-heart'] },
+  { name: 'Momentum', x: 1225, y: 1615, ids: ['tailwind', 'updraft'] },
+  { name: 'Recovery', x: 1945, y: 825, ids: ['tidal-recovery', 'second-breath'] },
 ] as const;
 export function sharedSkillPosition(id: string) {
   const group = SHARED_SKILL_GROUPS.find((g) => g.ids.some((slug) => `shared:${slug}` === id))!;
   const index = group.ids.findIndex((slug) => `shared:${slug}` === id);
+  const offset = index - (group.ids.length - 1) / 2;
+  if (group.name === 'Resilience') return { x: group.x, y: 1125 + offset * 170 };
+  if (group.name === 'Recovery') return { x: group.x, y: 1125 + offset * 200 };
   return {
-    x: group.x + (index - (group.ids.length - 1) / 2) * 115,
-    y: group.y + 120 + (index % 2) * 80,
+    x: group.x + offset * (group.name === 'Pressure' ? 170 : 200),
+    y: group.name === 'Pressure' ? 475 + (index % 2) * 60 : 1775,
   };
 }
 

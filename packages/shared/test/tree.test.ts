@@ -4,7 +4,6 @@ import {
   SHARED_PASSIVE_NODES,
   TREE_NODES,
   defaultBotTree,
-  sharedPassivePrereq,
   equippedMainPassive,
   isRespec,
   nationNodes,
@@ -74,9 +73,9 @@ describe('pointsAvailable / sharedPassivePoints', () => {
     expect(pointsAvailable(999)).toBe(47);
   });
 
-  it('grants one main-passive budget at level 15, capped at 3', () => {
-    expect(sharedPassivePoints(14)).toBe(0);
-    expect(sharedPassivePoints(15)).toBe(3);
+  it('grants one main-passive budget at level 10, capped at 3', () => {
+    expect(sharedPassivePoints(9)).toBe(0);
+    expect(sharedPassivePoints(10)).toBe(3);
     expect(sharedPassivePoints(30)).toBe(3);
     expect(sharedPassivePoints(45)).toBe(3);
     expect(sharedPassivePoints(50)).toBe(MAX_SHARED_PASSIVE_POINTS);
@@ -132,35 +131,15 @@ describe('validateTree', () => {
     });
   });
 
-  it('requires a matching completed core branch and limits main passives to one', () => {
-    const gate = sharedPassivePrereq('fire', 'shared:stone-skin');
-    const chain = Object.fromEntries(
-      nationNodes('fire')
-        .filter((node) => node.branch === gate.branch && node.tier <= 6)
-        .map((node) => [node.id, 1]),
-    );
-    expect(validateTree('fire', 50, { 'shared:stone-skin': 1 })).toMatchObject({
+  it('unlocks one independent main passive at level 10', () => {
+    expect(validateTree('fire', 9, { 'shared:stone-skin': 1 })).toMatchObject({
       ok: false,
-      code: 'TREE_PREREQ',
+      code: 'TREE_OVER_BUDGET',
     });
-    expect(validateTree('fire', 50, { ...chain, 'shared:stone-skin': 1 })).toEqual({ ok: true });
+    expect(validateTree('fire', 10, { 'shared:stone-skin': 1 })).toEqual({ ok: true });
     expect(
-      validateTree('fire', 50, { ...chain, 'shared:stone-skin': 1, 'shared:deep-roots': 1 }),
+      validateTree('fire', 50, { 'shared:stone-skin': 1, 'shared:deep-roots': 1 }),
     ).toMatchObject({ ok: false, code: 'TREE_PASSIVE_LIMIT' });
-    expect(
-      validateTree('fire', 14, { 'shared:stone-skin': 1 }, { 'shared:stone-skin': 1 }),
-    ).toMatchObject({ ok: false, code: 'TREE_OVER_BUDGET' });
-    expect(
-      validateTree('fire', 15, { 'shared:stone-skin': 1 }, { 'shared:stone-skin': 1 }),
-    ).toEqual({ ok: true });
-    expect(
-      validateTree(
-        'fire',
-        50,
-        { ...chain, [gate.id]: 0, 'shared:stone-skin': 1 },
-        { ...chain, 'shared:stone-skin': 1 },
-      ),
-    ).toMatchObject({ ok: false, code: 'TREE_PREREQ' });
   });
   it('every combination of fork choices spends all level-50 points within one path', () => {
     for (const nation of NATIONS) {

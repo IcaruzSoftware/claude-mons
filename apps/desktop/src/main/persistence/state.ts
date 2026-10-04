@@ -90,7 +90,7 @@ export interface LocalState {
   };
   /** Prepared loadout (docs/design/progression.md, docs/design/talent-tree.md). */
   loadout: {
-    stance: Stance;
+    stance: Stance | null;
     moves?: string[];
     tree?: Record<string, number>;
     /** local mirror of the server's `mons.last_respec_at`, re-synced on every successful
@@ -158,7 +158,7 @@ export function defaultState(): LocalState {
     auth: { session: null },
     battles: { history: [], lastBattleAt: null, today: { day: '', count: 0 }, streak: 0 },
     water: { lastDoneAt: null, snoozedUntil: null, todayCount: 0, todayKey: '' },
-    loadout: { stance: DEFAULT_STANCE, lastRespecAt: null },
+    loadout: { stance: null, lastRespecAt: null },
   };
 }
 

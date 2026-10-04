@@ -6,7 +6,6 @@ import {
   STANCES,
   STANCE_INFO,
   equippedMainPassive,
-  sharedPassivePrereq,
   stanceBuildHint,
   type Move,
   SHARED_PASSIVE_NODES,
@@ -25,8 +24,8 @@ import {
   SKILL_MAP_SIZE,
   SKILL_MAP_ROOT,
   STANCE_SKILL_POSITIONS,
-  STANCE_SKILL_AREA,
-  PASSIVE_SKILL_AREA,
+  STANCE_SKILL_LABEL,
+  PASSIVE_SKILL_LABEL,
   SHARED_SKILL_GROUPS,
   skillMapPosition,
   skillBranchLabelPosition,
@@ -130,8 +129,8 @@ export function SkillTree({
   onAdd: (node: TreeNode) => void;
   onRemove: (node: TreeNode) => void;
   onPassive: (id: string, cost: number, remove?: boolean) => void;
-  stance: Stance;
-  onStance: (stance: Stance) => void;
+  stance: Stance | null;
+  onStance: (stance: Stance | null) => void;
   equippedMoves: readonly Move[];
   onReset: () => void;
   onClose: () => void;
@@ -150,8 +149,8 @@ export function SkillTree({
       ? 'Learned'
       : mainPassive
         ? 'Passive slot occupied'
-        : !(ranks[sharedPassivePrereq(nation, id).id] ?? 0)
-          ? 'Locked'
+        : level < 10
+          ? 'Level 10'
           : sharedPassivePoints(level) - spent.shared < cost
             ? 'Not enough points'
             : 'Available';
@@ -235,7 +234,10 @@ export function SkillTree({
   const classes = (state: string) =>
     state === 'Learned'
       ? ' learned'
-      : state === 'Locked' || state === 'Passive slot occupied' || state === 'Alternative chosen'
+      : state === 'Locked' ||
+          state === 'Level 10' ||
+          state === 'Passive slot occupied' ||
+          state === 'Alternative chosen'
         ? ' gated'
         : state === 'Not enough points'
           ? ' unaffordable'
@@ -245,13 +247,15 @@ export function SkillTree({
       ? '✓ Learned'
       : state === 'Alternative chosen'
         ? 'Other choice'
-        : state === 'Locked'
-          ? 'Locked'
-          : state === 'Passive slot occupied'
-            ? 'Slot full'
-            : state === 'Not enough points'
-              ? 'Need points'
-              : `${cost} pts`;
+        : state === 'Level 10'
+          ? 'Lvl 10'
+          : state === 'Locked'
+            ? 'Locked'
+            : state === 'Passive slot occupied'
+              ? 'Slot full'
+              : state === 'Not enough points'
+                ? 'Need points'
+                : `${cost} pts`;
   const glyph = (node: TreeNode): GlyphName =>
     node.kind === 'capstone'
       ? 'spark'
@@ -358,77 +362,25 @@ export function SkillTree({
                 );
               }),
             )}
-            {STANCES.map((id) => (
-              <line
-                key={id}
-                class={`map-shared-edge${stance === id ? ' learned' : ' available'}`}
-                data-edge-id={`stance:${id}`}
-                x1={SKILL_MAP_ROOT.x}
-                y1={SKILL_MAP_ROOT.y}
-                x2={STANCE_SKILL_POSITIONS[id].x}
-                y2={STANCE_SKILL_POSITIONS[id].y}
-              />
-            ))}
-            {SHARED_SKILL_GROUPS.map((group) => {
-              const gate = sharedPassivePrereq(nation, `shared:${group.ids[0]}`),
-                from = position(gate);
-              const groupState = group.ids.some((id) => (ranks[`shared:${id}`] ?? 0) > 0)
-                ? 'Learned'
-                : sharedState(`shared:${group.ids[0]}`, 3);
-              return (
-                <g key={group.name}>
-                  <path
-                    class={`map-shared-edge${classes(groupState)}${groupState === 'Available' ? ' available' : ''}`}
-                    fill="none"
-                    d={`M ${from.x} ${from.y} C ${from.x + 70} ${from.y + 130}, ${group.x - 100} ${group.y - 180}, ${group.x} ${group.y}`}
-                  />
-                  {group.ids.map((slug) => {
-                    const to = sharedSkillPosition(`shared:${slug}`),
-                      state = sharedState(`shared:${slug}`, 3);
-                    return (
-                      <line
-                        key={slug}
-                        data-edge-id={`shared:${slug}`}
-                        class={`map-shared-edge${classes(state)}${state === 'Available' ? ' available' : ''}`}
-                        x1={group.x}
-                        y1={group.y}
-                        x2={to.x}
-                        y2={to.y}
-                      />
-                    );
-                  })}
-                </g>
-              );
-            })}
           </svg>
           <div
-            class="map-choice-area map-stance-area"
-            style={{
-              left: STANCE_SKILL_AREA.x,
-              top: STANCE_SKILL_AREA.y,
-              width: STANCE_SKILL_AREA.width,
-              height: STANCE_SKILL_AREA.height,
-            }}
+            class="map-choice-caption map-stance-area"
+            style={{ left: STANCE_SKILL_LABEL.x, top: STANCE_SKILL_LABEL.y }}
           >
-            <b>Stance · 1/1 active</b>
-            <small>{STANCE_INFO[stance].name} · Choose one for free</small>
+            <b>Stance · {stance ? STANCE_INFO[stance].name : 'Missing'}</b>
+            <small>Choose one</small>
           </div>
           <div
-            class="map-choice-area map-main-passive-area"
-            style={{
-              left: PASSIVE_SKILL_AREA.x,
-              top: PASSIVE_SKILL_AREA.y,
-              width: PASSIVE_SKILL_AREA.width,
-              height: PASSIVE_SKILL_AREA.height,
-            }}
+            class="map-choice-caption map-main-passive-area"
+            style={{ left: PASSIVE_SKILL_LABEL.x, top: PASSIVE_SKILL_LABEL.y }}
           >
-            <b>Main passive · {mainPassive ? '1/1' : '0/1'} chosen</b>
+            <b>Main passive · {mainPassive ? '1/1' : '0/1'}</b>
             <small>
               {mainPassive
-                ? `${SHARED_PASSIVE_NODES.find((node) => node.id === mainPassive)!.name} active · Refund it to choose another`
-                : 'Only ONE main passive · Complete a core branch to unlock'}
-              <br />
-              Normal skills and Flow bonuses remain combinable.
+                ? `${SHARED_PASSIVE_NODES.find((node) => node.id === mainPassive)!.name} active · Other passives blocked`
+                : level < 10
+                  ? 'Unlocks at level 10 · Choose one'
+                  : 'Choose one · Level 10+'}
             </small>
           </div>
           <button
@@ -463,12 +415,12 @@ export function SkillTree({
                 }}
                 onContextMenu={(e) => {
                   e.preventDefault();
-                  if (stance === id) onStance('bulwark');
+                  if (stance === id) onStance(null);
                 }}
                 onKeyDown={(e) => {
                   if (e.key === 'Delete' && stance === id) {
                     e.preventDefault();
-                    onStance('bulwark');
+                    onStance(null);
                   }
                 }}
               >
@@ -493,7 +445,6 @@ export function SkillTree({
               style={{ left: skillBranchLabelPosition(i).x, top: skillBranchLabelPosition(i).y }}
             >
               {branch}
-              <small>3-way choices · 47 pts per route</small>
             </span>
           ))}
           {nodes.map((node) => {
@@ -555,7 +506,6 @@ export function SkillTree({
               style={{ left: group.x, top: group.y }}
             >
               {group.name}
-              <small>Requires {sharedPassivePrereq(nation, `shared:${group.ids[0]}`).name}</small>
             </span>
           ))}
           {SHARED_PASSIVE_NODES.map((node) => {
@@ -639,9 +589,7 @@ export function SkillTree({
               <p>
                 {(hoveredNode ?? hoveredPassive)!.cost} {hoveredNode ? 'skill' : 'passive'} points ·
                 Buy once
-                {hoveredPassive
-                  ? ` · Only ONE main passive · Requires ${sharedPassivePrereq(nation, hoveredPassive.id).name}`
-                  : ''}
+                {hoveredPassive ? ' · Level 10 · Only ONE main passive' : ''}
                 {hoveredNode?.prereqId
                   ? ` · Requires ${hoveredNode.prereqIds ? 'one of: ' : ''}${(hoveredNode.prereqIds ?? [hoveredNode.prereqId]).map((id) => nodes.find((n) => n.id === id)!.name).join(' / ')}`
                   : ''}
@@ -651,7 +599,7 @@ export function SkillTree({
             <>
               <p>{STANCE_INFO[hoveredStance].description}</p>
               <p>{stanceBuildHint(hoveredStance, equippedMoves)}</p>
-              <p>Free · One stance active · Click to equip. Right click restores Bulwark.</p>
+              <p>Free · Choose one stance · Click to equip. Right click clears the selection.</p>
             </>
           ) : (
             <>

@@ -86,3 +86,19 @@ Visual review caught the Undertow branch caption crossing the stance heading. Mo
 stance area right within the existing map gap; no mechanics or persistence changes. The
 layout and 21 renderer acceptance tests pass after this correction. Rollback is a revert
 of this layout-only change. Rebuild and visually verify the corrected packaged map.
+
+
+## Board arrangement follow-up (2026-10-04)
+Loop check: layout source -> production build -> visual map review is closed; shared types and
+lint provide automatic static verification. The previously verified interaction suite is not
+repeated, per the user. Main passives now occupy the cardinal gaps directly on the board,
+without containers or any passive/stance connection edges. Only picked nodes glow. Remove
+branch choice/budget subtitles. Main passives unlock at level 10 independently of core skills;
+the single-slot limit remains and other choices visibly dim. Explicit null clears a stance,
+displays Missing and activates no stance bonus. Legacy omitted fields retain their old fallback.
+Risks: labels may overlap in the inner gap; review spacing visually. Preserve immediate-save
+ordering and local profile. Null must survive IPC/store/server JSON and battle snapshots.
+Rollback: previous source 6ed5535 and copied preview app.asar/profile; normal online app untouched.
+Automated verification: shared/desktop typecheck, lint, shared sync, documentation check and
+production packaging. Adapt outdated expectations to the new requirement without rerunning
+the established gameplay/interaction suite. Online deployment remains for the project owner.
