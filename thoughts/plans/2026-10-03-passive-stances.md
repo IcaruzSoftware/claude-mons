@@ -56,3 +56,26 @@ zoom/pan, hover placement, gold learned state and automatic persistence without 
   parent refunds, one main slot, stance, Reset all and compact restoration pass. Actual 47-point
   allocation down Current uses exactly twelve skills, no other paths. Final visual spacing separates
   multiline capstones and passive groups; packaged release verification follows before installation.
+
+
+## Round map and fork follow-up
+Loop remains pure validators/simulator + renderer tests + live offline UI. Four paths curve around
+the central core rather than vertical columns. Two mastery gates per path offer three mutually
+exclusive stat alternatives, merging into the next tier after any chosen node. Every one of the
+nine fork combinations still spends exactly 47 points on twelve nodes. There are 64 choices per
+nation. The entry moves below attack explanations and Save/Discard, directly above History.
+Risks: alternate prerequisites must be accepted by both server/client; unchosen edges stay dim;
+refunding a fork must remove dependent purchases while preserving the core/main passive.
+Rollback retains original core ids and the 0.2.11 profile/installer backup. Automated acceptance
+covers every route at levels 4–50, three-choice rejection, alternate merge, refund/switch,
+selected-edge highlight, entry order and L50 alternative balance without widening bounds.
+Backend attempts failed both project linking and direct authenticated function listing with 401.
+No client release/install is claimed until server deployment succeeds; packaging can proceed.
+
+
+Final round-map acceptance: pnpm check passes 1,211 Vitest +22 script tests; Deno's five entrypoints
+pass. Live offline UI passes 64 choices, entry after attack buttons, three-way lock/refund/switch,
+alternate merge edges, all 47 points down a side route, auto-save, reset, native expansion and
+compact restore, and the 380×520 map. Final visual review places stances beside the core to shorten
+connections and keeps all four curved paths around it. Both backend deployment paths returned 401;
+production publication and online installation remain blocked by the external credential.

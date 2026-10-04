@@ -13,6 +13,8 @@ import {
   sharedPassivePrereq,
   speciesOf,
   treeSpent,
+  treePrerequisiteMet,
+  treeChoiceConflict,
   type Stance,
   type TreeNode,
 } from '@claude-mons/shared';
@@ -107,7 +109,11 @@ function LoadoutEditor({ s, onDiscard }: { s: UiSnapshot; onDiscard: () => void 
   const addRank = (node: TreeNode) => {
     const state = skillState.current,
       ranks = state.tree;
-    if ((ranks[node.id] ?? 0) >= node.maxRank || (node.prereqId && !(ranks[node.prereqId] ?? 0)))
+    if (
+      (ranks[node.id] ?? 0) >= node.maxRank ||
+      !treePrerequisiteMet(node, ranks) ||
+      treeChoiceConflict(node, ranks)
+    )
       return;
     if (treeSpent(species.nation, ranks).nation + node.cost > pointsAvailable(level)) return;
     void persistSkills({ ...state, tree: { ...ranks, [node.id]: 1 } });
@@ -254,15 +260,7 @@ function LoadoutEditor({ s, onDiscard }: { s: UiSnapshot; onDiscard: () => void 
             );
           })}
         </div>
-        <button
-          class="skill-entry"
-          onClick={() => {
-            setMapOpen(true);
-          }}
-        >
-          <Glyph name="leaf" size={12} /> Skill Tree
-          <span>{pointsAvailable(level) - treeSpent(species.nation, tree).nation} pts left</span>
-        </button>
+
         {([0, 1, 2] as const).map((i) => {
           const move = species.movePool.find((m) => m.id === moves[i]);
           return move?.effect ? (
@@ -353,6 +351,16 @@ function LoadoutEditor({ s, onDiscard }: { s: UiSnapshot; onDiscard: () => void 
           </button>
         </div>
       </fieldset>
+      <button
+        class="skill-entry"
+        disabled={busy}
+        onClick={() => {
+          setMapOpen(true);
+        }}
+      >
+        <Glyph name="leaf" size={12} /> Skill Tree
+        <span>{pointsAvailable(level) - treeSpent(species.nation, tree).nation} pts left</span>
+      </button>
     </div>
   );
 }

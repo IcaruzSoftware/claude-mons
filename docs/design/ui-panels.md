@@ -149,15 +149,17 @@ info web page ... the skill tree should be an actual tree"; Settings "fine for n
 ## Battles
 
 The main Battle view contains Abilities (three attack slots, reorder, Save/Discard), the
-Skill Tree entry immediately below the slots, and Battle History. It has no arena,
+Skill Tree entry below the attack explanations and Save/Discard buttons, then Battle History. It has no arena,
 separate Talents list, passive list or stance section.
 
 The Skill Tree expands the native window to a centered overview (up to 1920×1120, bounded
 by the current display's work area), then restores the compact Battle bounds on close. Only
 the map is shown. Wheel zooms around the cursor, drag pans; keyboard focus recenters nodes,
 arrow keys pan, +/- zoom, Enter learns and Delete refunds. There is no toolbar or inspector.
-Four paths each contain twelve nodes (48 total), including six Flow combos and six mastery
-purchases per path. Each path alone costs all 47 level-50 nation points.
+Four radial paths each allow twelve purchases along a chosen route (64 nodes total), including
+six Flow combos and six mastery purchases per path. Two three-way mastery forks offer offense,
+defense or tempo, with one choice per fork. The following skill accepts any chosen alternative.
+Every route costs all 47 level-50 nation points.
 
 Stances and main passives occupy separate labelled map regions. Stance shows 1/1 active.
 Main passive shows 0/1 or 1/1 chosen and explains the one-slot rule. Each passive group connects

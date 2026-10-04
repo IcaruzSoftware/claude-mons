@@ -19,7 +19,7 @@ related_files:
 
 # Talent tree
 
-Each nation has four twelve-node branches: its original three identity branches, plus Flow, an
+Each nation has four radial twelve-stage paths: its original three identity branches, plus Flow, an
 optional branch for move-order combos. Ten main passives use a separate three-point pool, with exactly one equipped alongside one free stance. All talents
 are single purchases; move slots also require three distinct attacks. The exact node names, costs,
 prerequisites and descriptions are data in `packages/shared/src/game/tree.ts`. The battle effects
@@ -30,7 +30,7 @@ are implemented in `packages/shared/src/battle/battle.ts`.
 One nation point arrives per level from level 4, up to 47 at level 50. Each path costs exactly
 47 to finish: the original six nodes cost 1/1/2/2/3/5 (14 total), followed by six mastery nodes
 costing 4/5/5/6/6/7 (33 total). Any one path can consume the full level-50 budget without
-buying another path. All four together cost 188, so specialization remains necessary.
+buying another path. Each mastery fork has three alternatives at tiers 7 and 10. Choose one per fork; tiers 8 and 11 accept any of those choices. Four default routes cost 188; all available nodes cost 268, so specialization remains necessary.
 Tier 1/2 grant +0.33% of the path's stat each; tiers 3/4 have battle effects; tier 5 upgrades a
 move slot; tier 6 is the original capstone. Tiers 7–12 deepen the same route with stat bonuses
 of cost ×0.15% (0.6%–1.05% per purchase), ending in an Ascendance capstone. Their stat sequence

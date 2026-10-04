@@ -20,15 +20,17 @@ import { NATIONS } from '../src/types.ts';
 import { validateLoadout } from '../src/game/progression.ts';
 
 describe('tree data', () => {
-  it('every nation has 4 branches of 12 single-purchase nodes', () => {
+  it('every nation has 4 paths with two three-way forks and 12 purchases per route', () => {
     for (const nation of NATIONS) {
       const nodes = nationNodes(nation);
-      expect(nodes).toHaveLength(48);
+      expect(nodes).toHaveLength(64);
       const branches = new Set(nodes.map((n) => n.branch));
       expect(branches.size).toBe(4);
       expect(nodes.every((node) => node.maxRank === 1)).toBe(true);
       for (const branch of branches) {
-        const tiers = nodes.filter((n) => n.branch === branch).map((n) => n.tier);
+        const tiers = nodes
+          .filter((n) => n.branch === branch && !n.choiceOffset)
+          .map((n) => n.tier);
         expect(tiers.sort((a, b) => a - b)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
       }
     }
@@ -47,7 +49,7 @@ describe('tree data', () => {
   it('all four paths each support spending the entire 47-point budget', () => {
     for (const nation of NATIONS) {
       const total = nationNodes(nation).reduce((sum, n) => sum + n.cost * n.maxRank, 0);
-      expect(total).toBe(188);
+      expect(total).toBe(268);
     }
     expect(pointsAvailable(50)).toBe(47);
   });
@@ -119,7 +121,11 @@ describe('validateTree', () => {
   it('accepts a valid prereq chain and rejects spending over the level budget', () => {
     const ok = validateTree('water', 50, { 'water:current:1': 1, 'water:current:2': 1 });
     expect(ok).toEqual({ ok: true });
-    const tooMuch = Object.fromEntries(nationNodes('water').map((node) => [node.id, 1]));
+    const tooMuch = Object.fromEntries(
+      nationNodes('water')
+        .filter((node) => !node.choiceOffset)
+        .map((node) => [node.id, 1]),
+    );
     expect(validateTree('water', 50, tooMuch)).toMatchObject({
       ok: false,
       code: 'TREE_OVER_BUDGET',
@@ -156,27 +162,59 @@ describe('validateTree', () => {
       ),
     ).toMatchObject({ ok: false, code: 'TREE_PREREQ' });
   });
-  it('lets every nation and every path consume all level-50 points without another branch', () => {
+  it('every combination of fork choices spends all level-50 points within one path', () => {
     for (const nation of NATIONS) {
       const nodes = nationNodes(nation);
       for (const branch of new Set(nodes.map((node) => node.branch))) {
-        const path = nodes.filter((node) => node.branch === branch).sort((a, b) => a.tier - b.tier);
-        for (let level = 4; level <= 50; level++) {
-          const ranks: Record<string, number> = {};
-          let remaining = pointsAvailable(level);
-          for (const node of path) {
-            if (remaining < node.cost) break;
-            ranks[node.id] = 1;
-            remaining -= node.cost;
+        for (const first of [0, -1, 1])
+          for (const second of [0, -1, 1]) {
+            const path = nodes
+              .filter(
+                (node) =>
+                  node.branch === branch &&
+                  (node.tier === 7
+                    ? (node.choiceOffset ?? 0) === first
+                    : node.tier === 10
+                      ? (node.choiceOffset ?? 0) === second
+                      : !node.choiceOffset),
+              )
+              .sort((a, b) => a.tier - b.tier);
+            expect(path).toHaveLength(12);
+            for (let level = 4; level <= 50; level++) {
+              const ranks: Record<string, number> = {};
+              let remaining = pointsAvailable(level);
+              for (const node of path) {
+                if (remaining < node.cost) break;
+                ranks[node.id] = 1;
+                remaining -= node.cost;
+              }
+              expect(validateTree(nation, level, ranks)).toEqual({ ok: true });
+              if (level === 50) {
+                expect(remaining).toBe(0);
+                expect(Object.keys(ranks)).toHaveLength(12);
+              }
+            }
           }
-          expect(validateTree(nation, level, ranks)).toEqual({ ok: true });
-          if (level === 50) {
-            expect(remaining).toBe(0);
-            expect(Object.keys(ranks)).toHaveLength(12);
-          }
-        }
       }
     }
+  });
+  it('accepts a side choice as the merge prerequisite and rejects two choices at a fork', () => {
+    const core = Object.fromEntries(
+      nationNodes('water')
+        .filter((n) => n.branch === 'Current' && n.tier <= 6)
+        .map((n) => [n.id, 1]),
+    );
+    const side = { ...core, 'water:current:7:left': 1, 'water:current:8': 1 };
+    expect(validateTree('water', 50, side)).toEqual({ ok: true });
+    expect(validateTree('water', 50, { ...side, 'water:current:7': 1 })).toMatchObject({
+      ok: false,
+      code: 'TREE_CHOICE_LIMIT',
+    });
+    expect(validateTree('water', 50, { ...side, 'water:current:7:left': 0 })).toMatchObject({
+      ok: false,
+      code: 'TREE_PREREQ',
+    });
+    expect(resolveTree('water', side).statBonusPct.def).toBeCloseTo(0.006);
   });
   it('keeps only one legacy main passive in UI, budgets and fresh battle resolution', () => {
     const legacy = { 'shared:bedrock': 1, 'shared:aftershock': 1 };

@@ -45,6 +45,12 @@ export interface TreeNode {
   description: string;
   /** id of the node in the previous tier of the same branch; null for tier 1. */
   prereqId: string | null;
+  /** Merge after a three-way fork: any one prerequisite is sufficient. */
+  prereqIds?: readonly string[];
+  /** At most one alternative in each fork may be purchased. */
+  choiceGroup?: string;
+  /** -1/+1 for side alternatives; original ids are the central route. */
+  choiceOffset?: -1 | 1;
   /** present only for `kind: 'stat'`. */
   stat?: StatKey;
   /** Larger late-path stat purchases; early nodes keep STAT_PCT_PER_RANK. */
@@ -75,7 +81,7 @@ interface BranchSpec {
   tier6: { name: string; description: string; capstone: CapstoneEffect };
 }
 
-/** Six late-path purchases bring each individual route to the entire 47-point level-50 budget. */
+/** Two three-way mastery forks, each route retaining the full 47-point level-50 budget. */
 function masteryNodes(
   nation: Nation,
   branch: string,
@@ -83,30 +89,64 @@ function masteryNodes(
   identity: StatKey,
 ): TreeNode[] {
   const stats: StatKey[] = [identity, 'hp', 'def', 'spd', 'atk', identity];
-  return [4, 5, 5, 6, 6, 7].map((cost, index) => {
-    const tier = (index + 7) as TreeNode['tier'],
-      stat = stats[index]!,
-      pct = cost * 0.0015;
-    return {
-      id: `${nation}:${slugify(branch)}:${tier}`,
-      nation,
-      branch,
-      slot,
-      tier,
-      name:
-        tier === 12
-          ? `${branch} Ascendance`
-          : `${branch} ${['Mastery', 'Vitality', 'Guard', 'Tempo', 'Force'][index]}`,
-      kind: tier === 12 ? 'capstone' : 'stat',
-      maxRank: 1,
-      cost,
-      description: `+${(pct * 100).toFixed(2)}% ${stat.toUpperCase()}. ${tier === 12 ? 'Final specialization: the full path uses all 47 skill points.' : 'Deepen this path. Buy once.'}`,
-      prereqId: `${nation}:${slugify(branch)}:${tier - 1}`,
-      ...(tier === 12
-        ? { capstone: { kind: 'flatStat' as const, stat, pct } }
-        : { stat, statBonusPct: pct }),
+  const baseId = (tier: number) => `${nation}:${slugify(branch)}:${tier}`;
+  const forkIds = (tier: number) => [baseId(tier), `${baseId(tier)}:left`, `${baseId(tier)}:right`];
+  return [4, 5, 5, 6, 6, 7].flatMap((cost, index) => {
+    const tier = (index + 7) as TreeNode['tier'];
+    const fork = tier === 7 || tier === 10;
+    const baseStat = stats[index]!;
+    const defense: StatKey = baseStat === 'hp' ? 'hp' : 'def';
+    const alternatives = (['atk', defense, 'spd'] as StatKey[]).filter((stat) => stat !== baseStat);
+    const make = (stat: StatKey, offset?: -1 | 1): TreeNode => {
+      const pct = cost * 0.0015;
+      const role = stat === 'atk' ? 'Offense' : stat === 'spd' ? 'Tempo' : 'Defense';
+      return {
+        id: offset ? `${baseId(tier)}:${offset === -1 ? 'left' : 'right'}` : baseId(tier),
+        nation,
+        branch,
+        slot,
+        tier,
+        name: offset
+          ? `${branch} ${role}`
+          : tier === 12
+            ? `${branch} Ascendance`
+            : `${branch} ${['Mastery', 'Vitality', 'Guard', 'Tempo', 'Force'][index]}`,
+        kind: tier === 12 ? 'capstone' : 'stat',
+        maxRank: 1,
+        cost,
+        description: `+${(pct * 100).toFixed(2)}% ${stat.toUpperCase()}. ${fork ? 'Choose ONE of three alternatives here. Refund the chosen skill to switch freely.' : tier === 12 ? 'Final specialization: every complete route uses all 47 skill points.' : 'Deepen this path. Buy once.'}`,
+        prereqId: baseId(tier - 1),
+        ...(tier === 8 || tier === 11 ? { prereqIds: forkIds(tier - 1) } : {}),
+        ...(fork ? { choiceGroup: baseId(tier) } : {}),
+        ...(offset ? { choiceOffset: offset } : {}),
+        ...(tier === 12
+          ? { capstone: { kind: 'flatStat' as const, stat, pct } }
+          : { stat, statBonusPct: pct }),
+      };
     };
+    return fork
+      ? [make(baseStat), make(alternatives[0]!, -1), make(alternatives[1]!, 1)]
+      : [make(baseStat)];
   });
+}
+
+export function treePrerequisiteMet(node: TreeNode, ranks: Record<string, number>): boolean {
+  return !node.prereqId || (node.prereqIds ?? [node.prereqId]).some((id) => (ranks[id] ?? 0) > 0);
+}
+
+/** Selected alternative, if buying this node would conflict with a learned choice. */
+export function treeChoiceConflict(
+  node: TreeNode,
+  ranks: Record<string, number>,
+): TreeNode | undefined {
+  return node.choiceGroup
+    ? nationNodes(node.nation).find(
+        (other) =>
+          other.id !== node.id &&
+          other.choiceGroup === node.choiceGroup &&
+          (ranks[other.id] ?? 0) > 0,
+      )
+    : undefined;
 }
 
 function buildBranch(spec: BranchSpec): TreeNode[] {
@@ -514,7 +554,7 @@ const comboNodes: TreeNode[] = (['water', 'fire', 'earth', 'air'] as const).flat
   ]),
 );
 
-/** 48 single-purchase nodes per nation: each of four complete paths costs 47 points. */
+/** 64 nodes per nation: four paths, two three-way forks each, 47 points per complete route. */
 export const TREE_NODES: Record<string, TreeNode> = Object.fromEntries(
   [...BRANCHES.flatMap(buildBranch), ...comboNodes].map((n) => [n.id, n]),
 );
@@ -641,7 +681,12 @@ export function treeSpent(
 // --- validation -------------------------------------------------------------------------------
 
 export type TreeErrorCode =
-  'TREE_UNKNOWN_NODE' | 'TREE_RANK' | 'TREE_PREREQ' | 'TREE_OVER_BUDGET' | 'TREE_PASSIVE_LIMIT';
+  | 'TREE_UNKNOWN_NODE'
+  | 'TREE_RANK'
+  | 'TREE_PREREQ'
+  | 'TREE_OVER_BUDGET'
+  | 'TREE_PASSIVE_LIMIT'
+  | 'TREE_CHOICE_LIMIT';
 export type ValidateTreeResult = { ok: true } | { ok: false; code: TreeErrorCode; reason: string };
 
 function findNode(nation: Nation, id: string): TreeNode | SharedPassiveNode | undefined {
@@ -686,15 +731,19 @@ export function validateTree(
         reason: `${id}: rank ${rank} exceeds max ${node.maxRank}`,
       };
     }
-    if ('prereqId' in node && node.prereqId) {
-      const prereqRank = ranks[node.prereqId] ?? 0;
-      if (prereqRank < 1) {
+    if ('prereqId' in node) {
+      if (treeChoiceConflict(node, ranks))
+        return {
+          ok: false,
+          code: 'TREE_CHOICE_LIMIT',
+          reason: `${node.name}: choose only one alternative at this fork.`,
+        };
+      if (!treePrerequisiteMet(node, ranks))
         return {
           ok: false,
           code: 'TREE_PREREQ',
-          reason: `${id} requires at least 1 rank in ${node.prereqId} first`,
+          reason: `${id} requires one of ${(node.prereqIds ?? [node.prereqId]).join(', ')} first`,
         };
-      }
     }
     if (isSharedPassiveId(id)) {
       const prereq = sharedPassivePrereq(nation, id);

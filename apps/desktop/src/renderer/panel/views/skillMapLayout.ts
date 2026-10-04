@@ -1,28 +1,41 @@
-/** Layout only: edges still use the game's actual prerequisites, never decorative prerequisites. */
-export const SKILL_MAP_SIZE = { width: 2450, height: 1360 };
-export const SKILL_MAP_ROOT = { x: 800, y: 970 };
+/** Layout only: the map follows the actual prerequisite graph. */
+export const SKILL_MAP_SIZE = { width: 3200, height: 2250 };
+export const SKILL_MAP_ROOT = { x: 1050, y: 1080 };
 export const STANCE_SKILL_POSITIONS = {
-  fury: { x: 640, y: 1190 },
-  bulwark: { x: 800, y: 1190 },
-  gale: { x: 960, y: 1190 },
+  fury: { x: 1540, y: 1060 },
+  bulwark: { x: 1700, y: 1060 },
+  gale: { x: 1860, y: 1060 },
 };
 export const MIN_SKILL_ZOOM = 0.08;
 export const MAX_SKILL_ZOOM = 1.6;
-export const STANCE_SKILL_AREA = { x: 535, y: 1070, width: 530, height: 230 };
-export const PASSIVE_SKILL_AREA = { x: 1575, y: 45, width: 830, height: 1240 };
+export const STANCE_SKILL_AREA = { x: 1430, y: 925, width: 560, height: 250 };
+export const PASSIVE_SKILL_AREA = { x: 2130, y: 220, width: 990, height: 1420 };
 
-/** Twelve stations per branch, moving from the core through six paired rows. */
-export function skillMapPosition(branch: number, tier: number) {
+/** Four curved arms around the core; fork alternatives fan out tangentially. */
+function radialPosition(branch: number, radius: number, tangent: number) {
+  const angle = ((-135 + branch * 90) * Math.PI) / 180;
   return {
-    x: 160 + branch * 380 + ((tier - 1) % 2) * 160,
-    y: [830, 690, 520, 360, 235, 100][Math.floor((tier - 1) / 2)]!,
+    x: SKILL_MAP_ROOT.x + Math.cos(angle) * radius - Math.sin(angle) * tangent,
+    y: SKILL_MAP_ROOT.y + Math.sin(angle) * radius + Math.cos(angle) * tangent,
   };
 }
+export function skillMapPosition(branch: number, tier: number, choiceOffset = 0) {
+  const radii = [150, 250, 350, 450, 550, 650, 800, 950, 950, 1100, 1250, 1250];
+  const tangents = [-65, 65, -65, 65, -65, 0, 0, -90, 90, 0, -90, 90];
+  return radialPosition(
+    branch,
+    radii[tier - 1]!,
+    tier === 7 || tier === 10 ? choiceOffset * 170 : tangents[tier - 1]!,
+  );
+}
+export function skillBranchLabelPosition(branch: number) {
+  return radialPosition(branch, 400, 210);
+}
 export const SHARED_SKILL_GROUPS = [
-  { name: 'Resilience', x: 1775, y: 270, ids: ['stone-skin', 'deep-roots', 'bedrock'] },
-  { name: 'Pressure', x: 2200, y: 270, ids: ['wildfire', 'aftershock', 'ember-heart'] },
-  { name: 'Momentum', x: 1775, y: 825, ids: ['tailwind', 'updraft'] },
-  { name: 'Recovery', x: 2200, y: 825, ids: ['tidal-recovery', 'second-breath'] },
+  { name: 'Resilience', x: 2310, y: 450, ids: ['stone-skin', 'deep-roots', 'bedrock'] },
+  { name: 'Pressure', x: 2760, y: 450, ids: ['wildfire', 'aftershock', 'ember-heart'] },
+  { name: 'Momentum', x: 2310, y: 1150, ids: ['tailwind', 'updraft'] },
+  { name: 'Recovery', x: 2760, y: 1150, ids: ['tidal-recovery', 'second-breath'] },
 ] as const;
 export function sharedSkillPosition(id: string) {
   const group = SHARED_SKILL_GROUPS.find((g) => g.ids.some((slug) => `shared:${slug}` === id))!;

@@ -91,6 +91,9 @@ it('shows only abilities, a Skill Tree entry and history on Battle', async () =>
   ]);
   expect(container.querySelectorAll('.mv-select')).toHaveLength(3);
   expect(container.querySelector('.skill-entry')).toBeTruthy();
+  expect([...container.querySelectorAll('button')].at(-1)!.classList.contains('skill-entry')).toBe(
+    true,
+  );
   expect(container.querySelector('.talent-card, .tree-wrap, .arena, .triframe')).toBeNull();
   expect(container.textContent).not.toContain('Shared passives');
 });
@@ -228,7 +231,7 @@ describe('automatic skill map', () => {
         const s = snapshotFor(nation, {});
         s.pet.speciesId = species.id;
         const overlay = await open(s);
-        expect(overlay.querySelectorAll('[data-node-id]')).toHaveLength(48);
+        expect(overlay.querySelectorAll('[data-node-id]')).toHaveLength(64);
         expect(overlay.querySelectorAll('[data-passive-id]')).toHaveLength(10);
         expect(overlay.querySelectorAll('[data-stance-id]')).toHaveLength(3);
         expect(overlay.querySelectorAll('.map-branch-label')).toHaveLength(4);
@@ -310,7 +313,7 @@ describe('automatic skill map', () => {
   it('allows one main passive plus a stance, refunding frees the slot and gate refunds cascade', async () => {
     const core = Object.fromEntries(
       nationNodes('water')
-        .filter((n) => n.branch === 'Undertow' && n.tier <= 7)
+        .filter((n) => n.branch === 'Undertow' && n.tier <= 7 && !n.choiceOffset)
         .map((n) => [n.id, 1]),
     );
     const snapshot = snapshotFor('water', core);
@@ -338,6 +341,39 @@ describe('automatic skill map', () => {
     expect(overlay.querySelector('[data-stance-id="gale"]')!.getAttribute('aria-pressed')).toBe(
       'true',
     );
+  });
+  it('offers three real alternatives, follows the chosen edge and refunds to switch', async () => {
+    const core = Object.fromEntries(
+      nationNodes('water')
+        .filter((n) => n.branch === 'Current' && n.tier <= 6)
+        .map((n) => [n.id, 1]),
+    );
+    const snapshot = snapshotFor('water', core);
+    snapshot.progress.level = 50;
+    const overlay = await open(snapshot);
+    for (const suffix of ['', ':left', ':right'])
+      expect(
+        overlay
+          .querySelector(`[data-node-id="water:current:7${suffix}"]`)!
+          .getAttribute('data-state'),
+      ).toBe('Available');
+    await click(overlay, '[data-node-id="water:current:7:left"]');
+    expect(
+      overlay.querySelector('[data-node-id="water:current:7"]')!.getAttribute('data-state'),
+    ).toBe('Alternative chosen');
+    const calls = setLoadout.mock.calls.length;
+    await click(overlay, '[data-node-id="water:current:7:right"]');
+    expect(setLoadout).toHaveBeenCalledTimes(calls);
+    await click(overlay, '[data-node-id="water:current:8"]');
+    expect(overlay.querySelectorAll('[data-edge-id="water:current:8"].learned')).toHaveLength(1);
+    expect(overlay.querySelectorAll('[data-edge-id="water:current:8"].gated')).toHaveLength(2);
+    await click(overlay, '[data-node-id="water:current:7:left"]', 'contextmenu');
+    expect(setLoadout.mock.calls.at(-1)![0].tree['water:current:8']).toBe(0);
+    await click(overlay, '[data-node-id="water:current:7:right"]');
+    expect(setLoadout.mock.calls.at(-1)![0].tree['water:current:7:right']).toBe(1);
+    expect(
+      overlay.querySelector('[data-node-id="water:current:8"]')!.getAttribute('data-state'),
+    ).toBe('Available');
   });
   it('serializes rapid edits and persists the newest allocation without overwriting it', async () => {
     let resolveFirst!: (value: { ok: boolean; error: null }) => void;

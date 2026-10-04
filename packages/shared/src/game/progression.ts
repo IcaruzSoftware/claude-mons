@@ -101,7 +101,8 @@ export type LoadoutErrorCode =
   | 'TREE_RANK'
   | 'TREE_PREREQ'
   | 'TREE_OVER_BUDGET'
-  | 'TREE_PASSIVE_LIMIT';
+  | 'TREE_PASSIVE_LIMIT'
+  | 'TREE_CHOICE_LIMIT';
 
 export type ValidateLoadoutResult =
   | { ok: true; loadout: MonLoadout; isRespec: boolean }

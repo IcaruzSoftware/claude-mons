@@ -14,6 +14,8 @@ import {
   pointsAvailable,
   sharedPassivePoints,
   treeSpent,
+  treePrerequisiteMet,
+  treeChoiceConflict,
   type Nation,
   type Stance,
   type TreeNode,
@@ -27,6 +29,7 @@ import {
   PASSIVE_SKILL_AREA,
   SHARED_SKILL_GROUPS,
   skillMapPosition,
+  skillBranchLabelPosition,
   sharedSkillPosition,
   zoomSkillMap,
 } from './skillMapLayout.ts';
@@ -137,7 +140,8 @@ export function SkillTree({
 }) {
   const nodes = nationNodes(nation),
     branches = [...new Set(nodes.map((n) => n.branch))];
-  const position = (n: TreeNode) => skillMapPosition(branches.indexOf(n.branch), n.tier);
+  const position = (n: TreeNode) =>
+    skillMapPosition(branches.indexOf(n.branch), n.tier, n.choiceOffset);
   const spent = treeSpent(nation, ranks),
     remaining = pointsAvailable(level) - spent.nation;
   const mainPassive = equippedMainPassive(ranks);
@@ -162,7 +166,7 @@ export function SkillTree({
     const el = viewport.current!;
     const center = () => {
       const zoom = Math.max(
-        0.6,
+        0.5,
         Math.min(
           1,
           (el.clientWidth - 100) / SKILL_MAP_SIZE.width,
@@ -221,15 +225,17 @@ export function SkillTree({
   const stateOf = (node: TreeNode) =>
     (ranks[node.id] ?? 0) > 0
       ? 'Learned'
-      : node.prereqId && !(ranks[node.prereqId] ?? 0)
-        ? 'Locked'
-        : remaining < node.cost
-          ? 'Not enough points'
-          : 'Available';
+      : treeChoiceConflict(node, ranks)
+        ? 'Alternative chosen'
+        : !treePrerequisiteMet(node, ranks)
+          ? 'Locked'
+          : remaining < node.cost
+            ? 'Not enough points'
+            : 'Available';
   const classes = (state: string) =>
     state === 'Learned'
       ? ' learned'
-      : state === 'Locked' || state === 'Passive slot occupied'
+      : state === 'Locked' || state === 'Passive slot occupied' || state === 'Alternative chosen'
         ? ' gated'
         : state === 'Not enough points'
           ? ' unaffordable'
@@ -237,13 +243,15 @@ export function SkillTree({
   const badge = (state: string, cost: number) =>
     state === 'Learned'
       ? '✓ Learned'
-      : state === 'Locked'
-        ? 'Locked'
-        : state === 'Passive slot occupied'
-          ? 'Slot full'
-          : state === 'Not enough points'
-            ? 'Need points'
-            : `${cost} pts`;
+      : state === 'Alternative chosen'
+        ? 'Other choice'
+        : state === 'Locked'
+          ? 'Locked'
+          : state === 'Passive slot occupied'
+            ? 'Slot full'
+            : state === 'Not enough points'
+              ? 'Need points'
+              : `${cost} pts`;
   const glyph = (node: TreeNode): GlyphName =>
     node.kind === 'capstone'
       ? 'spark'
@@ -334,23 +342,22 @@ export function SkillTree({
           >
             <circle class="map-orbit" cx={SKILL_MAP_ROOT.x} cy={SKILL_MAP_ROOT.y} r={180} />
             <circle class="map-orbit" cx={SKILL_MAP_ROOT.x} cy={SKILL_MAP_ROOT.y} r={375} />
-            {nodes.map((node) => {
-              const from = node.prereqId
-                  ? position(nodes.find((n) => n.id === node.prereqId)!)
-                  : SKILL_MAP_ROOT,
-                to = position(node);
-              return (
-                <line
-                  key={node.id}
-                  class={`map-edge${classes(stateOf(node))}${stateOf(node) === 'Available' ? ' available' : ''}`}
-                  data-edge-id={node.id}
-                  x1={from.x}
-                  y1={from.y}
-                  x2={to.x}
-                  y2={to.y}
-                />
-              );
-            })}
+            {nodes.flatMap((node) =>
+              (node.prereqIds ?? [node.prereqId]).map((id) => {
+                const from = id ? position(nodes.find((n) => n.id === id)!) : SKILL_MAP_ROOT;
+                const to = position(node);
+                const state = node.prereqIds && id && !(ranks[id] ?? 0) ? 'Locked' : stateOf(node);
+                return (
+                  <path
+                    key={`${node.id}:${id}`}
+                    data-edge-id={node.id}
+                    class={`map-edge${classes(state)}${state === 'Available' ? ' available' : ''}`}
+                    fill="none"
+                    d={`M ${from.x} ${from.y} Q ${(from.x + to.x) / 2 - (to.y - from.y) * 0.12} ${(from.y + to.y) / 2 + (to.x - from.x) * 0.12}, ${to.x} ${to.y}`}
+                  />
+                );
+              }),
+            )}
             {STANCES.map((id) => (
               <line
                 key={id}
@@ -483,9 +490,10 @@ export function SkillTree({
             <span
               class="map-branch-label"
               key={branch}
-              style={{ left: [240, 620, 1000, 1380][i], top: 20 }}
+              style={{ left: skillBranchLabelPosition(i).x, top: skillBranchLabelPosition(i).y }}
             >
               {branch}
+              <small>3-way choices · 47 pts per route</small>
             </span>
           ))}
           {nodes.map((node) => {
@@ -635,7 +643,7 @@ export function SkillTree({
                   ? ` · Only ONE main passive · Requires ${sharedPassivePrereq(nation, hoveredPassive.id).name}`
                   : ''}
                 {hoveredNode?.prereqId
-                  ? ` · Requires ${nodes.find((n) => n.id === hoveredNode.prereqId)!.name}`
+                  ? ` · Requires ${hoveredNode.prereqIds ? 'one of: ' : ''}${(hoveredNode.prereqIds ?? [hoveredNode.prereqId]).map((id) => nodes.find((n) => n.id === id)!.name).join(' / ')}`
                   : ''}
               </p>
             </>

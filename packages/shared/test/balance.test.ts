@@ -420,7 +420,9 @@ function greedyMaxTree(nation: Nation, level: number): Record<string, number> {
 
 /** Spends only in one path, never exceeding the real level budget. */
 function branchOnlyTree(nation: Nation, branch: string, level: number): Record<string, number> {
-  const nodes = (nodesByBranch(nation).get(branch) ?? []).sort((a, b) => a.tier - b.tier);
+  const nodes = (nodesByBranch(nation).get(branch) ?? [])
+    .filter((n) => !n.choiceOffset)
+    .sort((a, b) => a.tier - b.tier);
   const ranks: Record<string, number> = {};
   let remaining = pointsAvailable(level);
   for (const node of nodes) {
@@ -524,6 +526,60 @@ describe('balance (Phase C talent tree)', () => {
     const yAsA = rateFor(treeY, treeX, `${nation}-${branchY}-${branchX}`);
     return (xAsA + (1 - yAsA)) / 2;
   }
+
+  it('offense, defense and tempo mastery alternatives remain within 40-60% at level 50', () => {
+    const roles = ['offense', 'defense', 'tempo'] as const;
+    for (const nation of NATIONS)
+      for (const branch of nodesByBranch(nation).keys()) {
+        const nodes = nationNodes(nation).filter((n) => n.branch === branch);
+        const route = (role: (typeof roles)[number]) =>
+          Object.fromEntries(
+            Array.from({ length: 12 }, (_, index) => {
+              const options = nodes.filter((n) => n.tier === index + 1);
+              const node =
+                options.length === 1
+                  ? options[0]!
+                  : options.find((n) =>
+                      role === 'offense'
+                        ? n.stat === 'atk'
+                        : role === 'tempo'
+                          ? n.stat === 'spd'
+                          : n.stat === 'hp' || n.stat === 'def',
+                    )!;
+              return [node.id, 1];
+            }),
+          );
+        for (let i = 0; i < roles.length; i++)
+          for (let j = i + 1; j < roles.length; j++) {
+            let wins = 0,
+              total = 0;
+            for (const species of Object.values(SPECIES).filter((s) => s.nation === nation)) {
+              const input = {
+                monId: 'mirror',
+                playerId: 'mirror',
+                nickname: 'Mirror',
+                speciesId: species.id,
+                stage: 'adult' as const,
+                level: 50,
+              };
+              const x = snapshotFor({ ...input, loadout: { tree: route(roles[i]!) } }),
+                y = snapshotFor({ ...input, loadout: { tree: route(roles[j]!) } });
+              for (let seed = 0; seed < 100; seed++) {
+                const tag = `fork-${nation}-${branch}-${i}-${j}-${species.id}-${seed}`;
+                wins +=
+                  Number(simulateBattle(x, y, tag).winner === 'a') +
+                  Number(simulateBattle(y, x, tag).winner === 'b');
+                total += 2;
+              }
+            }
+            const rate = wins / total;
+            expect(rate, `${nation} ${branch} ${roles[i]} vs ${roles[j]}`).toBeGreaterThanOrEqual(
+              0.4,
+            );
+            expect(rate).toBeLessThanOrEqual(0.6);
+          }
+      }
+  });
 
   it.each([30, 50])(
     "no single branch dominates its nation's other branches at level %i",

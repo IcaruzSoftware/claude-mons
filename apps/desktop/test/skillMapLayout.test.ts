@@ -17,7 +17,7 @@ describe('skill map navigation', () => {
       const branches = [...new Set(nodes.map((n) => n.branch))];
       const positions = [
         ...Object.values(STANCE_SKILL_POSITIONS),
-        ...nodes.map((n) => skillMapPosition(branches.indexOf(n.branch), n.tier)),
+        ...nodes.map((n) => skillMapPosition(branches.indexOf(n.branch), n.tier, n.choiceOffset)),
         ...SHARED_PASSIVE_NODES.map((p) => sharedSkillPosition(p.id)),
       ];
       for (const p of positions) {

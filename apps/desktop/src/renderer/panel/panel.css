@@ -1797,3 +1797,14 @@ input.nick {
 .map-stance-area {
   border-color: #92aeca55;
 }
+
+.map-branch-label {
+  text-align: center;
+}
+.map-branch-label small {
+  display: block;
+  font: 12px var(--font-body);
+  letter-spacing: 0;
+  color: var(--fg-dim);
+  margin-top: 5px;
+}

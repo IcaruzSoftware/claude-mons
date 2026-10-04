@@ -26,7 +26,7 @@ All notable changes to claude-mons are documented here. See [Keep a Changelog](h
 - Open only a centered Skill Tree map in an automatically enlarged window. Wheel zoom, drag pan,
   hover explanations above the cursor, left-click learning and right-click refunds need no toolbar
   or inspector. Every edit autosaves; Reset all works anytime. Closing restores the compact window.
-- Expand every path to twelve single-purchase abilities with rising mastery costs. Any one path
+- Arrange four curved paths around the core, with two three-way mastery forks per path (64 abilities per nation). Choose offense, defense or tempo; only the chosen alternative and its connection glow. Every route has twelve single purchases with rising mastery costs. Any one path
   can spend all 47 nation skill points through level 50, without buying unrelated branches.
 - Give learned nodes and edges a gold glow, available choices a gentle highlight and unavailable
   choices dim connections. Role colors and labels distinguish offense, defense, tempo and elements.
