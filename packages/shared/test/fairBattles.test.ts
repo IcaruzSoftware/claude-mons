@@ -73,7 +73,10 @@ describe('passive fair battles', () => {
           speciesId: species.id,
           level: 10,
           stage: 'teen',
-          loadout: { moves: [setup.id, hit.id, third.id] },
+          loadout: {
+            moves: [setup.id, hit.id, third.id],
+            tree: { [`${species.nation}:flow:1`]: 1 },
+          },
         });
         const b = snapshotFor({
           monId: 'b',
@@ -288,7 +291,7 @@ describe('passive fair battles', () => {
     },
   );
 
-  it('automatically rewards an opening setup at most once, only on a landed offensive follow-up', () => {
+  it('rewards a learned opening combo at most once, only on a landed offensive follow-up', () => {
     let combos = 0;
     for (const species of Object.values(SPECIES)) {
       const setup = species.movePool.find((m) => m.effect === 'def_down' || m.effect === 'burn')!;
@@ -302,7 +305,11 @@ describe('passive fair battles', () => {
           speciesId: species.id,
           level: 10,
           stage: 'teen',
-          loadout: { stance: 'bulwark', moves: [setup.id, follow.id, third.id] },
+          loadout: {
+            stance: 'bulwark',
+            moves: [setup.id, follow.id, third.id],
+            tree: { [`${species.nation}:flow:1`]: 1 },
+          },
         });
         const b = snapshotFor({
           monId: 'b',

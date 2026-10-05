@@ -92,9 +92,9 @@ export class BattlePlayer {
       for (const action of turn.actions) {
         const at = t;
         if (action.moveId === null) {
-          // synthetic end-of-turn effect tick (currently only a burn tick) -- no attack animation,
+          // synthetic end-of-turn effect tick -- no attack animation,
           // just the banner + hp update.
-          this.steps.push({ at, run: () => this.burnTick(action, at) });
+          this.steps.push({ at, run: () => this.effectTick(action, at) });
           t += ACTION_MS;
           continue;
         }
@@ -170,8 +170,20 @@ export class BattlePlayer {
     }
   }
 
-  /** Synthetic end-of-turn burn tick: no attack animation, just the banner + hp update. */
-  private burnTick(action: BattleAction, now: number): void {
+  /** Synthetic end-of-turn burn or recovery: no attack animation. */
+  private effectTick(action: BattleAction, now: number): void {
+    if (action.healing) {
+      this.view.banner = `${this.name(action.actor)} regenerates`;
+      this.view.popups.push({
+        side: action.actor,
+        text: `+${action.healing}`,
+        color: '#65d9a4',
+        bornAt: now,
+      });
+      if (action.actor === 'a') this.view.hp.me = action.targetHpAfter;
+      else this.view.hp.opp = action.targetHpAfter;
+      return;
+    }
     const banner = this.effectBanner(action);
     if (banner) this.view.banner = banner;
     const color = '#ff5252';

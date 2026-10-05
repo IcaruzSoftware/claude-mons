@@ -135,7 +135,7 @@ This supersedes `docs/design/battle.md`'s `special`-at-≤50%-own-HP rule once P
 
 ## Automatic opening combo
 
-Combat remains passive. Arrange a Burn or DEF-down move in slot 1 before battle. While that
+Combat remains passive. First learn Quick Setup in the Flow path, then arrange a Burn or DEF-down move in slot 1 before battle. While that
 landed opening effect is active, the first different landed Priority, True-hit, Crit-up or Charge
 release gets 1.2x direct damage, once per side per battle. Against a higher-level foe,
 add 0.4 per higher level (gap capped at 3): 1.6x / 2.0x / 2.4x for this one hit.
@@ -256,7 +256,7 @@ count tractable):
   against each other) — see `docs/design/talent-tree.md` Balance targets.
 
 Any change to `simulateBattle`'s RNG call order resets the golden log snapshot (`docs/design/battle.md`
-Determinism contract) and bumps `BATTLE_PROTOCOL_VERSION` (**12** for the current combat rules).
+Determinism contract) and bumps `BATTLE_PROTOCOL_VERSION` (**13** for the current combat rules).
 
 ## Phases
 

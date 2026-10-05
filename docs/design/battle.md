@@ -80,7 +80,7 @@ variance = 0.8 + rng() * 0.4              // uniform in [0.8, 1.2)
   Type cycle; neutral moves use 1.
 - **Experience** (protocol 11): `1 + 0.03 * clamp(M.level - F.level, -3, 3)`.
   A one-level lead adds 3% damage; stat growth and elemental counters still matter.
-- **Follow-through**: one automatic opening combo per side; its multiplier and eligibility live
+- **Follow-through**: one opening combo per side after learning Flow's Quick Setup; its multiplier and eligibility live
   in `docs/design/progression.md`. Optional `followThrough` marks the boosted action in protocol 5;
   historical logs remain stored and are never recomputed.
 - **Defense (DEF)**: the DEF reduction curve has diminishing returns. DEF = K prevents 50% of
@@ -128,7 +128,7 @@ is decided, since the `priority` check needs to know both.
 
 ## Max turns and timeout resolution
 
-`MAX_TURNS = 10`. The simulation loop stops early on a KO (`reason: 'ko'`). If turn 10 completes with both
+`MAX_TURNS = 12`. The simulation loop stops early on a KO (`reason: 'ko'`). If turn 12 completes with both
 mons still alive:
 
 - Whoever has the higher HP fraction (`hp / maxHp`) wins, `reason: 'timeout_hp'`.
@@ -150,7 +150,9 @@ Fields only — see `packages/shared/src/battle/battle.ts` for exact types.
 `BattleAction`: `{ actor, move, moveId, dodged, damage, crit, effectiveness, targetHpAfter, effect,
 charge?, followThrough?, doubleStrike? }` — one primary action per mon that acted that turn, with at most one additional double strike (the second actor's entry is omitted if the first
 action already reduced it to 0 HP), plus a synthetic entry (`moveId: null`, `move: 'Burn'`,
-`effect: 'burn'`) appended at the end of a turn for each side with an active burn tick. `effect` is
+`effect: 'burn'`) appended at the end of a turn for each side with an active burn tick. A learned
+recovery skill adds a synthetic `Regeneration` action with optional `healing` and the owner's HP
+afterward. `effect` is
 the effect the chosen move carries (`null` if none applied that action); `charge` is present only
 for a `charge`-effect move, `'telegraph'` or `'release'`. See docs/design/progression.md Move pool
 and effects.

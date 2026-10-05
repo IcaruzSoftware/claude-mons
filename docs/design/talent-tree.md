@@ -32,9 +32,11 @@ One nation point arrives per level from level 4, up to 47 at level 50. Each path
 costing 4/5/5/6/6/7 (33 total). Any one path can consume the full level-50 budget without
 buying another path. Each mastery fork has three alternatives at tiers 7 and 10. Choose one per fork; tiers 8 and 11 accept any of those choices. Four default routes cost 188; all available nodes cost 268, so specialization remains necessary.
 Tier 1/2 grant +0.33% of the path's stat each; tiers 3/4 have battle effects; tier 5 upgrades a
-move slot; tier 6 is the original capstone. Tiers 7–12 deepen the same route with stat bonuses
-of cost ×0.15% (0.6%–1.05% per purchase), ending in an Ascendance capstone. Their stat sequence
-is path identity, HP, DEF, SPD, ATK, path identity. Flow's identity is SPD.
+move slot; tier 6 is the original capstone. Tiers 7 and 10 offer offensive, defensive or tempo
+alternatives with small stat bonuses and conditional battle effects. Tiers 8 and 11 grant
+once-per-battle recovery, tier 9 improves favorable element hits, and tier 12 strengthens the
+first landed hit. Effects bought in separate paths stack. The original node IDs and point costs
+stay stable for saved trees.
 
 Main passives cost three separate points; this pool grants three at level 10 and stays capped
 at three. Exactly one may be equipped. The passives sit directly in the gaps between the four
@@ -59,7 +61,7 @@ slots and buys the Flow nodes; combat executes itself. Nodes require the previou
 
 | Tier | Talent | Automatic effect, at most once per battle |
 |---|---|---|
-| 1 | Quick Setup | After a landed Priority move, a different Burn or DEF-down move cannot miss and deals +5% damage. |
+| 1 | Quick Setup | Unlocks the opening setup combo: a landed Burn or DEF-down opener empowers a different offensive follow-up. Also, after Priority, a different Burn or DEF-down move cannot miss and deals +5% damage once. |
 | 2 | Expose Weakness | True hit against a DEF-down target deals +4% damage. |
 | 3 | Kindled Recovery | Drain against a burning target heals an extra 3% max HP. |
 | 4 | Rhythm | The third distinct consecutive landed move deals +5% damage. |

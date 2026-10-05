@@ -2,7 +2,7 @@
 doc_type: reference
 purpose: "Release notes and version history; check this when seeing claude-mons updates or deciding what version to expect features in."
 audience: both
-last_verified: 2026-10-04
+last_verified: 2026-10-05
 last_verified_commit: a197357
 related_files:
   - docs/history/v1-handoff-2026-09-04.md
@@ -23,6 +23,13 @@ All notable changes to claude-mons are documented here. See [Keep a Changelog](h
 
 ### Changed
 
+- Make late-path skills trigger distinct combat effects: situational critical hits, dodges,
+  protection against strong elements, improved elemental attacks, one-time regeneration and a
+  stronger first hit. Skills from multiple paths now contribute separately.
+- Require Flow's Quick Setup for the opening setup combo; other Flow combos still require their
+  own nodes. Explain each skill in shorter, clearer language in the hover card.
+- Let defensive builds fight for up to twelve turns. Protocol 13 stores visible regeneration
+  actions in new battle logs while older stored logs remain readable.
 - Open only a centered Skill Tree map in an automatically enlarged window. Wheel zoom, drag pan,
   hover explanations above the cursor, left-click learning and right-click refunds need no toolbar
   or inspector. Every edit autosaves; Reset all works anytime. Closing restores the compact window.

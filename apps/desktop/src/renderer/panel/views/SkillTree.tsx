@@ -73,6 +73,8 @@ const STANCE_ROLES: Record<Stance, SkillRole> = {
   gale: 'tempo',
 };
 function skillRole(node: TreeNode, moves: readonly Move[]): SkillRole {
+  if (node.tier === 8 || node.tier === 11) return 'defense';
+  if (node.tier === 9) return 'elemental';
   if (node.stat) return node.stat === 'atk' ? 'offense' : node.stat === 'spd' ? 'tempo' : 'defense';
   if (node.kind === 'moveUpgrade') {
     const move = moves[node.slot - 1];
@@ -388,12 +390,12 @@ export function SkillTree({
             class={`map-node map-core${selected === 'flow' ? ' selected' : ''}`}
             style={{ left: SKILL_MAP_ROOT.x, top: SKILL_MAP_ROOT.y }}
             {...events('flow', SKILL_MAP_ROOT)}
-            aria-label={`${NATION_INFO[nation].name} Flow, always active`}
+            aria-label={`${NATION_INFO[nation].name} skill tree starting point`}
             onClick={() => setSelected('flow')}
           >
             <Glyph name="mon" size={32} />
             <span class="map-node-name">
-              {NATION_INFO[nation].name} · Flow<small>Elemental · Always active</small>
+              {NATION_INFO[nation].name} · Flow<small>Elemental identity</small>
             </span>
           </button>
           {STANCES.map((id) => {
@@ -607,9 +609,9 @@ export function SkillTree({
                 {NATION_PASSIVES[nation].name}: {NATION_PASSIVES[nation].description}
               </p>
               <p>
-                Burn / DEF down into Priority, True hit, Crit up or Charge: +
-                {Math.round((FOLLOW_THROUGH_MULT - 1) * 100)}% damage once per battle; stronger
-                against higher-level opponents.
+                Learn Quick Setup to unlock combos. Open with Burn or Defense Down, then land a
+                different attack for +{Math.round((FOLLOW_THROUGH_MULT - 1) * 100)}% damage once per
+                battle.
               </p>
             </>
           )}

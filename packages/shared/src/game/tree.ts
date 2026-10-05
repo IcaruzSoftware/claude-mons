@@ -81,6 +81,13 @@ interface BranchSpec {
   tier6: { name: string; description: string; capstone: CapstoneEffect };
 }
 
+const statName: Record<StatKey, string> = {
+  hp: 'max HP',
+  atk: 'attack',
+  def: 'defense',
+  spd: 'speed',
+};
+
 /** Two three-way mastery forks, each route retaining the full 47-point level-50 budget. */
 function masteryNodes(
   nation: Nation,
@@ -100,6 +107,29 @@ function masteryNodes(
     const make = (stat: StatKey, offset?: -1 | 1): TreeNode => {
       const pct = cost * 0.0015;
       const role = stat === 'atk' ? 'Offense' : stat === 'spd' ? 'Tempo' : 'Defense';
+      const trait = fork
+        ? `mastery-${tier}-${stat}-${slugify(branch)}`
+        : `mastery-${tier}-${slugify(branch)}`;
+      const effect =
+        tier === 7
+          ? stat === 'atk'
+            ? 'Crit chance rises 2% against healthy foes.'
+            : stat === 'spd'
+              ? 'Dodge chance rises 2% after you act first.'
+              : 'Take 3% less damage from strong element hits.'
+          : tier === 8
+            ? 'Once per battle, after a turn in which you were hit, heal 3% max HP.'
+            : tier === 9
+              ? 'Strong element hits deal 5% more damage.'
+              : tier === 10
+                ? stat === 'atk'
+                  ? 'Deal 3% more damage to foes below half HP.'
+                  : stat === 'spd'
+                    ? 'Crit chance rises 2% when you act first.'
+                    : 'Critical hits against you deal 3% less damage.'
+                : tier === 11
+                  ? 'Once per battle below half HP, heal 3% max HP after a turn.'
+                  : 'Your first landed hit each battle deals 6% more damage.';
       return {
         id: offset ? `${baseId(tier)}:${offset === -1 ? 'left' : 'right'}` : baseId(tier),
         nation,
@@ -110,15 +140,17 @@ function masteryNodes(
           ? `${branch} ${role}`
           : tier === 12
             ? `${branch} Ascendance`
-            : `${branch} ${['Mastery', 'Vitality', 'Guard', 'Tempo', 'Force'][index]}`,
-        kind: tier === 12 ? 'capstone' : 'stat',
+            : `${branch} ${['Instinct', 'Second Wind', 'Elemental Edge', 'Surge', 'Last Light'][index]}`,
+        kind:
+          tier === 12 ? 'capstone' : tier === 8 || tier === 9 || tier === 11 ? 'passive' : 'stat',
         maxRank: 1,
         cost,
-        description: `+${(pct * 100).toFixed(2)}% ${stat.toUpperCase()}. ${fork ? 'Choose ONE of three alternatives here. Refund the chosen skill to switch freely.' : tier === 12 ? 'Final specialization: every complete route uses all 47 skill points.' : 'Deepen this path. Buy once.'}`,
+        description: `${tier === 8 || tier === 9 || tier === 11 ? '' : `+${(pct * 100).toFixed(2)}% ${statName[stat]}. `}${effect}`,
         prereqId: baseId(tier - 1),
         ...(tier === 8 || tier === 11 ? { prereqIds: forkIds(tier - 1) } : {}),
         ...(fork ? { choiceGroup: baseId(tier) } : {}),
         ...(offset ? { choiceOffset: offset } : {}),
+        passive: trait,
         ...(tier === 12
           ? { capstone: { kind: 'flatStat' as const, stat, pct } }
           : { stat, statBonusPct: pct }),
@@ -163,7 +195,7 @@ function buildBranch(spec: BranchSpec): TreeNode[] {
       kind: 'stat',
       maxRank: 1,
       cost: 1,
-      description: `+${(STAT_PCT_PER_RANK * 100).toFixed(2)}% ${spec.stat.toUpperCase()}. Buy once.`,
+      description: `+${(STAT_PCT_PER_RANK * 100).toFixed(2)}% ${statName[spec.stat]}.`,
       prereqId: null,
       stat: spec.stat,
     },
@@ -177,7 +209,7 @@ function buildBranch(spec: BranchSpec): TreeNode[] {
       kind: 'stat',
       maxRank: 1,
       cost: 1,
-      description: `+${(STAT_PCT_PER_RANK * 100).toFixed(2)}% ${spec.stat.toUpperCase()}. Buy once.`,
+      description: `+${(STAT_PCT_PER_RANK * 100).toFixed(2)}% ${statName[spec.stat]}.`,
       prereqId: idFor(1),
       stat: spec.stat,
     },
@@ -219,7 +251,7 @@ function buildBranch(spec: BranchSpec): TreeNode[] {
       kind: 'moveUpgrade',
       maxRank: 1,
       cost: 3,
-      description: `Loadout slot ${spec.slot} move: +${Math.round((MOVE_UPGRADE_EFFECT_MULT - 1) * 100)}% effect magnitude, or +${Math.round((MOVE_UPGRADE_POWER_MULT - 1) * 100)}% power if that move has no scaling effect.`,
+      description: `Your ${['first', 'main', 'finisher'][spec.slot - 1]} move gets a stronger effect, or more damage if it has no effect to boost.`,
       prereqId: idFor(4),
     },
     {
@@ -257,16 +289,16 @@ const BRANCHES: BranchSpec[] = [
     tier2: 'Millrace',
     tier3: {
       name: 'Pressure Head',
-      description: 'Nation-type moves deal +3% vs. targets above 50% HP',
+      description: 'Element attacks deal 3% more damage to healthy foes.',
     },
     tier4: {
       name: 'Spillway',
-      description: "This mon's def_down also cuts target SPD 5% for its duration",
+      description: 'Lowering a foe’s defense also slows it by 5%.',
     },
     tier5: 'Jetstream Coupling',
     tier6: {
       name: 'Maelstrom',
-      description: "This mon's nation-type crits deal 1.9x instead of 1.75x.",
+      description: 'Critical element attacks hit 1.9× as hard instead of 1.75×.',
       capstone: { kind: 'critMultiplier', multiplier: 1.9 },
     },
   },
@@ -277,15 +309,15 @@ const BRANCHES: BranchSpec[] = [
     stat: 'def',
     tier1: 'Backwash',
     tier2: 'Riptide Step',
-    tier3: { name: 'Silt Cloud', description: "This mon's def_down lasts 1 extra turn" },
+    tier3: { name: 'Silt Cloud', description: 'Your defense-lowering effects last one more turn.' },
     tier4: {
       name: 'Undercurrent',
-      description: "+2.5pp dodge chance while target is under this mon's def_down",
+      description: 'Dodge 2.5% more often while the foe has lowered defense.',
     },
     tier5: 'Drift Anchor',
     tier6: {
       name: 'Abyssal Pull',
-      description: "This mon's def_down also cuts target SPD by the same %.",
+      description: 'Lowering a foe’s defense also slows it by the same amount.',
       capstone: { kind: 'defDownAlsoSpd', fraction: DEF_DOWN_FRACTION },
     },
   },
@@ -298,17 +330,16 @@ const BRANCHES: BranchSpec[] = [
     tier2: 'Aquifer',
     tier3: {
       name: 'Slow Leak',
-      description: "This mon's drain moves heal +4% more of damage dealt",
+      description: 'Draining attacks heal 4% more of the damage they deal.',
     },
     tier4: {
       name: 'Watershed',
-      description:
-        'Once/battle, damage that would drop this mon below 20% HP heals 3% max HP first',
+      description: 'Once per battle, heal 3% max HP just before a hit drops you below 20% HP.',
     },
     tier5: 'Sluice Control',
     tier6: {
       name: 'Deep Reserve',
-      description: 'Max HP +4% flat, stacks with tier 1/2.',
+      description: '+4% max HP.',
       capstone: { kind: 'flatStat', stat: 'hp', pct: 0.04 },
     },
   },
@@ -320,12 +351,18 @@ const BRANCHES: BranchSpec[] = [
     stat: 'atk',
     tier1: 'Flarelight',
     tier2: 'Firebrand',
-    tier3: { name: 'Scorchmark', description: 'Crits vs. a burning target deal +5% damage' },
-    tier4: { name: 'Detonation', description: "This mon's crit_up moves gain +3pp crit chance" },
+    tier3: {
+      name: 'Scorchmark',
+      description: 'Critical hits deal 5% more damage to burning foes.',
+    },
+    tier4: {
+      name: 'Detonation',
+      description: 'Moves that boost critical hits gain another 3% crit chance.',
+    },
     tier5: 'Forge Temper',
     tier6: {
       name: 'Supernova',
-      description: "This mon's crits ignore shield_first/def_down on the target.",
+      description: 'Your critical hits ignore first-hit shields and lowered defense.',
       capstone: { kind: 'critIgnoresGuards' },
     },
   },
@@ -338,13 +375,13 @@ const BRANCHES: BranchSpec[] = [
     tier2: 'Smolder',
     tier3: {
       name: 'Ashfall',
-      description: "This mon's burn deals +0.25% max HP per tick",
+      description: 'Your burns deal an extra 0.25% max HP each turn.',
     },
-    tier4: { name: 'Slow Burn', description: "This mon's burn duration +1 turn" },
+    tier4: { name: 'Slow Burn', description: 'Your burns last one more turn.' },
     tier5: 'Tinder Box',
     tier6: {
       name: 'Ashen Cascade',
-      description: "This mon's burn may stack a second instance instead of only refreshing.",
+      description: 'Burning a foe again adds a second burn instead of refreshing it.',
       capstone: { kind: 'burnStacks' },
     },
   },
@@ -357,11 +394,11 @@ const BRANCHES: BranchSpec[] = [
     tier2: 'Ember Ward',
     tier3: {
       name: 'Flashover',
-      description: "This mon's shield_first reduces the first hit 55% instead of 50%",
+      description: 'Your first-hit shield blocks 55% damage instead of 50%.',
     },
     tier4: {
       name: 'Rekindle Surge',
-      description: "The turn after taking a crit, this mon's next hit deals +3%",
+      description: 'After taking a critical hit, your next turn deals 3% more damage.',
     },
     tier5: 'Heat Shield',
     tier6: {
@@ -371,7 +408,7 @@ const BRANCHES: BranchSpec[] = [
         // design doc's literal "...with its next hit a guaranteed crit" made this branch beat
         // its sibling Blaze 85-95% of the time in the branch-vs-branch matrix (40-60% target);
         // the guaranteed-crit follow-up is dropped (see packages/shared/src/battle/battle.ts).
-        'Once/battle, a KO instead leaves this mon at 5% HP.',
+        'Once per battle, a knockout has a 22% chance to leave you at 5% HP.',
       capstone: { kind: 'phoenix', hpFraction: 0.05 },
     },
   },
@@ -383,15 +420,18 @@ const BRANCHES: BranchSpec[] = [
     stat: 'atk',
     tier1: 'Fault Crack',
     tier2: 'Shockwave Step',
-    tier3: { name: 'Ground Shatter', description: "This mon's def_down cuts an extra 2.5pp DEF" },
+    tier3: {
+      name: 'Ground Shatter',
+      description: 'Your defense-lowering moves cut another 2.5% defense.',
+    },
     tier4: {
       name: 'Resonant Crack',
-      description: "Landing a crit refreshes this mon's active def_down on the target",
+      description: 'A critical hit refreshes lowered defense on the foe.',
     },
     tier5: 'Seismic Brace',
     tier6: {
       name: 'Fissure Reckoning',
-      description: "This mon's def_down also cuts target ATK by half that %.",
+      description: 'Lowering a foe’s defense also lowers its attack by half as much.',
       capstone: { kind: 'defDownAlsoAtk', fraction: DEF_DOWN_FRACTION / 2 },
     },
   },
@@ -404,11 +444,11 @@ const BRANCHES: BranchSpec[] = [
     tier2: 'Root Lattice',
     tier3: {
       name: 'Canopy Cover',
-      description: "This mon's drain moves heal +2% more of damage dealt",
+      description: 'Draining attacks heal 2% more of the damage they deal.',
     },
     tier4: {
       name: 'Mulch Layer',
-      description: 'While above 50% HP, incoming def_down lasts 1 fewer turn',
+      description: 'Above half HP, lowered defense wears off one turn sooner.',
     },
     tier5: 'Grafted Bough',
     tier6: {
@@ -420,7 +460,7 @@ const BRANCHES: BranchSpec[] = [
       // simply stronger secondary effects than water's, so Canopy needed a larger flat bonus to
       // compensate, not a nation-wide change to the shared Deep-Reserve-style magnitude.
       name: 'Old Growth',
-      description: 'Max HP +9% flat, stacks with tier 1/2.',
+      description: '+9% max HP.',
       capstone: { kind: 'flatStat', stat: 'hp', pct: 0.09 },
     },
   },
@@ -433,16 +473,16 @@ const BRANCHES: BranchSpec[] = [
     tier2: 'Ironvein',
     tier3: {
       name: 'Load Bearing',
-      description: "This mon's shield_first reduces the first hit 55% instead of 50%",
+      description: 'Your first-hit shield blocks 55% damage instead of 50%.',
     },
     tier4: {
       name: 'Reinforced Crust',
-      description: "After taking a hit, the next hit's damage is reduced 5% (once/battle)",
+      description: 'Once per battle, the second hit against you deals 5% less damage.',
     },
     tier5: 'Retaining Wall',
     tier6: {
       name: 'Unmovable',
-      description: 'A single hit cannot take this mon below 10% max HP (once/battle).',
+      description: 'Once per battle, a hit cannot drop you below 10% max HP.',
       capstone: { kind: 'hitFloor', floorPct: 0.1 },
     },
   },
@@ -454,15 +494,15 @@ const BRANCHES: BranchSpec[] = [
     stat: 'atk',
     tier1: 'Squall Line',
     tier2: 'Downburst',
-    tier3: { name: 'Wind Shear', description: "This mon's true_hit moves deal +5% damage" },
+    tier3: { name: 'Wind Shear', description: 'Unavoidable attacks deal 5% more damage.' },
     tier4: {
       name: 'Funnel Force',
-      description: "This mon's charge release deals +7% additional damage",
+      description: 'Charged attacks deal 7% more damage when released.',
     },
     tier5: 'Vortex Edge',
     tier6: {
       name: 'Tempest',
-      description: "This mon's charge moves release the same turn, skipping the telegraph.",
+      description: 'Charged attacks hit immediately instead of waiting a turn.',
       capstone: { kind: 'chargeInstant' },
     },
   },
@@ -475,16 +515,16 @@ const BRANCHES: BranchSpec[] = [
     tier2: 'Jetstream Wing',
     tier3: {
       name: 'Slipstream',
-      description: "This mon's priority moves also grant +3% SPD that turn",
+      description: 'Fast attacks give you 3% more speed for that turn.',
     },
     tier4: {
       name: 'Thermal Lift',
-      description: 'When this mon acts first in a turn, its damage +2.5%',
+      description: 'When you act first, deal 2.5% more damage.',
     },
     tier5: 'Wingtip Trim',
     tier6: {
       name: 'Eye of the Storm',
-      description: 'This mon always acts first the turn after it took damage.',
+      description: 'After taking damage, you have a 40% chance to act first next turn.',
       capstone: { kind: 'actFirstAfterDamage' },
     },
   },
@@ -497,17 +537,16 @@ const BRANCHES: BranchSpec[] = [
     tier2: 'High Pressure',
     tier3: {
       name: 'Fog Bank',
-      description: "This mon's shield_first reduces the first hit 55% instead of 50%",
+      description: 'Your first-hit shield blocks 55% damage instead of 50%.',
     },
     tier4: {
       name: 'Static Charge',
-      description: 'Being crit grants this mon +5pp dodge chance for 1 turn',
+      description: 'After taking a critical hit, dodge 5% more often next turn.',
     },
     tier5: 'Overcast Veil',
     tier6: {
       name: 'Ceiling Break',
-      description:
-        "Once/battle, a hit exceeding 40% of this mon's max HP in damage is capped at 40%.",
+      description: 'Once per battle, a huge hit cannot deal more than 40% of your max HP.',
       capstone: { kind: 'damageCap', capPct: 0.4 },
     },
   },
@@ -521,16 +560,22 @@ const COMBO_BRANCHES = [
     nodes: [
       [
         'Quick Setup',
-        'Once/battle, a different Burn or DEF-down move after Priority cannot miss and deals +5% damage.',
+        'Unlocks setup combos: Burn or Defense Down, then a different attack, deals 20% more damage. Once per battle, Priority into Burn or Defense Down cannot miss.',
       ],
-      ['Expose Weakness', 'Once/battle, True hit against a DEF-down target deals +4% damage.'],
-      ['Kindled Recovery', 'Once/battle, Drain against a burning target heals an extra 3% max HP.'],
-      ['Rhythm', 'Once/battle, the third different consecutive landed move deals +5% damage.'],
+      [
+        'Expose Weakness',
+        'Once per battle, an unavoidable hit against a foe with lowered defense deals 4% more damage.',
+      ],
+      [
+        'Kindled Recovery',
+        'Once per battle, a draining hit against a burning foe heals 3% max HP.',
+      ],
+      ['Rhythm', 'Once per battle, land three different moves in a row to deal 5% more damage.'],
       [
         'Patient Followup',
-        'Once/battle, Charge release against Burn or DEF down deals +5% damage.',
+        'Once per battle, a charged hit against a burning or weakened foe deals 5% more damage.',
       ],
-      ['Flow State', 'Once/battle, landing three different consecutive moves heals 4% max HP.'],
+      ['Flow State', 'Once per battle, land three different moves in a row to heal 4% max HP.'],
     ],
   },
 ] as const;
@@ -590,18 +635,18 @@ function sharedPassive(name: string, description: string): SharedPassiveNode {
 }
 
 export const SHARED_PASSIVE_NODES: readonly SharedPassiveNode[] = [
-  sharedPassive('Stone Skin', 'First hit taken each battle is reduced 25%.'),
-  sharedPassive('Deep Roots', '+20% DEF once this mon drops below 25% HP.'),
-  sharedPassive('Bedrock', 'Immune to critical hits.'),
-  sharedPassive('Wildfire', "This mon's burn deals +30% damage and lasts +1 turn."),
-  sharedPassive('Aftershock', "This mon's crits also apply def_down."),
-  sharedPassive('Tailwind', 'Loadout slot 1 always crits.'),
-  sharedPassive('Tidal Recovery', 'Heal 10% max HP on landing a crit.'),
-  sharedPassive('Updraft', 'Guaranteed to act first on turn 1.'),
-  sharedPassive('Second Breath', 'Survive one KO per battle at 1 HP.'),
+  sharedPassive('Stone Skin', 'The first hit against you deals 25% less damage.'),
+  sharedPassive('Deep Roots', 'Below 25% HP, gain 20% defense for the rest of the battle.'),
+  sharedPassive('Bedrock', 'Critical hits against you become normal hits.'),
+  sharedPassive('Wildfire', 'Your burns deal 30% more damage and last one extra turn.'),
+  sharedPassive('Aftershock', 'Your critical hits also lower the foe’s defense.'),
+  sharedPassive('Tailwind', 'Your first equipped move always lands a critical hit.'),
+  sharedPassive('Tidal Recovery', 'Critical hits you land heal 10% max HP.'),
+  sharedPassive('Updraft', 'Act first on the opening turn.'),
+  sharedPassive('Second Breath', 'Once per battle, survive a knockout with 1 HP.'),
   sharedPassive(
     'Ember Heart',
-    "The first time this mon's HP drops below 50%, its next move gets +20pp crit chance.",
+    'The first time you fall below half HP, your next move gains 20% crit chance.',
   ),
 ];
 
@@ -838,6 +883,7 @@ export function resolveTree(
     }
     const node = TREE_NODES[id];
     if (!node || node.nation !== nation) continue;
+    if (node.passive) passives.add(node.passive);
     if (node.kind === 'stat' && node.stat) {
       statBonusPct[node.stat] =
         (statBonusPct[node.stat] ?? 0) + (node.statBonusPct ?? STAT_PCT_PER_RANK);
@@ -846,8 +892,6 @@ export function resolveTree(
         effectMult: MOVE_UPGRADE_EFFECT_MULT,
         powerMult: MOVE_UPGRADE_POWER_MULT,
       };
-    } else if (node.kind === 'passive' && node.passive) {
-      passives.add(node.passive);
     } else if (node.kind === 'capstone' && node.capstone) {
       capstones.push(node.capstone);
     }

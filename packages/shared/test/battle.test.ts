@@ -144,7 +144,7 @@ describe('simulateBattle', () => {
   });
 
   it('golden log: pins the protocol so client and server cannot drift', () => {
-    expect(BATTLE_PROTOCOL_VERSION).toBe(12);
+    expect(BATTLE_PROTOCOL_VERSION).toBe(13);
     const res = simulateBattle(snap('sparkit', 10, 'a'), snap('puffle', 10, 'b'), 'golden-1');
     // If this test fails after an intentional formula change, update the fixture AND bump the
     // battle protocol version in the Edge Function; old logs keep replaying from stored snapshots.

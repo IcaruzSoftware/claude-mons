@@ -103,6 +103,8 @@ export interface BattleAction {
   comboTalent?: string;
   /** Conditional stances that affected this direct hit; absent in pre-v12 logs. */
   stancePassives?: Array<{ side: Side; stance: Stance }>;
+  /** Synthetic end-of-turn recovery, shown on the owner's HP bar. */
+  healing?: number;
 }
 
 export interface BattleTurn {
@@ -120,7 +122,7 @@ export interface BattleResult {
   maxHp: Record<Side, number>;
 }
 
-export const MAX_TURNS = 10;
+export const MAX_TURNS = 12;
 
 /** Once per battle: a landed setup opener empowers a different hit while its debuff lasts. */
 export const FOLLOW_THROUGH_MULT = 1.2;
@@ -138,7 +140,7 @@ export const FOLLOW_THROUGH_MULT = 1.2;
  * themselves, but the golden log's *values* change because the formula does).
  */
 // v12: conditional build passives replace stance counters and unconditional stat modifiers.
-export const BATTLE_PROTOCOL_VERSION = 12;
+export const BATTLE_PROTOCOL_VERSION = 13;
 
 const levelScale = (l: number): number => (l + 24) / 25;
 export const DOUBLE_STRIKE_CHANCE = 0.08;
@@ -291,6 +293,8 @@ export function simulateBattle(a: MonSnapshot, b: MonSnapshot, seed: string): Ba
     b: resolveTree(b.nation, b.loadout?.tree),
   };
   const hasTalent = (side: Side, slug: string) => treeOf[side].passives.has(slug);
+  const masteryCount = (side: Side, key: string) =>
+    [...treeOf[side].passives].filter((slug) => slug.startsWith(`mastery-${key}-`)).length;
   type TalentRuntime = {
     recentMoves: string[];
     lastPriorityId: string | null;
@@ -304,6 +308,9 @@ export function simulateBattle(a: MonSnapshot, b: MonSnapshot, seed: string): Ba
     reinforcedHits: number;
     reinforcedUsed: boolean;
     critReceivedTurn: number;
+    recovery8Used: boolean;
+    recovery11Used: boolean;
+    ascentUsed: boolean;
   };
   const newTalentState = (): TalentRuntime => ({
     recentMoves: [],
@@ -318,6 +325,9 @@ export function simulateBattle(a: MonSnapshot, b: MonSnapshot, seed: string): Ba
     reinforcedHits: 0,
     reinforcedUsed: false,
     critReceivedTurn: 0,
+    recovery8Used: false,
+    recovery11Used: false,
+    ascentUsed: false,
   });
   const talents: Record<Side, TalentRuntime> = { a: newTalentState(), b: newTalentState() };
   const pickedPriority: Record<Side, boolean> = { a: false, b: false };
@@ -502,7 +512,8 @@ export function simulateBattle(a: MonSnapshot, b: MonSnapshot, seed: string): Ba
             (hasTalent(foe, 'undercurrent') && fx[me].defDownTurns > 0 ? 0.025 : 0) +
             (hasTalent(foe, 'static-charge') && talents[foe].critReceivedTurn === turnNum - 1
               ? 0.05
-              : 0),
+              : 0) +
+            (actedFirst[foe] ? 0.02 * masteryCount(foe, '7-spd') : 0),
         ),
       );
       dodged = rng() < dodge;
@@ -536,6 +547,10 @@ export function simulateBattle(a: MonSnapshot, b: MonSnapshot, seed: string): Ba
     }
     if (!doubleStrike && move.effect === 'crit_up' && hasTalent(me, 'detonation')) {
       critChance = Math.min(CRIT_UP_MAX, critChance + 0.03);
+    }
+    if (!doubleStrike) {
+      if (hp[foe] > mons[foe].stats.hp / 2) critChance += 0.02 * masteryCount(me, '7-atk');
+      if (actedFirst[me]) critChance += 0.02 * masteryCount(me, '10-spd');
     }
     // Ember Heart (shared passive): armed bonus applies to this mon's very next move, one-shot.
     if (!doubleStrike && fx[me].emberHeartPending) {
@@ -578,6 +593,7 @@ export function simulateBattle(a: MonSnapshot, b: MonSnapshot, seed: string): Ba
     const setup = openingSetup[me];
     const followThrough =
       !doubleStrike &&
+      hasTalent(me, 'quick-setup') &&
       move.id !== loadoutMoves[me][0].id &&
       (move.effect === 'priority' ||
         move.effect === 'true_hit' ||
@@ -629,6 +645,9 @@ export function simulateBattle(a: MonSnapshot, b: MonSnapshot, seed: string): Ba
         hasTalent(me, 'funnel-force') && charge === 'release' ? 1.07 : 1,
         hasTalent(me, 'thermal-lift') && actedFirst[me] ? 1.025 : 1,
         rekindle ? 1.03 : 1,
+        move.type === 'nation' && moveEff > 1 ? 1 + 0.05 * masteryCount(me, '9') : 1,
+        hp[foe] < mons[foe].stats.hp / 2 ? 1 + 0.03 * masteryCount(me, '10-atk') : 1,
+        !talents[me].ascentUsed ? 1 + 0.06 * masteryCount(me, '12') : 1,
       ) *
       Math.max(1, quickSetup ? 1.05 : 1, expose ? 1.04 : 1, rhythm ? 1.05 : 1, patient ? 1.05 : 1);
     const comboTalent =
@@ -675,6 +694,14 @@ export function simulateBattle(a: MonSnapshot, b: MonSnapshot, seed: string): Ba
     let damage = Math.max(1, Math.floor(raw));
     if (mons[foe].nation === 'earth') {
       damage = Math.max(1, Math.floor(damage * EARTH_DAMAGE_MULT));
+    }
+    if (moveEff > 1) {
+      const guard = masteryCount(foe, '7-def') + masteryCount(foe, '7-hp');
+      damage = Math.max(1, Math.floor(damage * (1 - 0.03 * guard)));
+    }
+    if (crit) {
+      const guard = masteryCount(foe, '10-def') + masteryCount(foe, '10-hp');
+      damage = Math.max(1, Math.floor(damage * (1 - 0.03 * guard)));
     }
 
     // `shield_first` / Stone Skin: the first hit this mon takes in the whole battle is reduced,
@@ -770,6 +797,7 @@ export function simulateBattle(a: MonSnapshot, b: MonSnapshot, seed: string): Ba
 
     let nationPassive: BattleAction['nationPassive'];
     if (!doubleStrike) {
+      if (masteryCount(me, '12') > 0) talents[me].ascentUsed = true;
       if (quickSetup) talents[me].quickUsed = true;
       if (expose) talents[me].exposeUsed = true;
       if (rhythm) talents[me].rhythmUsed = true;
@@ -984,6 +1012,36 @@ export function simulateBattle(a: MonSnapshot, b: MonSnapshot, seed: string): Ba
       }
       if (state.defDownTurns > 0) state.defDownTurns--;
       if (state.soakTurns > 0) state.soakTurns--;
+      const recovery8 =
+        masteryCount(side, '8') > 0 && tookDamageThisTurn[side] && !talents[side].recovery8Used;
+      const recovery11 =
+        masteryCount(side, '11') > 0 &&
+        hp[side] < mons[side].stats.hp / 2 &&
+        !talents[side].recovery11Used;
+      const recovery =
+        (recovery8 ? 0.03 * masteryCount(side, '8') : 0) +
+        (recovery11 ? 0.03 * masteryCount(side, '11') : 0);
+      if (hp[side] > 0 && recovery > 0 && hp[side] < mons[side].stats.hp) {
+        const before = hp[side];
+        hp[side] = Math.min(
+          mons[side].stats.hp,
+          before + Math.max(1, Math.floor(mons[side].stats.hp * recovery)),
+        );
+        if (recovery8) talents[side].recovery8Used = true;
+        if (recovery11) talents[side].recovery11Used = true;
+        actions.push({
+          actor: side,
+          move: 'Regeneration',
+          moveId: null,
+          dodged: false,
+          damage: 0,
+          crit: false,
+          effectiveness: 1,
+          targetHpAfter: hp[side],
+          effect: null,
+          healing: hp[side] - before,
+        });
+      }
     }
     // A later reapplication must not revive an unused opening combo.
     for (const side of ['a', 'b'] as const) {
