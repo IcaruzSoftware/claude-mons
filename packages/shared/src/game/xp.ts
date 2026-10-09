@@ -306,13 +306,14 @@ export interface StreakState {
 
 /**
  * Called when a day's work XP first reaches BONUS.dailyThreshold. Returns the new streak and the
- * bonus to award (daily + streak). Idempotent for the same day.
+ * bonus to award (daily + streak). A no-op for a day at or before the last active day.
  */
 export function activateDay(
   state: StreakState,
   today: string,
 ): { state: StreakState; bonus: number } {
-  if (state.lastActiveDay === today) return { state, bonus: 0 };
+  // ISO day keys compare as text; a day at or before the last active one never resets the streak.
+  if (state.lastActiveDay !== null && today <= state.lastActiveDay) return { state, bonus: 0 };
   let streak = 1;
   if (state.lastActiveDay) {
     const gap = daysBetween(state.lastActiveDay, today);

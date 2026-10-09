@@ -2,8 +2,8 @@
 doc_type: architecture
 purpose: "Read this when you need to know how provisional local XP is reconciled against the server, or why a stage/hatch/evolve event fired (or didn't)."
 audience: agent
-last_verified: 2026-09-23
-last_verified_commit: 274f3fe
+last_verified: 2026-10-09
+last_verified_commit: 64b6667
 related_files:
   - apps/desktop/src/main/game/GameService.ts
   - apps/desktop/src/main/net/SyncQueue.ts
@@ -17,8 +17,9 @@ related_files:
 
 The pet's XP bar has to update the instant a hook event fires, but only the server ultimately
 decides what counted. This flow is how the client shows a number immediately (provisional) and
-later folds in whatever the server actually credited (authoritative), without the bar ever jumping
-backwards.
+later folds in whatever the server actually credited (authoritative). The bar can jump backwards:
+when the server credits less than the client predicted (a cap or drop the client did not know about),
+`applyServerState` lowers `localXp` to the server's number (see the formula below).
 
 ## Provisional vs authoritative XP
 
@@ -58,6 +59,11 @@ drops or caps the server applied that the client didn't predict. `apps/desktop/s
 wires this up in `startSync`: it subscribes to `SyncQueue`'s `synced` event and calls
 `applyServerState` with the `mon` state and `localXpAtSend` the event carries.
 
+The daily streak is reconciled the same way: `applyServerState` adopts the server's
+`mon.streakDays` on every sync, and when the batch's `events` include `streak` (the server
+activated today) it also marks today as the local `lastActiveDay`, so this device does not
+activate the day a second time.
+
 ## Stage monotonicity
 
 `GameService.afterXpChange` computes a `targetStage` — the server's `stage` when reconciling, or
@@ -92,18 +98,24 @@ event) so the crack/evolution animation plays before the sprite swaps.
 ## Idempotent batches, retry, and backoff
 
 Each batch carries a client-generated `batch_id` (UUID), reused across retries of the *same* batch
-(`SyncQueue.flush` only mints a new one when `ledger.batchId` is null) so a retried send after a
-timeout cannot double-credit XP. `supabase/functions/ingest-xp/index.ts` inserts that id into
-`ingest_batches` before running the pipeline and returns `duplicate: true` on a unique-violation —
-see `../../design/backend-rules.md` for the full idempotency and suspicion model, not restated here.
+so a retried send after a timeout cannot double-credit XP. `SyncQueue.flush` freezes the sent
+buckets with the id (`ledger.batchId` and `ledger.sentBuckets`, persisted, so this survives an app
+restart) and resends exactly that payload, so a `duplicate` reply only acknowledges buckets the
+server already saw; anything that arrived since stays in `ledger.pending`, because only the sent
+counts are subtracted. On the server, the `apply_xp` RPC records the id in `ingest_batches` in the
+same transaction that credits the XP, and a known id makes `ingest-xp` return `duplicate: true`. A
+failure before that transaction commits leaves no id behind, so the retry is credited. See
+[backend-rules.md](../../design/backend-rules.md#idempotent-batches) for the full idempotency and
+suspicion model, not restated here.
 
 On failure, `SyncQueue` backs off from 5 s and doubles up to a 5 minute ceiling
 (`BACKOFF_MIN_MS`/`BACKOFF_MAX_MS` in `apps/desktop/src/main/net/SyncQueue.ts`), resetting to the
 floor on the next success. A `NO_PROFILE` response clears the local profile so the next flush
 recreates it **only for a device with no known account**; a device that already had a
 `profile.userId`/`email` instead enters the signed-out state (sync stops, no silent recreate) — see
-`account-linking.md#signed-out`. Any other 4xx (other than 429) drops the batch outright rather than
-retrying forever.
+`account-linking.md#signed-out`. A 400 or 413 (the batch itself is bad) drops the sent buckets from
+`ledger.pending` rather than retrying them forever; every other error, including 401/403/404/408,
+backs off and resends the same frozen batch.
 Independent of failures, a flush also runs every 60 s, 5 s after a `Stop` event
 (`scheduleSoon`/`AFTER_STOP_MS`), and roughly every 5 minutes even with nothing pending, so server
 notifications still arrive.
@@ -153,7 +165,7 @@ sequenceDiagram
     App->>SyncQueue: scheduleSoon() (after Stop) / 60s timer
     SyncQueue->>SyncQueue: localXpAtSend = localXp()
     SyncQueue->>ingest-xp: invoke(batch_id, buckets)
-    ingest-xp->>ingest-xp: insert batch_id (idempotency) -> runIngestPipeline
+    ingest-xp->>ingest-xp: runIngestPipeline -> apply_xp (records batch_id in its transaction)
     ingest-xp-->>SyncQueue: { mon: {totalXp, speciesId, stage}, events, notifications }
     SyncQueue->>SyncQueue: subtract sent counts from ledger.pending
     SyncQueue-->>App: emit synced({mon, localXpAtSend})

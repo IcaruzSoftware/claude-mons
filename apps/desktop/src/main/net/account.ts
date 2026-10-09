@@ -100,6 +100,7 @@ export function buildAdoptedProfile(
       ...res.mon.loadout,
       stance: res.mon.loadout.stance ?? DEFAULT_STANCE,
       lastRespecAt: res.mon.lastRespecAt,
+      ...(res.mon.treeLegacyReset ? { treeLegacyReset: true } : {}),
     },
   };
 }

@@ -2,8 +2,8 @@
 doc_type: design
 purpose: "Read this when redesigning a specific panel tab (Mon, Leaderboard, Battles, Settings) or planning the order of work for the panel reskin."
 audience: agent
-last_verified: 2026-10-04
-last_verified_commit: a197357
+last_verified: 2026-10-09
+last_verified_commit: 64b6667
 related_files:
   - docs/design/ui-style.md
   - docs/design/progression.md
@@ -13,6 +13,9 @@ related_files:
   - apps/desktop/src/renderer/panel/views/Leaderboard.tsx
   - apps/desktop/src/renderer/panel/views/leaderboardHelpers.ts
   - apps/desktop/src/renderer/panel/views/Battles.tsx
+  - apps/desktop/src/renderer/panel/views/SkillTree.tsx
+  - apps/desktop/src/renderer/panel/views/skillMapLayout.ts
+  - apps/desktop/src/renderer/pet/BattlePlayer.ts
   - apps/desktop/src/renderer/panel/views/Settings.tsx
   - apps/desktop/src/renderer/panel/onboardingSteps.ts
   - apps/desktop/src/renderer/panel/panel.css
@@ -32,17 +35,11 @@ build-order's visual-capture step, still accurate against the shipped code:
 - **Battles: abilities and history stay compact; progression opens in the Skill Tree.**
   Controls hold a local draft. Save persists it; Discard restores the saved selection.
   Move options have readable dark backgrounds and disable moves equipped in another slot.
-- **Sprite bug found during this pass, fixed in the same 0.2.0 release (not by this doc).**
-  Visually capturing the Mon hero, Battles arena and (by extension) the Leaderboard podium
-  surfaced that every mon past baby stage rendered a blank sprite: `spriteIdFor`
-  (`packages/sprites/src/index.ts`) built `${speciesId}-${stage}`, but the sprite package
-  registers teen/adult art under the *evolved* species' own name (e.g. `rootling-teen`, not
-  `mossling-teen`). `packages/sprites/src/index.ts` now carries an explicit `EVOLUTION_LINES`
-  table so `spriteIdFor` maps a base species + stage to the right evolved-form art (see
-  CHANGELOG 0.2.0). `apps/desktop/src/renderer/ui/SpriteView.tsx` also stayed defensively hardened
-  so an unresolvable sprite id sizes its canvas to the standard 32px grid instead of the browser's
-  300×150 default, which otherwise blew out every flex layout it sat inside (the hero slot, the
-  arena's side columns) with a huge invisible box.
+- **Sprite bug found during this pass, fixed in the same 0.2.0 release.** Every mon past baby
+  stage rendered a blank sprite because `spriteIdFor` (`packages/sprites/src/index.ts`) built
+  `${speciesId}-${stage}` while teen/adult art is registered under the evolved species' name; an
+  explicit `EVOLUTION_LINES` table now maps it (CHANGELOG 0.2.0). `apps/desktop/src/renderer/ui/SpriteView.tsx` also sizes an
+  unresolvable sprite's canvas to the 32px grid instead of the browser's 300×150 default.
 - **Leaderboard's populated state (banners/podium/board rows) was verified live after this pass.**
   The podium/banner code was originally checked only by review and by `podiumOrder`'s unit tests
   (`apps/desktop/test/leaderboardHelpers.test.ts`) against an offline placeholder build; against
@@ -156,36 +153,62 @@ The Skill Tree expands the native window to a centered overview (up to 1920×112
 by the current display's work area), then restores the compact Battle bounds on close. Only
 the map is shown. Wheel zooms around the cursor, drag pans; keyboard focus recenters nodes,
 arrow keys pan, +/- zoom, Enter learns and Delete refunds. There is no toolbar or inspector.
-Four radial paths each allow twelve purchases along a chosen route (64 nodes total), including
-six Flow combos and six mastery purchases per path. Two three-way mastery forks offer offense,
-defense or tempo, with one choice per fork. The following skill accepts any chosen alternative.
-Every route costs all 47 level-50 nation points.
+Layout: `apps/desktop/src/renderer/panel/views/skillMapLayout.ts`; view: `apps/desktop/src/renderer/panel/views/SkillTree.tsx`. Node data comes from
+`packages/shared/src/game/tree.ts`, specified in `docs/design/talent-tree.md`.
 
-Main passives occupy the gaps between the radial paths, directly on the board without a
-container. Stances are a nearby independent selection. Neither has connection lines; the
-selected node itself glows gold. Stance displays Missing when explicitly cleared. Main passive
-shows 0/1 or 1/1, unlocks at level 10, and dims the other choices while one is selected.
-Normal nation/Flow passives remain combinable. Hover explains cost, prerequisite, effects and
-build fit in a tooltip above the cursor, inside the map experience. The core explains the
-innate passive and automatic combo. Stances appear exclusively in the map.
+Five radial arms leave the core, 72 degrees apart: Bastion, Strike, Ward, Tempo and the mon's
+own nation column, labelled with the column's own name and "{Nation} column". A mon sees only its
+own nation column, never the other three. Forks at tiers 3, 7 and 10 place their alternatives side by side
+("Choose one at this fork"). All five arms draw on one skill-point pool shown in the HUD. The
+core shows the nation and its innate trait.
 
-Learned nodes and connections glow gold; available nodes and their edges have a weaker
-highlight; locked or unaffordable nodes and edges are dimmed. Explicit labels and role icons
-identify offense, defense, tempo and elemental bonuses. Larger frames identify passives and
-capstones. Role and availability remain understandable without color.
+Main passives occupy the gaps between the arms, in named clusters, directly on the board without
+a container, and draw on a separate passive-point pool (HUD, second line). Only one can be
+equipped: the header reads "Main passive 0/1" or "1/1", they unlock at level 10, and the others
+read "Slot full" while one is selected. Stances are a free, independent selection in another
+gap; the header reads "Stance · Missing" when explicitly cleared. Neither has connection lines;
+the selected node itself glows gold.
+
+Hover or focus shows a tooltip with the description, role and state, cost, prerequisites, the
+fork note, and a trigger/cap line (battle step, and once per battle, once per turn, arms the
+next action or while a condition holds).
+
+A node whose rule cannot fire with this mon's moves shows an inert "!" marker (`data-inert`),
+and the tooltip adds the reason. Shared nodes that read Burn or DEF-down need an unlocked move
+with that effect (the note gives the level it unlocks); fire and water column nodes need a
+nation-type move in the equipped loadout. Fire nodes read "heat", so most also accept a Burn or
+DEF-down move; `nation.fire:4`, `:8` and `:10:left` accept only a Burn move, `nation.fire:3` only a
+nation-type move, and `nation.fire:9` needs a Burn or DEF-down move. `nation.fire:6`, `:7`, `:10`, `:12`
+and `nation.water:6`, `:10` are exempt (they have a condition that needs no status). The node can still
+be bought.
+
+Learned nodes and edges glow gold, available ones weaker; locked, unaffordable or
+alternative-chosen ones are dimmed. Role icons and labels, and larger frames for passives and
+capstones, keep role and availability readable without color.
 
 Left click learns/equips and automatically persists. Right click refunds, cascading dependants
-within the chosen path. Main passives remain independent. Reset all is unrestricted and saves
+within the chosen path. Main passives remain independent. Reset all (which also clears the stance) is unrestricted and saves
 immediately. The map has no Save/Cancel. Edits serialize so rapid clicks cannot overwrite a
-newer allocation; failure restores confirmed state and shows a retry message. Attack drafts
-remain separate. The point HUD, reset, close and brief interaction hint are part of the map.
+newer allocation. The HUD shows "Saving…" then "Automatically saved". If the server cannot be
+reached, the tree stays saved on the device and the HUD warns that the server has not confirmed
+it; the next change syncs it. If the server rejects the save (a 4xx), the map restores the
+confirmed state and shows a retry message. A mon whose stored tree predates the new branches is
+rebuilt on load: skills that no longer exist are removed and their points return to the pool; the
+HUD shows "Your talent tree was rebuilt for the new branches. Some saved skills no longer exist and
+were removed; their points are back in your pool." until the first save. Attack drafts remain separate.
 
-History shows the ten newest battles, sorted by their original timestamps. Resolved
-battles persist before animation ends and update the open panel immediately. Startup,
+History shows the ten newest battles, sorted by their original timestamps. A fallback fight
+that never reached the server is labelled "Practice" instead of "+N XP", here and in the
+playback banner. Resolved battles persist before animation ends and update the open panel immediately. Startup,
 account sign-in and sync read the account's latest 50 challenger/defender battles through
 existing participant-only RLS, merging by id with local offline fights. Same-account
 sign-in preserves cached history; switching accounts clears it. Failed fetches keep the
 cache. Late fetches cannot populate a different account.
+
+In battle playback (`apps/desktop/src/renderer/pet/BattlePlayer.ts`), each logged
+`treeTriggers` entry becomes its own banner step ("Node name — what it did") after the
+action it belongs to; turn-level entries (turn start, pick, order) play before the turn's actions
+and turn-end entries after all of them, including the synthetic tick and heal actions. See `docs/design/battle.md`.
 
 At 380×520, the map remains the entire view; zoom and pan expose every region without document overflow.
 The main view scrolls its history. An egg shows the hatch prompt and empty history.

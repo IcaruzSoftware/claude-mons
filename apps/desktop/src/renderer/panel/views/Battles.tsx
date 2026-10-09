@@ -4,10 +4,10 @@ import {
   defaultLoadoutMoveIds,
   displayName,
   findMove,
-  nationNodes,
+  normalizeTree,
   pointsAvailable,
   sharedPassivePoints,
-  singlePurchaseTree,
+  treeNodesFor,
   equippedMainPassive,
   speciesOf,
   treeSpent,
@@ -22,6 +22,8 @@ import { Glyph } from '../../ui/Glyph.tsx';
 import { SkillTree } from './SkillTree.tsx';
 import { mergeBattleHistory } from '../../../common/battleHistory.ts';
 const SLOT_LABELS = ['Opener', 'Default', 'Finisher'] as const;
+const LEGACY_TREE_NOTICE =
+  'Your talent tree was rebuilt for the new branches. Some saved skills no longer exist and were removed; their points are back in your pool.';
 function clearDependents(
   nodes: TreeNode[],
   branch: string,
@@ -48,11 +50,17 @@ function LoadoutEditor({ s, onDiscard }: { s: UiSnapshot; onDiscard: () => void 
   const [moves, setMoves] = useState<[string, string, string]>(initial);
   const [stance, setStance] = useState<Stance | null>(s.battles.loadout.stance ?? null);
   const rawSavedTree = s.battles.loadout.tree ?? {};
-  const savedTree = singlePurchaseTree(rawSavedTree);
+  const normalized = normalizeTree(species.nation, rawSavedTree);
+  const savedTree = normalized.tree;
   const [tree, setTree] = useState<Record<string, number>>(savedTree);
+  // Shown until the first skill edit saves the rebuilt tree (main then clears the flag).
+  const [legacyNotice, setLegacyNotice] = useState(
+    Boolean(s.battles.treeLegacyReset || normalized.legacyReset),
+  );
   const [busy, setBusy] = useState(false);
   const [saved, setSaved] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [saveWarning, setSaveWarning] = useState<string | null>(null);
   useEffect(() => setSaved(false), [moves, stance, tree]);
 
   const [mapOpen, setMapOpen] = useState(false);
@@ -69,6 +77,8 @@ function LoadoutEditor({ s, onDiscard }: { s: UiSnapshot; onDiscard: () => void 
   }, [mapOpen]);
   const [skillSaving, setSkillSaving] = useState(false);
   const [skillError, setSkillError] = useState<string | null>(null);
+  // Saved on this device but not confirmed by the server (main keeps the change).
+  const [skillWarning, setSkillWarning] = useState<string | null>(null);
   const skillState = useRef({ tree: savedTree, stance });
   const confirmedSkills = useRef(skillState.current);
   const pendingSkills = useRef<typeof skillState.current | null>(null);
@@ -89,21 +99,35 @@ function LoadoutEditor({ s, onDiscard }: { s: UiSnapshot; onDiscard: () => void 
         const result = await window.monsUi.setLoadout(submission);
         if (!result.ok) throw new Error(result.error ?? 'Could not save skills');
         confirmedSkills.current = submission;
+        const stored = result.loadout;
+        if (stored && !pendingSkills.current) {
+          const adopted = { tree: stored.tree ?? {}, stance: stored.stance ?? null };
+          skillState.current = confirmedSkills.current = adopted;
+          setTree(adopted.tree);
+          setStance(adopted.stance);
+        }
+        setLegacyNotice(false);
+        setSkillWarning(
+          result.unconfirmed
+            ? `${result.warning ?? ''} Change any skill again once you are online to sync it.`.trim()
+            : null,
+        );
       }
     } catch (error) {
       pendingSkills.current = null;
       skillState.current = confirmedSkills.current;
       setTree(confirmedSkills.current.tree);
       setStance(confirmedSkills.current.stance);
+      const message = error instanceof Error ? error.message : 'Could not save skills';
       setSkillError(
-        `${error instanceof Error ? error.message : 'Could not save skills'}. Unsaved changes were reverted; try again.`,
+        `${message}${/[.!?]$/.test(message) ? '' : '.'} Unsaved changes were reverted; try again.`,
       );
     } finally {
       draining.current = false;
       setSkillSaving(false);
     }
   };
-  const nodes = nationNodes(species.nation);
+  const nodes = treeNodesFor(species.nation);
   const addRank = (node: TreeNode) => {
     const state = skillState.current,
       ranks = state.tree;
@@ -161,11 +185,14 @@ function LoadoutEditor({ s, onDiscard }: { s: UiSnapshot; onDiscard: () => void 
   const save = async () => {
     setBusy(true);
     setErr(null);
+    setSaveWarning(null);
     const payload: SetLoadoutPayload = movesValid ? { moves } : {};
     try {
       const r = await window.monsUi.setLoadout(payload);
       if (r.ok) {
         setSaved(true);
+        if (r.unconfirmed)
+          setSaveWarning(`${r.warning ?? ''} Press Save again once you are online.`.trim());
       } else {
         setErr(r.error ?? 'Failed to save loadout');
       }
@@ -271,6 +298,7 @@ function LoadoutEditor({ s, onDiscard }: { s: UiSnapshot; onDiscard: () => void 
         {canPickThreeMoves && distinct && !allUnlocked && (
           <p class="flavor">One of these moves isn't unlocked yet.</p>
         )}
+        {legacyNotice && <p class="flavor">{LEGACY_TREE_NOTICE}</p>}
 
         {mapOpen && (
           <div
@@ -311,7 +339,9 @@ function LoadoutEditor({ s, onDiscard }: { s: UiSnapshot; onDiscard: () => void 
                 onAdd={addRank}
                 onRemove={removeRank}
                 onPassive={changePassive}
-                equippedMoves={moves.map((id) => findMove(species, id)!)}
+                equippedMoves={moves.flatMap((id) => findMove(species, id) ?? [])}
+                movePool={species.movePool}
+                notice={skillWarning ?? (legacyNotice ? LEGACY_TREE_NOTICE : null)}
                 stance={stance}
                 onStance={changeStance}
                 saving={skillSaving}
@@ -323,6 +353,7 @@ function LoadoutEditor({ s, onDiscard }: { s: UiSnapshot; onDiscard: () => void 
           </div>
         )}
         {err && <p class="loadout-error">Couldn't save: {err}</p>}
+        {saveWarning && <p class="hint">{saveWarning}</p>}
         {saveDisabledReason && !err && !saved && (
           <p class="hint" style={{ textAlign: 'right' }}>
             {saveDisabledReason}
@@ -376,7 +407,7 @@ function HistoryEntry({ b }: { b: BattleSummary }) {
       <div class="top">
         <b>{o.nickname}</b>
         <span class={b.won ? 'res-w' : 'res-l'}>
-          {b.won ? 'WON' : 'LOST'} +{b.xp} XP
+          {b.won ? 'WON' : 'LOST'} {b.practice ? 'Practice' : `+${b.xp} XP`}
         </span>
       </div>
       <p class="hint" style={{ margin: '3px 0 0' }}>

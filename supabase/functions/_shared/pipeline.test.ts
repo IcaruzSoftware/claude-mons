@@ -193,3 +193,87 @@ Deno.test('a tiny batch never counts toward suspicion even if fully dropped', ()
   assert(out.dropped.some((d) => d.reason === 'future'));
   assertEquals(out.suspicious, false);
 });
+
+Deno.test("a late bucket from yesterday is capped against yesterday's xp_daily totals", () => {
+  // now = 20:00 the next day, so a 25 h history window no longer shows yesterday's morning
+  const now = NOON + 32 * 60 * MIN; // 2026-09-05 20:00Z
+  const lateMinute = NOON + 11 * 60 * MIN + 30 * MIN; // 2026-09-04 23:30Z
+  const out = runIngestPipeline(
+    input({
+      now,
+      buckets: [bucket(lateMinute, { prompts: 1 })],
+      yesterdayTotals: { prompts: 100, stops: 100, toolXp: 0, workXp: CAPS.workXpPerDay },
+    }),
+  );
+  assertEquals(out.awarded.total, 0);
+  assertEquals(out.dayTotals.workXp, 0); // today's totals are untouched
+});
+
+// now = 2026-09-05 12:05Z; a late bucket from 2026-09-04 23:59Z carries 10 XP
+const NEXT_DAY = NOON + 24 * 60 * MIN + 5 * MIN;
+const LATE = NOON + 11 * 60 * MIN + 59 * MIN;
+const nearlyActive = { prompts: 8, stops: 0, toolXp: 0, workXp: BONUS.dailyThreshold - 10 };
+
+Deno.test('late minutes that push yesterday over the threshold activate yesterday', () => {
+  const out = runIngestPipeline(
+    input({
+      now: NEXT_DAY,
+      buckets: [bucket(LATE, { prompts: 2 })],
+      yesterdayTotals: nearlyActive,
+      streak: { streakDays: 5, lastActiveDay: '2026-09-03' },
+    }),
+  );
+  assertEquals(out.dayActivated, '2026-09-04');
+  assertEquals(out.streak, { streakDays: 6, lastActiveDay: '2026-09-04' });
+  assertEquals(out.bonus, BONUS.daily + BONUS.streakPerDay * 6);
+});
+
+Deno.test(
+  'yesterday is not activated once today already is (no double pay, no streak reset)',
+  () => {
+    const streak = { streakDays: 5, lastActiveDay: '2026-09-05' };
+    const out = runIngestPipeline(
+      input({
+        now: NEXT_DAY,
+        buckets: [bucket(LATE, { prompts: 2 })],
+        yesterdayTotals: nearlyActive,
+        streak,
+      }),
+    );
+    assertEquals(out.dayActivated, null);
+    assertEquals(out.bonus, 0);
+    assertEquals(out.streak, streak);
+  },
+);
+
+Deno.test('one batch can activate yesterday and then today', () => {
+  const out = runIngestPipeline(
+    input({
+      now: NEXT_DAY,
+      buckets: [bucket(LATE, { prompts: 2 })],
+      yesterdayTotals: nearlyActive,
+      dayTotals: { prompts: 10, stops: 0, toolXp: 0, workXp: BONUS.dailyThreshold },
+      streak: { streakDays: 5, lastActiveDay: '2026-09-03' },
+    }),
+  );
+  assertEquals(out.dayActivated, '2026-09-05');
+  assertEquals(out.streak, { streakDays: 7, lastActiveDay: '2026-09-05' });
+  assertEquals(out.bonus, 2 * BONUS.daily + BONUS.streakPerDay * (6 + 7));
+});
+
+Deno.test('an already active yesterday is not paid again; today still extends the streak', () => {
+  // activateDay is a no-op for a day at or before lastActiveDay; the pipeline must not rely on
+  // re-activating yesterday to build today's streak
+  const out = runIngestPipeline(
+    input({
+      now: NEXT_DAY,
+      buckets: [bucket(LATE, { prompts: 2 })],
+      yesterdayTotals: { ...nearlyActive, workXp: BONUS.dailyThreshold + 20 },
+      dayTotals: { prompts: 10, stops: 0, toolXp: 0, workXp: BONUS.dailyThreshold },
+      streak: { streakDays: 4, lastActiveDay: '2026-09-04' },
+    }),
+  );
+  assertEquals(out.dayActivated, '2026-09-05');
+  assertEquals(out.streak, { streakDays: 5, lastActiveDay: '2026-09-05' });
+  assertEquals(out.bonus, BONUS.daily + BONUS.streakPerDay * 5);
+});

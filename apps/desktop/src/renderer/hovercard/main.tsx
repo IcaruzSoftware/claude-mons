@@ -1,5 +1,6 @@
 import { render } from 'preact';
-import { NATION_INFO, displayName } from '@claude-mons/shared';
+import { HATCH_XP, NATION_INFO, displayName } from '@claude-mons/shared';
+import { xpCaption } from '../../common/xpCaption.ts';
 import '../ui/theme.css';
 import './hovercard.css';
 import { snapshot, startSnapshotFeed } from '../ui/useSnapshot.ts';
@@ -10,8 +11,10 @@ function Card() {
   const nation = s.profile.nation;
   const name = s.pet.speciesId ? displayName(s.pet.speciesId, s.pet.stage) : 'Egg';
   const p = s.progress;
-  const total = p.xpIntoLevel + p.xpToNext;
-  const pct = total > 0 ? Math.round((p.xpIntoLevel / total) * 100) : 100;
+  const pct =
+    s.pet.stage === 'egg'
+      ? Math.min(100, Math.round((p.totalXp / HATCH_XP) * 100))
+      : Math.round(p.fraction * 100);
   return (
     <div class="card">
       <div class="row">
@@ -23,11 +26,7 @@ function Card() {
         <i style={{ width: `${pct}%` }} />
       </div>
       <div class="row dim">
-        <span>
-          {s.pet.stage === 'egg'
-            ? `${p.totalXp} / ${total} XP to hatch`
-            : `${p.xpIntoLevel} / ${total} XP`}
-        </span>
+        <span>{xpCaption({ ...p, stage: s.pet.stage })}</span>
         <span class="state">{s.pet.state.replace(/_/g, ' ')}</span>
       </div>
     </div>

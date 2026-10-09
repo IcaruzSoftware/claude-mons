@@ -10,7 +10,6 @@ import {
   speciesOf,
   treeSpent,
   unlockedMoves,
-  validateLoadout,
   type BattleNotification,
   type CreateProfileResponse,
   type HookEnvelope,
@@ -32,8 +31,10 @@ import { Autostart } from './autostart/Autostart.ts';
 import { rememberAnchor } from './display.ts';
 import { BattleService } from './game/BattleService.ts';
 import { mergeBattleHistory } from '../common/battleHistory.ts';
+import { xpCaption } from '../common/xpCaption.ts';
 import { fetchBattleHistory } from './net/battleHistory.ts';
 import { GameService } from './game/GameService.ts';
+import { createLoadoutSaver, normalizeLocalTree } from './game/loadout.ts';
 import { rollSpeciesForNation } from './game/species.ts';
 import { ActivityTracker } from './hooks/ActivityTracker.ts';
 import {
@@ -148,7 +149,8 @@ export class App {
   private devOnboardingStep: number | null = null;
 
   async start(): Promise<void> {
-    const state = await this.store.load();
+    await this.store.load();
+    const state = this.store.update(normalizeLocalTree);
 
     const cfg = backendConfig();
     if (cfg) {
@@ -433,6 +435,7 @@ export class App {
           available: sharedPassivePoints(p.level),
         },
         lastRespecAt: s.loadout.lastRespecAt,
+        ...(s.loadout.treeLegacyReset ? { treeLegacyReset: true } : {}),
       },
     };
   }
@@ -527,55 +530,22 @@ export class App {
         return { ok: false, error: msg };
       }
     });
-    ipcMain.handle(IPC.battleSetStance, async (_e, stance: unknown) => {
+    // Stance and loadout saves share one queue, so they reach the server in order.
+    const api = this.api;
+    const saveLoadout = createLoadoutSaver({
+      state: this.store,
+      level: () => this.game.snapshot().level,
+      invoke: api ? (p) => api.invoke<SetLoadoutResponse>('set-loadout', p) : null,
+      flush: async () => this.sync?.flush(),
+      onChange: () => this.pushSnapshot(),
+    });
+    ipcMain.handle(IPC.battleSetStance, (_e, stance: unknown) => {
       if (!isStance(stance)) return { ok: false, error: 'invalid stance' };
-      this.store.update((s) => (s.loadout.stance = stance));
-      this.pushSnapshot();
-      if (this.api) {
-        try {
-          await this.api.invoke('set-loadout', { stance });
-        } catch (err) {
-          const msg = err instanceof ApiCallError ? `${err.code}: ${err.message}` : String(err);
-          return { ok: false, error: msg };
-        }
-      }
-      return { ok: true, error: null };
+      return saveLoadout({ stance });
     });
-    ipcMain.handle(IPC.battleSetLoadout, async (_e, payload: unknown) => {
-      const s = this.store.get();
-      const level = this.game.snapshot().level;
-      const result = validateLoadout(payload as SetLoadoutPayload, {
-        level,
-        nation: loadoutNation(s),
-        speciesId: s.pet.speciesId,
-        ...(s.loadout.tree ? { existingTree: s.loadout.tree } : {}),
-      });
-      if (!result.ok) return { ok: false, error: result.reason };
-      this.store.update((st) => {
-        if (result.loadout.stance !== undefined) st.loadout.stance = result.loadout.stance;
-        if (result.loadout.moves !== undefined) st.loadout.moves = result.loadout.moves;
-        if (result.loadout.tree !== undefined) {
-          st.loadout.tree = result.loadout.tree;
-        }
-      });
-      this.pushSnapshot();
-      if (this.api) {
-        try {
-          const res = await this.api.invoke<SetLoadoutResponse>(
-            'set-loadout',
-            payload as SetLoadoutPayload,
-          );
-          this.store.update((st) => {
-            st.loadout.lastRespecAt = res.mon.lastRespecAt;
-          });
-          this.pushSnapshot();
-        } catch (err) {
-          const msg = err instanceof ApiCallError ? `${err.code}: ${err.message}` : String(err);
-          return { ok: false, error: msg };
-        }
-      }
-      return { ok: true, error: null };
-    });
+    ipcMain.handle(IPC.battleSetLoadout, (_e, payload: unknown) =>
+      saveLoadout(payload as SetLoadoutPayload),
+    );
     ipcMain.handle(IPC.uiSetWaterEnabled, (_e, enabled: unknown) => {
       if (typeof enabled === 'boolean') {
         this.store.update((s) => (s.settings.waterReminder.enabled = enabled));
@@ -713,7 +683,10 @@ export class App {
     if (!this.api) return { ok: false, error: 'offline build' };
     try {
       const res = await this.api.invoke<CreateProfileResponse>('create-profile', {});
-      this.store.update((s) => Object.assign(s, buildAdoptedProfile(s, res, email)));
+      this.store.update((s) => {
+        Object.assign(s, buildAdoptedProfile(s, res, email));
+        normalizeLocalTree(s);
+      });
       this.signedOut = false;
       this.sync?.resume();
       this.game.applyServerState({
@@ -747,9 +720,16 @@ export class App {
       clientVersion: app.getVersion(),
       localXp: () => this.game.totalXp(),
     });
-    this.sync.on('synced', ({ mon, notifications, localXpAtSend }) => {
+    this.sync.on('synced', ({ mon, events, notifications, localXpAtSend }) => {
+      const streakEvent = events.find((e) => e.type === 'streak');
       this.game.applyServerState(
-        { totalXp: mon.totalXp, speciesId: mon.speciesId, stage: mon.stage },
+        {
+          totalXp: mon.totalXp,
+          speciesId: mon.speciesId,
+          stage: mon.stage,
+          streakDays: mon.streakDays,
+          ...(streakEvent ? { streakEvent } : {}),
+        },
         localXpAtSend,
       );
       if (notifications.length > 0) {
@@ -909,8 +889,8 @@ export class App {
     const name = p.speciesId ? p.speciesId : 'egg';
     const stage: Stage = p.stage;
     return stage === 'egg'
-      ? `claude-mons · egg · ${p.totalXp}/${p.xpToNext + p.xpIntoLevel} XP`
-      : `claude-mons · ${name} (${stage}) · Lv ${p.level} · ${p.xpIntoLevel}/${p.xpIntoLevel + p.xpToNext} XP`;
+      ? `claude-mons · egg · ${xpCaption(p)}`
+      : `claude-mons · ${name} (${stage}) · Lv ${p.level} · ${xpCaption(p)}`;
   }
 
   private async toggleHooks(agent: HookAgent = 'claude'): Promise<void> {

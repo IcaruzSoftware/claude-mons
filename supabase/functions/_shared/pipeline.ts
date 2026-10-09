@@ -29,6 +29,11 @@ export interface PipelineInput {
   history: CreditedMinute[];
   /** today's already credited work totals (xp_daily row), zeros if none */
   dayTotals: DayTotals;
+  /**
+   * yesterday's xp_daily row: late buckets from yesterday are capped against it, because the
+   * history window no longer covers all of yesterday. Omitted: yesterday falls back to history.
+   */
+  yesterdayTotals?: DayTotals;
   streak: StreakState;
 }
 
@@ -41,7 +46,10 @@ export interface PipelineOutput {
   bonus: number;
   /** streak after this batch; equals the input when nothing changed */
   streak: StreakState;
-  /** 'YYYY-MM-DD' when this batch made today active (pays the bonus), else null */
+  /**
+   * 'YYYY-MM-DD' of the latest day this batch activated (today, or yesterday when late minutes
+   * pushed it over the threshold; pays the bonus), else null
+   */
   dayActivated: string | null;
   /** today's totals after this batch (for the response / caps display) */
   dayTotals: DayTotals;
@@ -77,6 +85,8 @@ export function runIngestPipeline(input: PipelineInput): PipelineOutput {
   const buckets = [...input.buckets].sort((a, b) => a.minute - b.minute);
   let history: CreditedMinute[] = input.history.map((h) => ({ ...h }));
   const day: DayTotals = { ...input.dayTotals };
+  const yesterday = dayKey(input.now - 86_400_000);
+  const prevDay: DayTotals | null = input.yesterdayTotals ? { ...input.yesterdayTotals } : null;
   const deltas = new Map<number, CreditedMinute>();
   const awarded = { prompt: 0, stop: 0, tool: 0, total: 0 };
   const dropped: PipelineOutput['dropped'] = [];
@@ -84,13 +94,15 @@ export function runIngestPipeline(input: PipelineInput): PipelineOutput {
   let nonCapDroppedXp = 0;
 
   for (const bucket of buckets) {
-    const isToday = dayKey(bucket.minute) === today;
+    const bucketDay = dayKey(bucket.minute);
+    const isToday = bucketDay === today;
+    // Daily caps come from xp_daily (authoritative, includes minutes already pruned or outside
+    // the history window) for today and yesterday; older buckets are stale anyway.
+    const totals = isToday ? day : bucketDay === yesterday ? prevDay : null;
     const result = creditBucket(bucket, {
       now: input.now,
       history,
-      // Today's daily caps come from xp_daily (authoritative, includes minutes already pruned);
-      // other days fall back to whatever history still holds.
-      ...(isToday ? { dayTotals: day } : {}),
+      ...(totals ? { dayTotals: totals } : {}),
     });
     claimedXp += result.credited.total + result.dropped.reduce((s, d) => s + d.xp, 0);
     for (const d of result.dropped) {
@@ -113,22 +125,34 @@ export function runIngestPipeline(input: PipelineInput): PipelineOutput {
     } else {
       deltas.set(e.minute, { ...e });
     }
-    if (isToday) {
-      day.prompts += e.prompts;
-      day.stops += e.stops;
-      day.toolXp += e.toolXp;
-      day.workXp += result.credited.total;
+    if (totals) {
+      totals.prompts += e.prompts;
+      totals.stops += e.stops;
+      totals.toolXp += e.toolXp;
+      totals.workXp += result.credited.total;
     }
   }
 
+  // Yesterday first, so a late batch that finishes yesterday also extends today's streak. A day is
+  // never activated at or before the last active day: no double pay, no streak reset.
   let bonus = 0;
   let streak = input.streak;
   let dayActivated: string | null = null;
-  if (day.workXp >= BONUS.dailyThreshold && input.streak.lastActiveDay !== today) {
-    const activated = activateDay(input.streak, today);
-    bonus = activated.bonus;
+  const yesterdayGrew =
+    prevDay !== null &&
+    input.yesterdayTotals !== undefined &&
+    prevDay.workXp > input.yesterdayTotals.workXp;
+  const candidates: Array<[string, DayTotals | null]> = [
+    [yesterday, yesterdayGrew ? prevDay : null],
+    [today, day],
+  ];
+  for (const [d, totals] of candidates) {
+    if (!totals || totals.workXp < BONUS.dailyThreshold) continue;
+    if (streak.lastActiveDay !== null && streak.lastActiveDay >= d) continue;
+    const activated = activateDay(streak, d);
+    bonus += activated.bonus;
     streak = activated.state;
-    dayActivated = today;
+    dayActivated = d;
   }
 
   return {

@@ -2,11 +2,12 @@
 doc_type: design
 purpose: "Read this when changing battle math, matchmaking, rewards, or the battle log shape."
 audience: agent
-last_verified: 2026-10-03
-last_verified_commit: da1f9c0
+last_verified: 2026-10-09
+last_verified_commit: 64b6667
 related_files:
   - packages/shared/src/battle/battle.ts
   - packages/shared/src/battle/effects.ts
+  - packages/shared/src/battle/treeRules.ts
   - packages/shared/src/battle/rng.ts
   - packages/shared/src/game/levels.ts
   - packages/shared/src/game/progression.ts
@@ -14,6 +15,7 @@ related_files:
   - packages/shared/src/game/species.ts
   - packages/shared/test/battle.test.ts
   - packages/shared/test/balance.test.ts
+  - packages/shared/test/treeInvariants.test.ts
   - supabase/migrations/20260904000000_init.sql
   - supabase/migrations/20260913010000_battle_limits.sql
   - supabase/migrations/20260913020000_progression_phase_a.sql
@@ -22,6 +24,7 @@ related_files:
   - supabase/functions/battle-request/index.ts
   - docs/design/progression.md
   - docs/design/talent-tree.md
+  - docs/design/battle-steps.md
 ---
 
 # Battle system
@@ -41,10 +44,9 @@ growth curve, and the evolution-stage multiplier layered on top of it live in
 battle code uses them. A mon's battle stats are `statsAtLevel()`
 (`packages/shared/src/battle/battle.ts:statsAtLevel`), which applies
 `packages/shared/src/game/levels.ts:statAtLevel` to each of `hp`, `atk`, `def`, `spd` independently.
-`snapshotFor` then folds in the mon's talent-tree stat/flat-stat-capstone bonuses (Phase C,
-`docs/design/talent-tree.md`) before combat; the tree's move-upgrade/capstone nodes and shared
-passives change the formula below directly (crit chance/multiplier, `def_down`/`burn`/`shield_first`
-magnitudes, turn order) — numbers live in `docs/design/talent-tree.md`.
+Since protocol 14 the talent tree no longer folds stat bonuses into the snapshot: its nodes are
+event-triggered rules that act on the steps of a turn (step model and trigger log:
+`docs/design/battle-steps.md`; node numbers: `docs/design/talent-tree.md`).
 
 ## Stances
 
@@ -53,9 +55,8 @@ A mon equips one conditional build passive in `MonSnapshot.loadout?.stance`, def
 `docs/design/progression.md` Stances. `simulateBattle` checks those conditions per direct hit,
 then multiplies raw damage by the attacker's qualifying Exploit/Tempo and defender's qualifying
 Brace factors. Stances no longer modify stats or counter one another.
-Protocol 12 adds optional `BattleAction.stancePassives` entries with the side and stance that
-actually triggered. `apps/desktop/src/renderer/pet/BattlePlayer.ts` displays their passive names.
-Earlier logs omit that field and replay unchanged from stored actions. No new RNG draws are added.
+Optional `BattleAction.stancePassives` (protocol 12) names the stance that triggered; earlier logs
+omit it. `apps/desktop/src/renderer/pet/BattlePlayer.ts` displays the passive names.
 
 ## Damage formula (as shipped)
 
@@ -66,12 +67,15 @@ For a turn where mon `M` acts on mon `F`, in `packages/shared/src/battle/battle.
 scale   = (avgLevel + 24) / 25
 K       = 25 * scale                     // equivalently avgLevel + 24
 reduction = F.def / (F.def + K)
-raw     = power * (M.atk / 50) * (1 - reduction) * 0.75 * effectiveness * experience * followThrough * (crit ? 1.75 : 1) * variance
-damage  = max(1, floor(raw))
+raw     = power * (M.atk / 50) * (1 - reduction) * 0.75 * (doubleStrike ? 0.4 : 1) * effectiveness * experience * treeFactor * critMult * variance
+        * (stance Fury/Gale multiplier) * (stance Bulwark multiplier)
+damage  = max(1, floor(raw)); an Earth defender then takes `EARTH_DAMAGE_MULT` of it (min 1)
 variance = 0.8 + rng() * 0.4              // uniform in [0.8, 1.2)
 
 ```
 
+- **`treeFactor`** is 1 or one tree damage factor (the Opening Setup combo is one source) and
+  `critMult` is 1.75 on a crit unless a tree rule overrides it; see step 7 in `docs/design/battle-steps.md`.
 - **`power`**: the chosen move's own `power` (docs/design/progression.md Move pool and effects), not
   a fixed per-kind table — every species has its own 8-move pool (`packages/shared/src/game/
   species.ts:Move`) as of Phase B (`BATTLE_PROTOCOL_VERSION` 3). A `charge` move's release turn
@@ -80,21 +84,22 @@ variance = 0.8 + rng() * 0.4              // uniform in [0.8, 1.2)
   Type cycle; neutral moves use 1.
 - **Experience** (protocol 11): `1 + 0.03 * clamp(M.level - F.level, -3, 3)`.
   A one-level lead adds 3% damage; stat growth and elemental counters still matter.
-- **Follow-through**: one opening combo per side after learning Flow's Quick Setup; its multiplier and eligibility live
-  in `docs/design/progression.md`. Optional `followThrough` marks the boosted action in protocol 5;
-  historical logs remain stored and are never recomputed.
+- **Follow-through**: the Opening Setup node (`tempo:1`) arms one combo hit per side; its
+  multiplier lives with the node rules (`FOLLOW_THROUGH_MULT` in `packages/shared/src/battle/treeRules.ts`).
+  Optional `followThrough` marks the boosted action; historical logs are never recomputed.
 - **Defense (DEF)**: the DEF reduction curve has diminishing returns. DEF = K prevents 50% of
   direct damage; DEF = 2K prevents about 67%; it never grants immunity. Effective DEF includes
   defense-down and Deep Roots. Burn remains a max-HP effect, independent of DEF.
 - **Crit**: chance `clamp(0.08 + (M.spd - F.spd) / (250 * scale), 0.03, 0.30)`; ordinary crits
-  multiply damage by 1.75. Crit-up adds 20 percentage points (ceiling 60%); talent overrides
-  remain explicit. Maelstrom increases nation crits to 1.9x.
+  multiply damage by 1.75. Crit-up adds 20 percentage points (ceiling 60%); tree rules can override the crit multiplier
+  (`docs/design/talent-tree.md`).
 - **Dodge**: chance `clamp(0.04 + (F.spd - M.spd) / (160 * scale), 0.02, 0.15)`.
   It rolls before crit and variance; true-hit primary moves skip it.
 - **Double strike**: an eligible landed primary attack has an 8% chance of a second action at
   40% power. It cannot crit, combo, chain or apply move effects; it can be dodged and still obeys
-  defender shields/KO protections. Charges, combo hits, misses and defeated targets cannot trigger
-  it. Its optional `doubleStrike` log field and move label let existing playback animate the second
+  defender shields/KO protections. Charges, misses and defeated targets cannot trigger it; since
+  protocol 14 an Opening Setup combo hit can, because no talent rule decides whether a draw is made.
+  Its optional `doubleStrike` log field and move label let existing playback animate the second
   swing. Protocol 7 records the new RNG sequence; old logs are replayed unchanged.
 - **Innate element traits (protocol 8)**: Wind has 12% more effective speed (turn order, dodge,
   crit); Earth takes 4% less direct damage after the DEF calculation; Fire's landed nation-type
@@ -102,9 +107,8 @@ variance = 0.8 + rng() * 0.4              // uniform in [0.8, 1.2)
   speed by 28% for the next two turns. Soak refreshes only after expiry and neither trait applies
   on a miss, neutral move or double strike. Fire uses the ordinary non-stacking burn. Logs mark
   triggered traits in `nationPassive`; previous protocol logs remain stored unchanged.
-- **Protocol 9** activates all nation-tree tier-3/4 talents, adds six once-per-battle Flow combos,
-  and uses the finisher more often from turns 3–4. `comboTalent` names a triggered combo in the
-  stored action and playback. Multiple regular talent damage bonuses use the strongest value.
+- **Protocol 14** replaces the nation-path tree with shared and nation branches (see Determinism
+  contract). The old Flow combos and their `comboTalent` field exist only in pre-14 stored logs.
 - **`def_down`, `burn`, `drain`, `shield_first`, `priority`, `charge`**: the remaining 5 of the 8
   move effects. Numbers, per-battle state, and the loadout policy that picks a move each turn all
   live in docs/design/progression.md Move pool and effects / Loadout policy — this doc only notes
@@ -148,14 +152,15 @@ Fields only — see `packages/shared/src/battle/battle.ts` for exact types.
 | `maxHp` | `Record<Side, number>` | |
 
 `BattleAction`: `{ actor, move, moveId, dodged, damage, crit, effectiveness, targetHpAfter, effect,
-charge?, followThrough?, doubleStrike? }` — one primary action per mon that acted that turn, with at most one additional double strike (the second actor's entry is omitted if the first
+charge?, followThrough?, doubleStrike?, treeTriggers? }` — one primary action per mon that acted that turn, with at most one additional double strike (the second actor's entry is omitted if the first
 action already reduced it to 0 HP), plus a synthetic entry (`moveId: null`, `move: 'Burn'`,
 `effect: 'burn'`) appended at the end of a turn for each side with an active burn tick. A learned
-recovery skill adds a synthetic `Regeneration` action with optional `healing` and the owner's HP
-afterward. `effect` is
+tree heal (`ward:8`, `ward:11`) adds a synthetic action named after the node, with `moveId: null`,
+optional `healing` and the owner's HP afterward. `effect` is
 the effect the chosen move carries (`null` if none applied that action); `charge` is present only
 for a `charge`-effect move, `'telegraph'` or `'release'`. See docs/design/progression.md Move pool
-and effects.
+and effects. `BattleTurn.treeTriggers` and `BattleAction.treeTriggers` (protocol 14, optional) log
+the talent-tree rules that fired; see `docs/design/battle-steps.md`.
 
 ## Determinism contract
 
@@ -164,6 +169,19 @@ and effects.
 - **The RNG call order inside `simulateBattle` is part of the protocol.** The code comment on
   `simulateBattle` is explicit: "do not reorder calls." Reordering calls (even adding an unconditional roll)
   changes every subsequent draw and desyncs client/server replays of old logs.
+- **No tree rule adds or skips a draw (protocol 14).** Whether a draw site is reached depends only on
+  base mechanics (turn number, base finisher eligibility, move effect, charge state, the final dodge
+  result, target alive). Tree rules may only overwrite or defer the result of a draw that was made,
+  e.g. a guaranteed crit overwrites the crit draw. Ignite and soak trait draws are ungated: they are
+  made on every eligible landed nation-type hit, whatever a rule does to the status afterwards. The
+  v13 draws tied to Eye of the Storm, Phoenix Reborn and Quick Setup are gone.
+- **`packages/shared/test/treeInvariants.test.ts` enforces this** with a call-site invariant: it
+  traces every draw (`BattleTraceEvent`, `DrawSite`) and checks that each site is reached exactly when
+  the base mechanics say, with and without trees.
+- **`UNKNOWN_TREE_ID`**: `simulateBattle` throws `UnknownTreeIdError` (`code = 'UNKNOWN_TREE_ID'`)
+  for a rank above 0 on an id that is not a known main passive, a shared-branch node or a node of the
+  mon's own nation column. Every read path normalizes a saved tree first, so a battle never fights
+  with a silently ignored id.
 - `packages/shared/test/battle.test.ts` pins this with a **golden log snapshot**
   (`packages/shared/test/__snapshots__/battle.test.ts.snap`, test "golden log: pins the protocol"): if a
   deliberate formula change breaks the snapshot, the fixture must be updated **and** the battle protocol
@@ -178,28 +196,27 @@ and effects.
 
 | Situation | Challenger XP | Defender XP |
 |---|---|---|
-| Win vs. player | `30 + (diff > 0 ? 15 : 5) * diff`, `diff = clamp(oppLevel - myLevel, -3, 3)` (15–75) | 3 |
+| Win vs. player (Rival) | `max(10, 45 + (diff > 0 ? 15 : 5) * diff)`, `diff = clamp(oppLevel - myLevel, -5, 5)` (20–120) | 3 |
 | Loss vs. player | 10 | 8 |
-| Win vs. Wild Mon (bot) | 20 plus 15 per higher level (20-65, difference capped at 3) | — (bots never pay) |
-| Loss vs. Wild Mon (bot) | 10 | — |
+| Win vs. Trainer NPC (bot) | same formula with base 30 (10–105) | — (bots never pay) |
+| Win vs. Wild Mon (bot) | same formula with base 20 (10–95) | — |
+| Loss vs. any NPC (bot) | 10 | — |
 
-`isBot` is true whenever the opponent is a Wild Mon (see Matchmaking); bot battles never credit an opponent,
+`isBot` is true whenever the opponent is a Wild or Trainer NPC (see Matchmaking); bot battles never credit an opponent,
 since there is no real player behind the snapshot.
 
 The table above is the *pre-streak* amount `battle-request` passes to `settle_battle`; the actual
-XP credited (and reported in the response's `reward.xp`) is further multiplied by the challenger's
-win streak. Numbers and the `mons.win_streak` column live in `docs/design/progression.md`
+XP credited (and reported in the response's `reward.xp`) of a Rival win is further multiplied by the
+challenger's win streak; NPC battles get no multiplier and leave the streak unchanged. Numbers and the `mons.win_streak` column live in `docs/design/progression.md`
 Matchmaking and streaks; `packages/shared/src/battle/battle.ts:winStreakMultiplier` is the shared
 mirror of the multiplier `settle_battle` applies server-side (the SQL copy is authoritative).
 
 ## Cooldown and daily caps
 
 `packages/shared/src/battle/battle.ts:BATTLE_RULES`: `cooldownMs = 10 minutes`, `challengesPerDay = 50`,
-`defensesPerDay = 10`. `defensesPerDay` is its own constant, independent of `challengesPerDay` — raising
-the challenger-side cap does not change how many defenses pay XP per day. There is no separate cap on
-battle XP itself: challenger/defender rewards (see Rewards above) are not subject to the work-XP daily
-caps in `packages/shared/src/game/xp.ts`, and that remains true at the new 50/day challenge limit. These
-rules are enforced server-side, not just advisory client constants:
+`defensesPerDay = 10`. `defensesPerDay` is independent of `challengesPerDay`. Battle rewards are not subject to the
+work-XP daily caps in `packages/shared/src/game/xp.ts`. These rules are enforced server-side, not
+just advisory client constants:
 
 - `claim_battle_slot` (`supabase/migrations/20260904000000_init.sql`, superseded by
   `supabase/migrations/20260913010000_battle_limits.sql`) atomically rejects a challenge with
@@ -208,12 +225,11 @@ rules are enforced server-side, not just advisory client constants:
 - `settle_battle` pays the defender only while `xp_daily.battles_defended` for that UTC day is `< 10`; past
   the cap, a `battle_notifications` row is still inserted (the defender is told about every battle, even
   once defender-XP for the day is exhausted), but `opponent_xp_paid` is 0. This defender-side cap is
-  unrelated to `challengesPerDay` and was left unchanged.
+  unrelated to `challengesPerDay`.
 
 ## Matchmaking (`battle-request` Edge Function)
 
-Numbers below are `docs/design/progression.md`'s Matchmaking and streaks section; this is how they
-plug into the Edge Function.
+Numbers: `docs/design/progression.md` Matchmaking and streaks.
 
 `supabase/functions/battle-request/index.ts:findOpponent` queries `pick_opponent`
 (`supabase/migrations/20260904000000_init.sql`, windows updated in
@@ -236,38 +252,22 @@ challenger is always side `a`.
 
 ## Balance harness
 
-`packages/shared/test/balance.test.ts` simulates the matchups matchmaking can actually produce — cross-
-nation only, no mirror matches — at level 10 **and** level 30 (150 battles per ordered species pair
-at each), and asserts:
-
-- every species' win rate stays within **35–65 %** across all its cross-nation matchups, at both levels;
-- mean battle length is between **3 and 8 turns**;
-- timeouts (`reason !== 'ko'`) stay under **2 %** of battles at level 10, under **4 %** at level 30 (a
-  pre-existing, minor characteristic of the damage formula's level `scale` term, not something the
-  evolution multiplier introduces — see the test's own comment);
-- a **+3 level** advantage (`sparkit` L13 vs. `pebblet` L10, 600 battles) wins over **90 %** without
-  guaranteeing victory; this particular neutral matchup is not the overall level-gap target.
-
-If a rebalance is needed, the test's own comment says to adjust base stats in
-`packages/shared/src/game/species.ts` first, not loosen the thresholds.
-
-Stage-transition boundaries (L9/L11 and L24/L26) give the lower side a 10-25% win rate.
-Default-build conditional stance pairings target 40-60%; activation tests verify their build dependency.
-
-`packages/shared/test/fairBattles.test.ts` also checks every elemental pairing in both battle
-positions at levels 2/5/10/30/50, one-level Earth underdogs against Ottlet, and neutral Earth
-durability. The trained-bot matrix includes default bot talents and targets 50-82% overall wins;
-actual Wild/Trainer NPCs have empty trees and reduced stats, so they are easier. Their strength
-ordering and shared encounter distribution are verified separately.
+`packages/shared/test/balance.test.ts` simulates the matchups matchmaking can actually produce
+(cross-nation only, no mirror matches) and `packages/shared/test/fairBattles.test.ts` checks every
+elemental pairing in both positions; the targets are listed in `docs/design/progression.md` Balance targets. If a rebalance is needed, adjust
+base stats in `packages/shared/src/game/species.ts` or node numbers in
+`packages/shared/src/game/tree.ts` first, not the thresholds. Wild and Trainer NPCs have empty trees
+and reduced stats, so they are easier than the trained-bot matrix.
 
 ## Rollout and rollback
 
-Protocol 12 ships conditional stance formulas to desktop and Edge Functions. Deploy functions
-before the desktop release. No schema migration is needed; historical logs are never recomputed.
+Protocol 14 ships the rebuilt talent tree and its step engine to desktop and Edge Functions. Deploy
+functions before the desktop release. Stored trees are rebuilt on read for the new branches with all
+points unspent (client notice: `docs/design/ui-panels.md`). No schema migration is needed;
+historical logs are never recomputed.
 Rollback deploys the prior backend source and a higher corrective client release restoring prior
 behavior; retain all stored logs and published tags.
 
 ## History
 
-The frozen `docs/history/v1-design-2026-09-04.md` records the initial battle proposal.
-Current formulas and tests above supersede that historical proposal.
+The frozen `docs/history/v1-design-2026-09-04.md` records the initial proposal; this doc supersedes it.

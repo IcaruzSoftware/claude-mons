@@ -181,6 +181,8 @@ export interface BattlePlayMessage {
   isElite: boolean;
   /** the challenger's consecutive-win streak after this battle (0 on a loss) */
   winStreak: number;
+  /** local fallback after a failed `battle-request`: 0 XP, no cooldown or daily count used */
+  practice?: boolean;
 }
 
 /** One line in the battle history. */
@@ -192,6 +194,8 @@ export interface BattleSummary {
   isBot: boolean;
   isElite: boolean;
   winStreak: number;
+  /** see `BattlePlayMessage.practice` */
+  practice?: boolean;
   turns: number;
   reason: BattleResult['reason'];
   me: { speciesId: string; stage: Stage; level: number };
@@ -312,7 +316,24 @@ export interface UiSnapshot {
     /** local mirror of `mons.last_respec_at`, or null if never respecced; server-authoritative
      * value is re-synced from every successful `set-loadout` response. */
     lastRespecAt: string | null;
+    /** true when load-time normalization rebuilt a protocol-13 talent tree (its points are
+     * unspent again); cleared once the player saves a tree (docs/design/talent-tree.md). */
+    treeLegacyReset?: boolean;
   };
+}
+
+/**
+ * `battle:set-stance` / `battle:set-loadout` result. `ok: false` means rejected (locally, or a 4xx
+ * from `set-loadout`) and the previous loadout is restored. `unconfirmed` means saved on this
+ * device but the server did not answer (network error or 5xx); `warning` is the text to show.
+ */
+export interface LoadoutSaveResult {
+  ok: boolean;
+  error: string | null;
+  unconfirmed?: boolean;
+  warning?: string;
+  /** On a confirmed success: the loadout main now stores (the server's normalized one when online). */
+  loadout?: MonLoadout;
 }
 
 /** `battle:set-loadout` request payload; all fields optional, same as `SetLoadoutRequest`. */

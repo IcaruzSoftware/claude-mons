@@ -49,12 +49,15 @@ export interface SyncQueueDeps {
 const INTERVAL_MS = 60_000;
 const AFTER_STOP_MS = 5_000;
 const MAX_BUCKETS = 180;
+/** ingest-xp rejects bodies above 64 KiB; leave room for the request envelope */
+const MAX_BATCH_BYTES = 60_000;
 const BACKOFF_MIN_MS = 5_000;
 const BACKOFF_MAX_MS = 5 * 60_000;
 
 /**
  * Sends pending minute buckets to `ingest-xp` and creates the profile on first contact.
- * Idempotent per batch (same batch_id on retry), exponential backoff on failure.
+ * Idempotent per batch (a retry resends the identical frozen batch under the same batch_id),
+ * exponential backoff on failure.
  */
 export class SyncQueue extends EventEmitter<SyncEvents> {
   private timer: NodeJS.Timeout | null = null;
@@ -164,15 +167,23 @@ export class SyncQueue extends EventEmitter<SyncEvents> {
       if (Date.now() - s.ledger.lastSyncAt < 5 * 60_000) return;
     }
     this.inFlight = true;
+    let sending: MinuteBucket[] | null = null;
     try {
       await this.deps.api.ensureSession();
       if (!s.profile.userId || !s.profile.nickname) {
         const created = await this.ensureProfile({ nation: s.profile.nation });
         if (!created) return;
       }
-      const buckets = takePending(s.ledger.pending, MAX_BUCKETS);
+      // Resend the frozen batch (persisted, so this holds across restarts) so a duplicate reply
+      // never acknowledges buckets the server did not see. A batchId without frozen buckets comes
+      // from a state file written before `sentBuckets` existed: it is resent with rebuilt buckets.
       const batchId = s.ledger.batchId ?? randomUUID();
-      this.deps.state.update((st) => (st.ledger.batchId = batchId));
+      const buckets =
+        (s.ledger.batchId && s.ledger.sentBuckets) || takePending(s.ledger.pending, MAX_BUCKETS);
+      this.deps.state.update((st) => {
+        st.ledger.batchId = batchId;
+        st.ledger.sentBuckets = buckets;
+      });
       const localXpAtSend = this.deps.localXp();
       const req: IngestXpRequest = {
         batch_id: batchId,
@@ -180,24 +191,11 @@ export class SyncQueue extends EventEmitter<SyncEvents> {
         client_version: this.deps.clientVersion,
         buckets,
       };
+      sending = buckets;
       const res = await this.deps.api.invoke<IngestXpResponse>('ingest-xp', req);
       const now = this.deps.now ? this.deps.now() : Date.now();
-      this.deps.state.update((st) => {
-        // drop exactly the buckets we sent (by minute); new events may have landed since
-        const sent = new Set(buckets.map((b) => b.minute));
-        st.ledger.pending = st.ledger.pending.filter(
-          (b) => !sent.has(b.minute) || b.minute === minuteOf(now),
-        );
-        // the current minute may keep collecting: only subtract what was sent
-        for (const b of buckets) {
-          if (b.minute !== minuteOf(now)) continue;
-          const live = st.ledger.pending.find((p) => p.minute === b.minute);
-          if (live) subtractBucket(live, b);
-        }
-        st.ledger.pending = st.ledger.pending.filter((b) => !isEmpty(b));
-        st.ledger.batchId = null;
-        st.ledger.lastSyncAt = now;
-      });
+      this.drain(buckets);
+      this.deps.state.update((st) => (st.ledger.lastSyncAt = now));
       this.backoffMs = BACKOFF_MIN_MS;
       this.setStatus({ connected: true, lastSyncAt: now, lastError: null, needsNation: false });
       this.emit('synced', {
@@ -225,21 +223,33 @@ export class SyncQueue extends EventEmitter<SyncEvents> {
           st.profile.userId = null;
           st.profile.nickname = null;
         });
-      } else if (
-        err instanceof ApiCallError &&
-        err.status >= 400 &&
-        err.status < 500 &&
-        err.status !== 429
-      ) {
-        // the batch itself is bad; drop it rather than retry forever
+      } else if (err instanceof ApiCallError && (err.status === 400 || err.status === 413)) {
+        // the batch itself is bad; drop it rather than retry forever. Other 4xx (401 after sleep,
+        // gateway 403/404/408 during deploys) are transient: back off and resend the same batch.
         console.warn('ingest-xp rejected batch:', err.code, err.message);
-        this.deps.state.update((st) => (st.ledger.batchId = null));
+        if (sending) this.drain(sending);
       }
       this.setStatus({ connected: false, lastError: describe(err) });
       this.scheduleRetry();
     } finally {
       this.inFlight = false;
     }
+  }
+
+  /**
+   * Remove exactly the sent counts from `pending` and close the batch. Events that landed in a sent
+   * minute while the request was in flight stay pending.
+   */
+  private drain(sent: MinuteBucket[]): void {
+    this.deps.state.update((st) => {
+      for (const b of sent) {
+        const live = st.ledger.pending.find((p) => p.minute === b.minute);
+        if (live) subtractBucket(live, b);
+      }
+      st.ledger.pending = st.ledger.pending.filter((b) => !isEmpty(b));
+      st.ledger.batchId = null;
+      st.ledger.sentBuckets = null;
+    });
   }
 
   private scheduleRetry(): void {
@@ -253,15 +263,16 @@ export class SyncQueue extends EventEmitter<SyncEvents> {
   }
 }
 
+/** Oldest first, so the server's rolling-hour cap sees minutes in order; halved until it fits. */
 function takePending(pending: MinuteBucket[], max: number): MinuteBucket[] {
-  return [...pending]
+  let out = [...pending]
     .sort((a, b) => a.minute - b.minute)
-    .slice(-max)
+    .slice(0, max)
     .map((b) => ({ ...b, tools: { ...b.tools } }));
-}
-
-function minuteOf(ts: number): number {
-  return Math.floor(ts / 60000) * 60000;
+  while (out.length > 1 && Buffer.byteLength(JSON.stringify(out)) > MAX_BATCH_BYTES) {
+    out = out.slice(0, Math.ceil(out.length / 2));
+  }
+  return out;
 }
 
 function subtractBucket(live: MinuteBucket, sent: MinuteBucket): void {

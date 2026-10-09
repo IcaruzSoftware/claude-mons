@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
 import {
-  FOLLOW_THROUGH_MULT,
   NATION_INFO,
   NATION_PASSIVES,
   STANCES,
@@ -9,7 +8,10 @@ import {
   stanceBuildHint,
   type Move,
   SHARED_PASSIVE_NODES,
-  nationNodes,
+  TREE_BRANCHES,
+  nodesByBranch,
+  treeBranchLabel,
+  treeNodesFor,
   pointsAvailable,
   sharedPassivePoints,
   treeSpent,
@@ -17,12 +19,16 @@ import {
   treeChoiceConflict,
   type Nation,
   type Stance,
+  type TreeBranch,
+  type TreeCap,
   type TreeNode,
+  type TreeStep,
 } from '@claude-mons/shared';
 import { Glyph, type GlyphName } from '../../ui/Glyph.tsx';
 import {
   SKILL_MAP_SIZE,
   SKILL_MAP_ROOT,
+  SKILL_MAP_START,
   STANCE_SKILL_POSITIONS,
   STANCE_SKILL_LABEL,
   PASSIVE_SKILL_LABEL,
@@ -40,21 +46,6 @@ const ROLE_LABELS = {
   elemental: 'Elemental',
 };
 type SkillRole = keyof typeof ROLE_LABELS;
-const DEFENSIVE_PASSIVES = new Set([
-  'slow-leak',
-  'watershed',
-  'undercurrent',
-  'flashover',
-  'canopy-cover',
-  'mulch-layer',
-  'load-bearing',
-  'reinforced-crust',
-  'fog-bank',
-  'static-charge',
-  'kindled-recovery',
-  'flow-state',
-]);
-const TEMPO_PASSIVES = new Set(['slipstream', 'thermal-lift', 'quick-setup']);
 const SHARED_ROLES: Record<string, SkillRole> = {
   'stone-skin': 'defense',
   'deep-roots': 'defense',
@@ -72,41 +63,121 @@ const STANCE_ROLES: Record<Stance, SkillRole> = {
   bulwark: 'defense',
   gale: 'tempo',
 };
-function skillRole(node: TreeNode, moves: readonly Move[]): SkillRole {
-  if (node.tier === 8 || node.tier === 11) return 'defense';
-  if (node.tier === 9) return 'elemental';
-  if (node.stat) return node.stat === 'atk' ? 'offense' : node.stat === 'spd' ? 'tempo' : 'defense';
-  if (node.kind === 'moveUpgrade') {
-    const move = moves[node.slot - 1];
-    return move?.effect === 'drain' || move?.effect === 'shield_first'
-      ? 'defense'
-      : move?.type === 'nation'
-        ? 'elemental'
-        : 'offense';
+const BRANCH_ROLES: Record<TreeBranch, SkillRole> = {
+  bastion: 'defense',
+  strike: 'offense',
+  ward: 'defense',
+  tempo: 'tempo',
+  nation: 'elemental',
+};
+const skillRole = (node: TreeNode): SkillRole => BRANCH_ROLES[node.branch];
+const BRANCH_TAGS: Record<Exclude<TreeBranch, 'nation'>, string> = {
+  bastion: 'Passive',
+  strike: 'Offense',
+  ward: 'Defense',
+  tempo: 'Order',
+};
+/** Short names for the nation columns (talent-tree addendum section 5 themes); none repeats a
+ * node name. */
+const NATION_COLUMN_NAMES: Record<Nation, string> = {
+  fire: 'Heat',
+  water: 'Riptide',
+  earth: 'Steadfast',
+  air: 'Windward',
+};
+const STEP_TEXT: Record<TreeStep | 'aura', string> = {
+  turn_start: 'Turn start',
+  order: 'Turn order',
+  pick: 'Move pick',
+  act_pre: 'Before an action',
+  dodge: 'Dodge roll',
+  crit: 'Crit roll',
+  damage: 'Damage',
+  clamp: 'Damage taken',
+  lethal: 'Knockout',
+  hit: 'After a hit',
+  status: 'Status applied',
+  turn_end: 'Turn end',
+  aura: 'Always',
+};
+const CAP_TEXT: Record<TreeCap, string> = {
+  battle: 'Once per battle',
+  turn: 'Once per turn',
+  pending: 'Arms your next action',
+  state: 'While its condition holds',
+};
+const STATUS_NAMES = { burn: 'Burn', def_down: 'DEF-down' } as const;
+type StatusEffect = keyof typeof STATUS_NAMES;
+/** Shared nodes that read a Burn or DEF-down the mon applies itself (talent-tree spec 2.3/2.4).
+ * Each group needs one unlocked move with one of its effects. */
+const STATUS_NEEDS: Record<string, readonly (readonly StatusEffect[])[]> = {
+  'tempo:1': [['burn', 'def_down']],
+  'tempo:7': [['burn', 'def_down']],
+  'tempo:7:right': [['burn', 'def_down']],
+  'strike:3': [['burn', 'def_down']],
+  'strike:7:left': [['def_down']],
+  'strike:10:left': [['def_down']],
+  'strike:11': [['burn']],
+  'bastion:8': [['def_down']],
+};
+
+/** Fire nodes that never need a status: Forge reads its absence; Inferno, Crucible and Pyre Lord
+ * also work on a low foe. */
+const FIRE_ALWAYS = new Set(['nation.fire:6', 'nation.fire:7', 'nation.fire:10', 'nation.fire:12']);
+/** Water nodes with a second condition that needs no soak: Tidal Lock (a foe below 20%) and Deep
+ * Current (own HP at or below 15%). */
+const WATER_ALWAYS = new Set(['nation.water:6', 'nation.water:10']);
+/** Fire nodes that read only a Burn (Kindle or a Burn move), not heat from a DEF-down. */
+const FIRE_BURN_ONLY = new Set(['nation.fire:4', 'nation.fire:8', 'nation.fire:10:left']);
+
+/** Why `node` cannot fire with this mon's moves, or null when it can. Shared nodes check the
+ * unlocked move pool (with the level the missing move unlocks); fire and water column nodes need a
+ * nation-type move in the equipped loadout, since Kindle and Soak proc only on nation-type hits.
+ * Fire "heat" is any Burn or a DEF-down from the mon's own move (step D2 tuning). */
+export function treeNodeInertNote(
+  node: TreeNode,
+  movePool: readonly Move[],
+  level: number,
+  equippedMoves: readonly Move[],
+): string | null {
+  if (node.id === 'nation.fire:9') {
+    // Ignition Chain arms only on a status your move applies.
+    if (equippedMoves.some((m) => m.effect === 'burn' || m.effect === 'def_down')) return null;
+    return 'Needs a Burn or DEF-down move in your loadout to arm';
   }
-  if (node.capstone) {
-    const kind = node.capstone.kind;
-    if (kind === 'flatStat')
-      return node.capstone.stat === 'atk'
-        ? 'offense'
-        : node.capstone.stat === 'spd'
-          ? 'tempo'
-          : 'defense';
-    return ['flatStat', 'phoenix', 'hitFloor', 'damageCap'].includes(kind)
-      ? 'defense'
-      : ['chargeInstant', 'actFirstAfterDamage', 'defDownAlsoSpd'].includes(kind)
-        ? 'tempo'
-        : kind === 'critMultiplier'
-          ? 'elemental'
-          : 'offense';
+  if (
+    (node.nation === 'water' && !WATER_ALWAYS.has(node.id)) ||
+    (node.nation === 'fire' && !FIRE_ALWAYS.has(node.id))
+  ) {
+    const fire = node.nation === 'fire';
+    const burnCounts = fire && node.id !== 'nation.fire:3';
+    const defDownCounts = burnCounts && !FIRE_BURN_ONLY.has(node.id);
+    if (
+      equippedMoves.some(
+        (m) =>
+          m.type === 'nation' ||
+          (burnCounts && m.effect === 'burn') ||
+          (defDownCounts && m.effect === 'def_down'),
+      )
+    )
+      return null;
+    const extra = defDownCounts ? ', Burn or DEF-down' : burnCounts ? ' or Burn' : '';
+    return `Needs a nation-type${extra} move in your loadout to arm (${NATION_PASSIVES[node.nation].name})`;
   }
-  return node.passive === 'pressure-head'
-    ? 'elemental'
-    : DEFENSIVE_PASSIVES.has(node.passive ?? '')
-      ? 'defense'
-      : TEMPO_PASSIVES.has(node.passive ?? '')
-        ? 'tempo'
-        : 'offense';
+  const missing = (STATUS_NEEDS[node.id] ?? []).filter(
+    (group) =>
+      !movePool.some((m) => m.unlocksAt <= level && group.includes(m.effect as StatusEffect)),
+  );
+  if (!missing.length) return null;
+  return missing
+    .map((group) => {
+      const levels = movePool
+        .filter((m) => group.includes(m.effect as StatusEffect))
+        .map((m) => m.unlocksAt);
+      const at = levels.length ? Math.min(...levels) : null;
+      return `Needs a ${group.map((e) => STATUS_NAMES[e]).join(' or ')} move, ${at ? `unlocks at level ${at}` : "none in this species' move pool"}`;
+    })
+    .join(' · ');
 }
 
 /** Direct manipulation map: click buys, context click refunds, every mutation autosaves. */
@@ -120,6 +191,8 @@ export function SkillTree({
   stance,
   onStance,
   equippedMoves,
+  movePool,
+  notice,
   onReset,
   onClose,
   saving,
@@ -134,15 +207,19 @@ export function SkillTree({
   stance: Stance | null;
   onStance: (stance: Stance | null) => void;
   equippedMoves: readonly Move[];
+  /** The species' whole move pool, for the "unlocks at level N" inert marker. */
+  movePool: readonly Move[];
+  /** One-time line for the HUD, e.g. the legacy tree rebuild notice. */
+  notice: string | null;
   onReset: () => void;
   onClose: () => void;
   saving: boolean;
   error: string | null;
 }) {
-  const nodes = nationNodes(nation),
-    branches = [...new Set(nodes.map((n) => n.branch))];
+  const nodes = treeNodesFor(nation),
+    byBranch = nodesByBranch(nation);
   const position = (n: TreeNode) =>
-    skillMapPosition(branches.indexOf(n.branch), n.tier, n.choiceOffset);
+    skillMapPosition(TREE_BRANCHES.indexOf(n.branch), n.tier, n.choiceOffset);
   const spent = treeSpent(nation, ranks),
     remaining = pointsAvailable(level) - spent.nation;
   const mainPassive = equippedMainPassive(ranks);
@@ -160,7 +237,7 @@ export function SkillTree({
   const viewport = useRef<HTMLDivElement>(null),
     tooltip = useRef<HTMLDivElement>(null);
   const [view, setView] = useState({ x: 0, y: 0, zoom: 0.75 });
-  const [selected, setSelected] = useState('flow');
+  const [selected, setSelected] = useState('core');
   const [hover, setHover] = useState<{ id: string; x: number; y: number } | null>(null);
   const drag = useRef<{ x: number; y: number; originX: number; originY: number } | null>(null);
   useEffect(() => {
@@ -175,8 +252,8 @@ export function SkillTree({
         ),
       );
       setView({
-        x: (el.clientWidth - SKILL_MAP_SIZE.width * zoom) / 2,
-        y: (el.clientHeight - SKILL_MAP_SIZE.height * zoom) / 2,
+        x: el.clientWidth / 2 - SKILL_MAP_START.x * zoom,
+        y: el.clientHeight / 2 - SKILL_MAP_START.y * zoom,
         zoom,
       });
     };
@@ -257,17 +334,17 @@ export function SkillTree({
               ? 'Slot full'
               : state === 'Not enough points'
                 ? 'Need points'
-                : `${cost} pts`;
+                : `${cost} ${cost === 1 ? 'pt' : 'pts'}`;
   const glyph = (node: TreeNode): GlyphName =>
     node.kind === 'capstone'
       ? 'spark'
       : node.kind === 'passive'
         ? 'leaf'
-        : node.kind === 'moveUpgrade' || node.stat === 'atk'
+        : ['GUARANTEED_CRIT', 'PIERCE', 'MULTIPLIER', 'UNDODGE'].includes(node.effect)
           ? 'swords'
-          : node.stat === 'spd'
+          : ['ORDER', 'FIZZLE'].includes(node.effect)
             ? 'wind'
-            : node.stat === 'hp'
+            : ['HEAL', 'CLEANSE'].includes(node.effect)
               ? 'drop'
               : 'gear';
   const hoveredNode = nodes.find((node) => node.id === hover?.id);
@@ -278,7 +355,8 @@ export function SkillTree({
     hoveredPassive?.name ??
     (hoveredStance
       ? `${STANCE_INFO[hoveredStance].name} · ${STANCE_INFO[hoveredStance].passive}`
-      : `${NATION_INFO[nation].name} · Flow`);
+      : `${NATION_INFO[nation].name} · ${NATION_PASSIVES[nation].name}`);
+  const inertNote = (node: TreeNode) => treeNodeInertNote(node, movePool, level, equippedMoves);
   return (
     <div class={`skill-tree ${nation}`}>
       <div
@@ -346,8 +424,8 @@ export function SkillTree({
             height={SKILL_MAP_SIZE.height}
             aria-hidden="true"
           >
-            <circle class="map-orbit" cx={SKILL_MAP_ROOT.x} cy={SKILL_MAP_ROOT.y} r={180} />
-            <circle class="map-orbit" cx={SKILL_MAP_ROOT.x} cy={SKILL_MAP_ROOT.y} r={375} />
+            <circle class="map-orbit" cx={SKILL_MAP_ROOT.x} cy={SKILL_MAP_ROOT.y} r={290} />
+            <circle class="map-orbit" cx={SKILL_MAP_ROOT.x} cy={SKILL_MAP_ROOT.y} r={1060} />
             {nodes.flatMap((node) =>
               (node.prereqIds ?? [node.prereqId]).map((id) => {
                 const from = id ? position(nodes.find((n) => n.id === id)!) : SKILL_MAP_ROOT;
@@ -387,15 +465,16 @@ export function SkillTree({
           </div>
           <button
             data-role="elemental"
-            class={`map-node map-core${selected === 'flow' ? ' selected' : ''}`}
+            class={`map-node map-core${selected === 'core' ? ' selected' : ''}`}
             style={{ left: SKILL_MAP_ROOT.x, top: SKILL_MAP_ROOT.y }}
-            {...events('flow', SKILL_MAP_ROOT)}
+            {...events('core', SKILL_MAP_ROOT)}
             aria-label={`${NATION_INFO[nation].name} skill tree starting point`}
-            onClick={() => setSelected('flow')}
+            onClick={() => setSelected('core')}
           >
             <Glyph name="mon" size={32} />
             <span class="map-node-name">
-              {NATION_INFO[nation].name} · Flow<small>Elemental identity</small>
+              {NATION_INFO[nation].name} · {NATION_PASSIVES[nation].name}
+              <small>Nation trait</small>
             </span>
           </button>
           {STANCES.map((id) => {
@@ -440,19 +519,26 @@ export function SkillTree({
               </button>
             );
           })}
-          {branches.map((branch, i) => (
+          {TREE_BRANCHES.map((branch, i) => (
             <span
               class="map-branch-label"
               key={branch}
+              data-branch={branch}
               style={{ left: skillBranchLabelPosition(i).x, top: skillBranchLabelPosition(i).y }}
             >
-              {branch}
+              {branch === 'nation'
+                ? NATION_COLUMN_NAMES[nation]
+                : treeBranchLabel(byBranch[branch][0]!)}
+              <small>
+                {branch === 'nation' ? `${NATION_INFO[nation].name} column` : BRANCH_TAGS[branch]}
+              </small>
             </span>
           ))}
           {nodes.map((node) => {
             const p = position(node),
               state = stateOf(node),
-              role = skillRole(node, equippedMoves);
+              role = skillRole(node),
+              inert = inertNote(node);
             return (
               <button
                 key={node.id}
@@ -460,9 +546,17 @@ export function SkillTree({
                 data-node-id={node.id}
                 data-role={role}
                 data-state={state}
-                aria-label={`${node.name} · ${ROLE_LABELS[role]} · ${state}`}
+                data-inert={inert ? 'true' : undefined}
+                aria-label={`${node.name} · ${ROLE_LABELS[role]} · ${state}${
+                  inert
+                    ? ` · Inactive: ${inert
+                        .split(' · ')
+                        .map((part) => part.split(',')[0])
+                        .join(' · ')}`
+                    : ''
+                }`}
                 aria-pressed={state === 'Learned'}
-                class={`map-node${node.kind === 'passive' ? ' map-passive' : ''}${node.kind === 'capstone' ? ' map-ultimate' : ''}${classes(state)}${state === 'Available' ? ' available' : ''}${selected === node.id ? ' selected' : ''}`}
+                class={`map-node${node.kind === 'passive' ? ' map-passive' : ''}${node.kind === 'capstone' ? ' map-ultimate' : ''}${classes(state)}${state === 'Available' ? ' available' : ''}${inert ? ' inert' : ''}${selected === node.id ? ' selected' : ''}`}
                 style={{ left: p.x, top: p.y }}
                 onClick={() => {
                   setSelected(node.id);
@@ -482,20 +576,14 @@ export function SkillTree({
                 <Glyph name={glyph(node)} size={node.kind === 'capstone' ? 28 : 20} />
                 <span class="map-node-rank">{badge(state, node.cost)}</span>
                 <span class="map-node-name">
-                  {node.tier === 12 ? 'Ascendance' : node.name}
+                  {node.name}
                   <small>
                     {ROLE_LABELS[role]} ·{' '}
                     {node.kind === 'capstone'
-                      ? node.tier === 12
-                        ? 'Ascendance'
-                        : 'Ultimate'
+                      ? 'Capstone'
                       : node.kind === 'passive'
-                        ? node.branch === 'Flow'
-                          ? 'Combo'
-                          : 'Passive'
-                        : node.kind === 'moveUpgrade'
-                          ? 'Move'
-                          : 'Stat'}
+                        ? 'Passive'
+                        : 'Active'}
                   </small>
                 </span>
               </button>
@@ -555,9 +643,14 @@ export function SkillTree({
         </div>
       </div>
       <div class="map-hud" aria-live="polite">
-        <b>{remaining} skill points</b>
-        <span>{sharedRemaining} passive points</span>
+        <b>
+          {remaining} skill {remaining === 1 ? 'point' : 'points'}
+        </b>
+        <span>
+          {sharedRemaining} passive {sharedRemaining === 1 ? 'point' : 'points'}
+        </span>
         <small>{error ?? (saving ? 'Saving…' : 'Automatically saved')}</small>
+        {notice && <small>{notice}</small>}
       </div>
       <div class="map-menu">
         <button onClick={onReset}>Reset all</button>
@@ -581,7 +674,7 @@ export function SkillTree({
               <p>{(hoveredNode ?? hoveredPassive)!.description}</p>
               <p>
                 {hoveredNode
-                  ? ROLE_LABELS[skillRole(hoveredNode, equippedMoves)]
+                  ? ROLE_LABELS[skillRole(hoveredNode)]
                   : ROLE_LABELS[SHARED_ROLES[hoveredPassive!.id.slice(7)]!]}{' '}
                 ·{' '}
                 {hoveredNode
@@ -589,13 +682,22 @@ export function SkillTree({
                   : sharedState(hoveredPassive!.id, hoveredPassive!.cost)}
               </p>
               <p>
-                {(hoveredNode ?? hoveredPassive)!.cost} {hoveredNode ? 'skill' : 'passive'} points ·
-                Buy once
+                {(hoveredNode ?? hoveredPassive)!.cost} {hoveredNode ? 'skill' : 'passive'}{' '}
+                {(hoveredNode ?? hoveredPassive)!.cost === 1 ? 'point' : 'points'} · Buy once
                 {hoveredPassive ? ' · Level 10 · Only ONE main passive' : ''}
                 {hoveredNode?.prereqId
                   ? ` · Requires ${hoveredNode.prereqIds ? 'one of: ' : ''}${(hoveredNode.prereqIds ?? [hoveredNode.prereqId]).map((id) => nodes.find((n) => n.id === id)!.name).join(' / ')}`
                   : ''}
+                {hoveredNode?.choiceGroup ? ' · Choose one at this fork' : ''}
               </p>
+              {hoveredNode && (
+                <p>
+                  {STEP_TEXT[hoveredNode.trigger]} · {CAP_TEXT[hoveredNode.cap]}
+                </p>
+              )}
+              {hoveredNode && inertNote(hoveredNode) && (
+                <p class="map-inert-note">{inertNote(hoveredNode)}</p>
+              )}
             </>
           ) : hoveredStance ? (
             <>
@@ -609,9 +711,9 @@ export function SkillTree({
                 {NATION_PASSIVES[nation].name}: {NATION_PASSIVES[nation].description}
               </p>
               <p>
-                Learn Quick Setup to unlock combos. Open with Burn or Defense Down, then land a
-                different attack for +{Math.round((FOLLOW_THROUGH_MULT - 1) * 100)}% damage once per
-                battle.
+                Five paths start here: Bastion, Strike, Ward, Tempo and your{' '}
+                {NATION_INFO[nation].name} column, {NATION_COLUMN_NAMES[nation]}. All share one pool
+                of skill points.
               </p>
             </>
           )}

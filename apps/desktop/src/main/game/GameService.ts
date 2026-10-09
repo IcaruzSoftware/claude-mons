@@ -137,9 +137,16 @@ export class GameService extends EventEmitter<GameEvents> {
     this.afterXpChange(before, beforeLevel);
   }
 
-  /** Server acknowledged XP / stage (Phase 4). */
+  /** Server acknowledged XP / stage (Phase 4), and the server's daily streak when it sends one. */
   applyServerState(
-    server: { totalXp: number; speciesId: string | null; stage: Stage },
+    server: {
+      totalXp: number;
+      speciesId: string | null;
+      stage: Stage;
+      streakDays?: number;
+      /** the batch's ingest `streak` event: the server activated `day` (today if absent) */
+      streakEvent?: { day?: string };
+    },
     /** local XP at the moment the acknowledged batch was sent; events since then stay provisional */
     localXpAtSend?: number,
   ): void {
@@ -151,6 +158,12 @@ export class GameService extends EventEmitter<GameEvents> {
       s.progress.serverXp = server.totalXp;
       // local = server truth + whatever was earned after the batch left
       s.progress.localXp = server.totalXp + provisionalSince;
+      if (server.streakDays !== undefined) s.streak.streakDays = server.streakDays;
+      if (server.streakEvent) {
+        const day = server.streakEvent.day ?? dayKey(this.now());
+        const last = s.streak.lastActiveDay;
+        if (last === null || day > last) s.streak.lastActiveDay = day;
+      }
       if (server.speciesId && !s.pet.speciesId) {
         s.pet.speciesId = server.speciesId;
         // A pre-destined egg carries its species before it hatches; only stamp hatchedAt once the

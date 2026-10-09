@@ -2,10 +2,14 @@
 doc_type: reference
 purpose: "Read this when deploying the backend, debugging database issues, or contributing to Edge Functions."
 audience: agent
-last_verified: 2026-09-24
-last_verified_commit: 0c357ff
+last_verified: 2026-10-09
+last_verified_commit: 64b6667
 related_files:
   - supabase/migrations/20260904000000_init.sql
+  - supabase/migrations/20261009000000_apply_xp_per_day_and_concurrency.sql
+  - supabase/tests/apply-xp.sql
+  - supabase/migrations/20261009010000_win_streak_rivals_only.sql
+  - supabase/tests/win-streak.sql
   - supabase/migrations/20260913020000_progression_phase_a.sql
   - supabase/migrations/20260913050000_nations_exclude_orphan_battles.sql
   - supabase/config.toml
@@ -37,18 +41,22 @@ sync with `packages/shared/src/game/levels.ts` and `packages/shared/src/game/spe
 ```
 supabase/
   config.toml                             CLI config (anonymous sign-ins on, per-function verify_jwt)
-  migrations/                             7 files, applied in filename-timestamp order — see Migrations below
+  migrations/                             applied in filename-timestamp order — see Migrations below
+  tests/                                  hand-run SQL tests for disposable databases (fair-matchmaking.sql, apply-xp.sql, win-streak.sql)
   functions/
     deno.json                             import map (@supabase/supabase-js)
-    _shared/                              auth.ts db.ts http.ts monState.ts pipeline.ts queries.ts random.ts
+    _shared/                              auth.ts db.ts http.ts loadout.ts monState.ts pipeline.ts queries.ts random.ts
     _shared/pipeline.test.ts              deno test for the pure XP pipeline
+    _shared/loadout.test.ts               deno test for saved-tree normalization before battles
+    _shared/monState.test.ts              deno test for the normalized loadout and treeLegacyReset
+    ingest-xp/credit.test.ts              deno test for ingest-xp's load -> pipeline -> apply_xp retry loop
     _shared/game/                         generated, gitignored copy of packages/shared/src, made by `pnpm sync:shared` (do not edit; mirrors packages/shared/README.md 1:1)
     heartbeat/  create-profile/  ingest-xp/  battle-request/  set-loadout/
 ```
 
 ## Migrations
 
-Applied in filename-timestamp order by `npx supabase db push` / `npx supabase db reset`; the schema, RLS, views and RPCs referenced elsewhere in this doc are the result of applying all seven.
+Applied in filename-timestamp order by `npx supabase db push` / `npx supabase db reset`; the schema, RLS, views and RPCs referenced elsewhere in this doc are the result of applying all of them.
 
 | Migration | What it does |
 |---|---|
@@ -60,6 +68,8 @@ Applied in filename-timestamp order by `npx supabase db push` / `npx supabase db
 | `supabase/migrations/20260913040000_progression_phase_b.sql` | Docs-only: updates the `mons.loadout` column comment now that `moves` is settable via `set-loadout` (Phase B); deliberately no schema change and no backfill — a mon with no stored `moves` battles with `defaultLoadoutMoveIds(species, level)`, recomputed fresh every battle |
 | `supabase/migrations/20260913050000_nations_exclude_orphan_battles.sql` | Redefines `leaderboard_nations` so nation battle-win/loss tallies only count battles whose `challenger_id` still exists (a deleted account's snapshot previously kept inflating that nation's tally) and only credit the defender side when `opponent_id` is a real player (Wild Mons have `opponent_id` null) |
 | `supabase/migrations/20260924052834_nations_alltime_battles.sql` | Appends all-time `battles_won`/`battles_lost` columns to `leaderboard_nations` (same orphan-battle and defender-side rules as the weekly tallies, without the week filter); the weekly CTE and every previously exposed column are unchanged |
+| `supabase/migrations/20261009000000_apply_xp_per_day_and_concurrency.sql` | Replaces `apply_xp`: books each minute's work XP to its own UTC day in `xp_daily`; records `p_deltas.batch_id` in `ingest_batches` inside its own transaction (a known id returns `duplicate`); returns `conflict` without writing when `mons.work_xp` differs from `p_deltas.expect_work_xp`; pays a day's bonus only when `last_active_day` is before that day. Deploy it before the `ingest-xp` that sends `batch_id` |
+| `supabase/migrations/20261009010000_win_streak_rivals_only.sql` | Replaces `settle_battle`: `mons.win_streak` counts only Rival wins (+1 and multiplied), a Rival loss resets it to 0, and NPC battles (`opponent_id` null) leave it unchanged and are paid without the multiplier |
 
 ## Trust model
 
@@ -139,9 +149,9 @@ previous opponent's element, it uses `wildMon()` from another element. Online an
 Mons are 90% weaker and 10% stronger (at most +3 levels), with rewards based on the actual level
 difference. See `docs/design/progression.md` Matchmaking and streaks.
 
-Win streaks: `mons.win_streak` is +1 per challenger win (any opponent), reset to 0 on a loss.
-`settle_battle` multiplies the challenger's XP (already elite-doubled by `battle-request` if
-applicable) by `1 + 0.10 * min(new_streak, 5)` and returns the actual amount paid as
+Win streaks: `mons.win_streak` is +1 per Rival win and reset to 0 on a Rival loss; NPC (Wild or
+Trainer) battles leave it unchanged. For a Rival win `settle_battle` multiplies the challenger's XP
+by `1 + 0.10 * min(new_streak, 5)`; NPC battles are paid unmultiplied. It returns the actual amount paid as
 `challenger_xp_paid`, which is what `battle-request` reports in `reward.xp` — the pre-multiplier
 value computed in TypeScript is never what's actually credited or returned once a streak is active.
 
@@ -191,5 +201,8 @@ npx supabase stop
 ## Checks
 
 - `pnpm deno:check` syncs shared and type-checks every function under Deno.
-- `cd supabase/functions && deno test --allow-read _shared/pipeline.test.ts`.
+- `cd supabase/functions && deno test --allow-read _shared/ ingest-xp/credit.test.ts`.
+- SQL tests in `supabase/tests` run only by hand in an empty disposable database:
+  `psql -v ON_ERROR_STOP=1 -f supabase/tests/apply-xp.sql` (likewise `supabase/tests/win-streak.sql`).
+- CI runs only `pnpm deno:check`; the Deno tests in `supabase/functions/_shared` and `supabase/functions/ingest-xp/credit.test.ts` are run by hand.
 - `pnpm lint` also lints the function sources.

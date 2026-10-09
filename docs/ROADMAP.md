@@ -49,14 +49,6 @@ actual open work, grouped by urgency.
 
 ## Next (v1.1 features & cleanup)
 
-- **Talent tree tier-3/4 flavor effects.** The unique per-branch effects for tier-3/4 nodes
-  validate, cost points and gate on prereqs like every other node, but are not wired into
-  `simulateBattle` (`packages/shared/src/battle/battle.ts`) — only stat nodes, move-upgrade,
-  capstones and the shared passives affect a battle today. See
-  [`docs/design/talent-tree.md`](design/talent-tree.md) Implementation notes.
-- **Talent tree tier-2 rank-3 alternative.** The design's "rank 3 may instead grant +2pp
-  crit/dodge" choice isn't modeled — `{ [nodeId]: rank }` has no per-rank choice storage, so rank 3
-  always grants the stat bonus (`packages/shared/src/game/tree.ts`). Same doc as above.
 - **Rename the original 3 species moves.** Move slots 1–3 kept their pre-Phase-B
   `normal`/`typed`/`special` names (e.g. "Drip Tap"); slots 4–6 use the element-themed convention.
   Purely cosmetic, in `packages/shared/src/game/species.ts`.

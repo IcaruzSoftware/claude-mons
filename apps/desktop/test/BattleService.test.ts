@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { BATTLE_RULES, xpForLevel } from '@claude-mons/shared';
-import { BattleService } from '../src/main/game/BattleService.ts';
+import { BattleService, type BattleServiceDeps } from '../src/main/game/BattleService.ts';
 import { defaultState, type LocalState } from '../src/main/persistence/state.ts';
 
-function setup(opts: { hatched?: boolean; level?: number } = {}) {
+function setup(
+  opts: { hatched?: boolean; level?: number; backend?: BattleServiceDeps['backend'] } = {},
+) {
   const state = defaultState();
   state.profile.nation = 'fire';
   if (opts.hatched !== false) {
@@ -22,7 +24,7 @@ function setup(opts: { hatched?: boolean; level?: number } = {}) {
   const service = new BattleService({
     state: access,
     totalXp: () => xp,
-    backend: null,
+    backend: opts.backend ?? null,
     now: () => clock,
     random: () => 0.42,
   });
@@ -132,6 +134,44 @@ describe('BattleService (offline / wild mon)', () => {
     // next day resets the cap
     advance(24 * 3600_000);
     expect(service.remainingToday()).toBe(BATTLE_RULES.challengesPerDay);
+  });
+
+  it('leaves the win streak untouched in NPC battles (only rival wins count)', async () => {
+    const { service, state, advance } = setup({ level: 7 });
+    state.battles.streak = 3;
+    let won = false;
+    let lost = false;
+    for (let i = 0; i < 20 && !(won && lost); i++) {
+      const r = await service.request();
+      if (!r.ok) throw new Error('Expected a battle');
+      if (r.play.result.winner === 'a') won = true;
+      else lost = true;
+      expect(r.play.winStreak).toBe(3);
+      service.finish(r.play.id);
+      advance(BATTLE_RULES.cooldownMs + 1);
+    }
+    expect(won).toBe(true);
+    expect(state.battles.streak).toBe(3);
+  });
+
+  it('pays nothing for a fallback battle when the backend failed (the server never saw it)', async () => {
+    const { service } = setup({ level: 7, backend: { request: async () => null } });
+    const r = await service.request();
+    if (!r.ok) throw new Error('Expected a battle');
+    expect(r.play.isBot).toBe(true);
+    expect(r.play.reward).toBe(0);
+    expect(r.play.practice).toBe(true);
+  });
+
+  it('records a practice battle without using the cooldown or the daily count', async () => {
+    const { service, state } = setup({ level: 7, backend: { request: async () => null } });
+    const r = await service.request();
+    if (!r.ok) throw new Error('Expected a battle');
+    expect(state.battles.history[0]?.practice).toBe(true);
+    expect(service.cooldownUntil()).toBeNull();
+    expect(service.remainingToday()).toBe(BATTLE_RULES.challengesPerDay);
+    service.finish(r.play.id);
+    expect(service.isReady()).toBe(true);
   });
 
   it('refuses a second request while one battle is being played', async () => {

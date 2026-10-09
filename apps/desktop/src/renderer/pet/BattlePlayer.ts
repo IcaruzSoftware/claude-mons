@@ -1,5 +1,5 @@
-import { STANCE_INFO } from '@claude-mons/shared';
-import type { BattleAction, MonSnapshot, Side, Stimulus } from '@claude-mons/shared';
+import { STANCE_INFO, TREE_NODES } from '@claude-mons/shared';
+import type { BattleAction, MonSnapshot, Side, Stimulus, TreeTrigger } from '@claude-mons/shared';
 import type { AnimName } from '@claude-mons/sprites';
 import type { BattlePlayMessage } from '../../common/ipc.ts';
 
@@ -24,8 +24,21 @@ const ACTION_MS = 700;
 const HIT_DELAY_MS = 260;
 const OUTRO_MS = 2600;
 const POPUP_MS = 900;
+/** one talent-tree trigger line on the banner */
+const TRIGGER_MS = 650;
 /** gap between the two anchors in grid pixels (scaled by the sprite scale) */
 const GAP_GRID = 56;
+
+/** "Keel — crit cancelled": the node's name and what it did. `detail` comes from the node's
+ * `logText` ("Keel: crit cancelled"), so a leading "Name: " is not repeated. */
+export function treeTriggerText(trigger: TreeTrigger): string {
+  const name = TREE_NODES[trigger.node]?.name;
+  if (!name) return trigger.detail;
+  const detail = trigger.detail.startsWith(`${name}: `)
+    ? trigger.detail.slice(name.length + 2)
+    : trigger.detail;
+  return detail ? `${name} — ${detail}` : name;
+}
 
 interface Step {
   at: number;
@@ -88,20 +101,34 @@ export class BattlePlayer {
     let t = 0;
     this.steps.push({ at: 0, run: () => this.emit({ type: 'battle:play' }) });
     t = INTRO_MS;
+    // Each talent-tree trigger gets its own short banner step.
+    const showTriggers = (triggers: readonly TreeTrigger[] = []) => {
+      for (const trigger of triggers) {
+        const line = `${this.name(trigger.side)}'s ${treeTriggerText(trigger)}`;
+        this.steps.push({ at: t, run: () => (this.view.banner = line) });
+        t += TRIGGER_MS;
+      }
+    };
     for (const turn of this.msg.result.turns) {
+      showTriggers(turn.treeTriggers?.filter((x) => x.step !== 'turn_end'));
       for (const action of turn.actions) {
         const at = t;
         if (action.moveId === null) {
           // synthetic end-of-turn effect tick -- no attack animation,
           // just the banner + hp update.
           this.steps.push({ at, run: () => this.effectTick(action, at) });
-          t += ACTION_MS;
-          continue;
+        } else {
+          this.steps.push({ at, run: () => this.attack(action, at) });
+          this.steps.push({
+            at: at + HIT_DELAY_MS,
+            run: () => this.hit(action, at + HIT_DELAY_MS),
+          });
         }
-        this.steps.push({ at, run: () => this.attack(action, at) });
-        this.steps.push({ at: at + HIT_DELAY_MS, run: () => this.hit(action, at + HIT_DELAY_MS) });
         t += ACTION_MS;
+        // Tree rules can fire on a dodged action too (a dodge arms Riposte Step).
+        showTriggers(action.treeTriggers);
       }
+      showTriggers(turn.treeTriggers?.filter((x) => x.step === 'turn_end'));
     }
     const won = this.msg.result.winner === 'a';
     this.steps.push({
@@ -110,9 +137,11 @@ export class BattlePlayer {
         this.emit({ type: won ? 'battle:win' : 'battle:lose' });
         this.view.opponentAnim = won ? 'hurt' : 'happy';
         const streakNote = won && this.msg.winStreak > 1 ? ` (streak x${this.msg.winStreak})` : '';
+        // A practice battle (offline fallback) pays no XP: label it instead of "+0 XP".
+        const reward = this.msg.practice ? 'Practice' : `+${this.msg.reward} XP`;
         this.view.banner = won
-          ? `You win! +${this.msg.reward} XP${streakNote}`
-          : `${this.msg.opponent.nickname} wins. +${this.msg.reward} XP`;
+          ? `You win! ${reward}${this.msg.practice ? '' : streakNote}`
+          : `${this.msg.opponent.nickname} wins. ${reward}`;
       },
     });
     this.endAt = t + OUTRO_MS;
@@ -154,13 +183,16 @@ export class BattlePlayer {
     if (action.nationPassive === 'ignite') return `${actor}'s Fire trait ignites ${foe}`;
     if (action.nationPassive === 'soak') return `${actor}'s Water trait slows ${foe}`;
     if (action.comboTalent) return `${actor}'s ${action.comboTalent} combo!`;
+    // A knocked-out target takes no status (the engine skips it since step D2).
+    const statusLands = action.moveId === null || action.targetHpAfter > 0;
     switch (action.effect) {
       case 'burn':
+        if (!statusLands) return null;
         return action.moveId === null
           ? `${actor} takes burn damage`
           : `${actor}'s ${action.move} burns ${foe}`;
       case 'def_down':
-        return `${actor}'s ${action.move} weakens ${foe}'s defense`;
+        return statusLands ? `${actor}'s ${action.move} weakens ${foe}'s defense` : null;
       case 'drain':
         return `${actor}'s ${action.move} drains ${foe}`;
       case 'shield_first':

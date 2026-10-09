@@ -62,9 +62,12 @@ export interface MonState {
   treePoints: { spent: number; available: number };
   /** Shared-passive points spent vs. available (docs/design/talent-tree.md Shared passives). */
   sharedPassivePoints: { spent: number; available: number };
-  /** `mons.last_respec_at`, or null if this mon has never respecced; used to show the 7-day
-   * cooldown client-side (docs/design/talent-tree.md Respec). */
+  /** `mons.last_respec_at`, or null if this mon has never respecced. Respecs are free; this is a
+   * legacy timestamp only (docs/design/talent-tree.md Respec). */
   lastRespecAt: string | null;
+  /** true when the stored tree held ids the current roster drops, so `loadout.tree` above is the
+   * normalized (partly refunded) tree (docs/design/talent-tree.md). */
+  treeLegacyReset?: boolean;
   battle: {
     /** ISO timestamp when the next challenge is allowed, or null if allowed now */
     cooldownUntil: string | null;
@@ -104,7 +107,8 @@ export type IngestEvent =
   | { type: 'hatched'; speciesId: string }
   | { type: 'level_up'; from: number; to: number }
   | { type: 'evolved'; stage: Exclude<Stage, 'egg'> }
-  | { type: 'streak'; days: number; bonus: number };
+  /** `day`: the UTC day the batch activated (can be yesterday); absent from older servers */
+  | { type: 'streak'; days: number; bonus: number; day?: string };
 
 export interface BattleNotification {
   id: number;

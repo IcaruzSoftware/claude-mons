@@ -3,10 +3,11 @@
 // distinct, unlocked move ids) and `tree` (`{ [nodeId]: rank }`) via the shared pure
 // validateLoadout. Respecs are free and can be saved immediately.
 import type { SetLoadoutRequest, SetLoadoutResponse } from '../_shared/game/api.ts';
-import { validateLoadout } from '../_shared/game/game/progression.ts';
+import { validateLoadout, type MonLoadout } from '../_shared/game/game/progression.ts';
 import { requireUser } from '../_shared/auth.ts';
 import { serviceClient, type MonRow } from '../_shared/db.ts';
 import { error, json, readJson, serve } from '../_shared/http.ts';
+import { normalizedLoadout } from '../_shared/loadout.ts';
 import { loadPlayer, monStateFor } from '../_shared/queries.ts';
 
 serve(async (req) => {
@@ -28,7 +29,9 @@ serve(async (req) => {
   const mon = monData as MonRow | null;
   if (!mon) return error('NO_PROFILE', 'create a profile first', 409);
 
-  const existingTree = (mon.loadout as { tree?: Record<string, number> } | null)?.tree;
+  // A stored protocol-13 tree is normalized first, so it is never validated against or written back.
+  const stored = normalizedLoadout(player.nation, mon.loadout as MonLoadout | null);
+  const existingTree = stored?.tree;
   const result = validateLoadout(body, {
     level: mon.level,
     nation: player.nation,
@@ -39,7 +42,7 @@ serve(async (req) => {
     return error('BAD_REQUEST', result.reason, 400, { code: result.code, ...result.details });
   }
 
-  const nextLoadout = { ...(mon.loadout ?? {}), ...result.loadout };
+  const nextLoadout = { ...stored, ...result.loadout };
   const { data: updated, error: updateError } = await db
     .from('mons')
     .update({ loadout: nextLoadout })

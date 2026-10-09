@@ -4,7 +4,12 @@ import { BATTLE_RULES, statsAtLevel } from './game/battle/battle.ts';
 import type { MonLoadout } from './game/game/progression.ts';
 import { levelProgress } from './game/game/levels.ts';
 import { speciesOf, unlockedMoves } from './game/game/species.ts';
-import { pointsAvailable, sharedPassivePoints, treeSpent } from './game/game/tree.ts';
+import {
+  normalizeTree,
+  pointsAvailable,
+  sharedPassivePoints,
+  treeSpent,
+} from './game/game/tree.ts';
 import type { MonRow, XpDailyRow } from './db.ts';
 
 export function buildMonState(
@@ -32,11 +37,13 @@ export function buildMonState(
 
   // A mon's nation is always its species' nation (species rolled within the player's own nation at
   // hatch), so treeSpent can derive it from species_id without a join to `players` here.
-  const loadout = (mon.loadout ?? {}) as MonLoadout;
-  const spent =
-    mon.species_id !== null
-      ? treeSpent(speciesOf(mon.species_id).nation, loadout.tree)
-      : { nation: 0, shared: 0 };
+  const nation = mon.species_id !== null ? speciesOf(mon.species_id).nation : null;
+  const stored = (mon.loadout ?? {}) as MonLoadout;
+  // The stored tree is normalized on read (docs/design/talent-tree.md); legacyReset tells the
+  // client to show the "tree was rebuilt" notice.
+  const normalized = nation && stored.tree ? normalizeTree(nation, stored.tree) : null;
+  const loadout = normalized ? { ...stored, tree: normalized.tree } : stored;
+  const spent = nation ? treeSpent(nation, loadout.tree) : { nation: 0, shared: 0 };
 
   return {
     id: mon.id,
@@ -54,6 +61,7 @@ export function buildMonState(
     treePoints: { spent: spent.nation, available: pointsAvailable(progress.level) },
     sharedPassivePoints: { spent: spent.shared, available: sharedPassivePoints(progress.level) },
     lastRespecAt: mon.last_respec_at,
+    ...(normalized?.legacyReset ? { treeLegacyReset: true } : {}),
     battle: {
       cooldownUntil,
       remainingToday: Math.max(0, BATTLE_RULES.challengesPerDay - started),

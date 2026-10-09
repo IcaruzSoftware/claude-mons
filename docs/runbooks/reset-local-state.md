@@ -30,7 +30,7 @@ migrated forward automatically on load, one step at a time, in order:
 | 3 | `addWaterReminder` | `settings.waterReminder` (enabled, `intervalMin`) and the `water` section (`lastDoneAt`, `snoozedUntil`, `todayCount`, `todayKey`) |
 | 4 | `addProfileEmail` | `profile.email` (account linking; `null` while still anonymous-only) |
 | 5 | `addProgressionPhaseA` | `battles.streak` (win streak) and `loadout.stance` (prepared loadout, stance only) |
-| 6 | `addTalentTree` | `loadout.lastRespecAt` (local mirror of the server's 7-day respec cooldown) |
+| 6 | `addTalentTree` | `loadout.lastRespecAt` (local mirror of `mons.last_respec_at`; legacy timestamp, respecs are free) |
 | 7 | `addOpponentLoadoutSummary` | `battles.history[].opponent.loadout` on every stored `BattleSummary` (backfilled to `{}` for pre-existing entries) |
 
 A file from a newer app version (`schemaVersion` above 7) is loaded as-is rather than downgraded;

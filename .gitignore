@@ -38,3 +38,6 @@ pnpm-debug.log*
 Thumbs.db
 Desktop.ini
 *~
+
+# round-table design runs (local scratch)
+.round-table/

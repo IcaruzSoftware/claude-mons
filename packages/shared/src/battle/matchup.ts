@@ -82,8 +82,8 @@ export function toRoman(n: number): string {
   return out;
 }
 
-/** The nation branch (of the mon's own nation, never "Shared") a tree invests the most ranks in,
- * with the rank total. Ties break alphabetically by branch name for determinism. Null when the mon
+/** The tree branch (a shared branch or the own nation column, never "Shared") a tree invests the
+ * most ranks in, with the rank total. Ties break alphabetically by branch name for determinism. Null when the mon
  * has no tree at all (pre-Phase-C snapshot, or an intentionally empty tree). */
 export function topBranch(
   nation: Nation,

@@ -67,6 +67,14 @@ describe('buildAdoptedProfile', () => {
     current.profile.userId = 'another-account';
     expect(buildAdoptedProfile(current, res, 'trainer@example.com').battles.history).toEqual([]);
   });
+  it("carries the server's tree legacy reset into the local notice flag", () => {
+    const res = fakeResponse({ loadout: { stance: 'gale', tree: {} }, treeLegacyReset: true });
+    const patch = buildAdoptedProfile(defaultState(), res, 'trainer@example.com');
+    expect(patch.loadout.treeLegacyReset).toBe(true);
+    expect(buildAdoptedProfile(defaultState(), fakeResponse(), 'x@y.z').loadout).not.toHaveProperty(
+      'treeLegacyReset',
+    );
+  });
   it('writes the server profile fields and resets local progress from scratch', () => {
     const current = defaultState();
     current.pet.seed = 12345; // preserved: it's the behavior engine's per-install seed, not per-account

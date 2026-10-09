@@ -11,6 +11,7 @@ related_files:
   - docs/decisions/0017-force-x11-backend-on-linux.md
   - docs/decisions/0018-compact-window-and-fail-closed-click-through.md
   - docs/decisions/0021-codex-hook-integration.md
+  - docs/decisions/0022-talent-tree-v2.md
   - docs/runbooks/auth-email-config.md
   - docs/design/talent-tree.md
 ---
@@ -18,6 +19,41 @@ related_files:
 # Changelog
 
 All notable changes to claude-mons are documented here. See [Keep a Changelog](https://keepachangelog.com/) for format details.
+
+## [Unreleased]
+
+### Changed
+
+- Rebuild the talent tree (battle protocol 14): four shared branches (Bastion, Strike, Ward, Tempo)
+  plus one column for the mon's own nation, 17 single-purchase nodes each, all drawing on one
+  47-point pool. Nodes are event-triggered battle rules with readable battle-log entries instead of
+  stat bonuses; main passives and stances stay. See `docs/design/talent-tree.md`,
+  `docs/design/battle-steps.md` and ADR 0022.
+- Reset stored protocol-13 trees once on load: points are unspent and the Skill Tree shows a one-line
+  notice until the next save (also in the Battles panel). The server normalizes stored trees in
+  `set-loadout`, `battle-request` and the mon state returned to the client, so no data migration is needed for the tree. Old battle logs stay readable.
+- Count a win streak only for wins against real players; Wild and Trainer battles leave it unchanged
+  and no longer apply the streak multiplier (migration `20261009010000`).
+- Show fallback fights that never reached the server as "Practice" with no XP, cooldown or daily count.
+- Show "Max level" and the true hatch total in the XP caption of the hover card and tray.
+
+### Fixed
+
+- Book late previous-day minutes to their own UTC day in `xp_daily`, so daily caps, the daily bonus
+  and the leaderboard week stay correct (migration `20261009000000`).
+- Make `ingest-xp` batches idempotent inside `apply_xp`, guard against two devices applying a batch
+  against stale state, and pay a day's streak bonus once.
+- Resend a transiently failed or unacknowledged sync batch unchanged under its batch id (other 4xx,
+  5xx, network failures), drain a rejected (400/413) batch, send the oldest minutes first and split batches by size.
+- Adopt the server's daily streak locally and ignore a spooled event from an earlier day when
+  activating a day.
+- Restore the previous local loadout when the server rejects a save, and sync XP first so level-derived
+  budgets match the server.
+
+### Deployment
+
+- Apply migrations `20261009000000` and `20261009010000`, then deploy the Edge Functions, before
+  publishing the desktop release: the new `ingest-xp` depends on the `apply_xp` change.
 
 ## [0.2.12] - 2026-10-04
 
