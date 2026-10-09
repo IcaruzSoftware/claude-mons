@@ -1,11 +1,72 @@
-import { describe, expect, it } from 'vitest';
+import { writeFileSync } from 'node:fs';
+import { afterAll, describe, expect, it } from 'vitest';
 import { simulateBattle, snapshotFor } from '../src/battle/battle.ts';
 import type { EffectId } from '../src/battle/effects.ts';
 import { STANCES, type Stance } from '../src/game/progression.ts';
-import { SPECIES, unlockedMoves, type Move, type Species } from '../src/game/species.ts';
+import {
+  SPECIES,
+  defaultLoadoutMoveIds,
+  unlockedMoves,
+  type Move,
+  type Species,
+} from '../src/game/species.ts';
 import { stageForLevel } from '../src/game/levels.ts';
-import { nationNodes, pointsAvailable, type TreeNode } from '../src/game/tree.ts';
+import { TREE_NODES } from '../src/game/tree.ts';
 import { NATIONS, type Nation } from '../src/types.ts';
+import {
+  FORK_ROUTES,
+  GREEDY_MAX_IDS,
+  SHARED_BRANCHES,
+  SIX_ARCHETYPES,
+  archetypeLoadout as sixArchetypeLoadout,
+  branchOnlyTree,
+  hasStatusMove,
+  mirrorPair,
+  nodesByBranch,
+  pct,
+  roleLoadout,
+  route,
+  routeTo,
+  treeCost,
+  type BranchKey,
+  type PairStats,
+} from './balanceRoutes.ts';
+import { runDiagnostics } from './balanceDiagnostics.ts';
+
+/**
+ * Every gated check goes through `gate`: it records the value for the report and fails softly, so
+ * one run lists every failing bound. Set `BALANCE_REPORT=<file.md>` to also run the diagnostics
+ * (never failing) and write the full report (`BALANCE_P13_DIR=<dir>` adds the protocol-13 delta).
+ */
+interface Bound {
+  min?: number;
+  max?: number;
+  gt?: number;
+  lt?: number;
+}
+const GATES: Array<{ check: string; value: string; bound: string; pass: boolean }> = [];
+const T0 = performance.now();
+const turnsFmt = (x: number) => x.toFixed(2);
+function gate(check: string, value: number, b: Bound, detail = '', fmt = pct): void {
+  const pass =
+    (b.min === undefined || value >= b.min) &&
+    (b.gt === undefined || value > b.gt) &&
+    (b.max === undefined || value <= b.max) &&
+    (b.lt === undefined || value < b.lt);
+  const bound = [
+    b.min !== undefined && `>= ${fmt(b.min)}`,
+    b.gt !== undefined && `> ${fmt(b.gt)}`,
+    b.max !== undefined && `<= ${fmt(b.max)}`,
+    b.lt !== undefined && `< ${fmt(b.lt)}`,
+  ]
+    .filter(Boolean)
+    .join(', ');
+  GATES.push({ check, value: fmt(value), bound, pass });
+  expect
+    .soft(pass, `${check}: ${fmt(value)} (bound ${bound})${detail ? `\n${detail}` : ''}`)
+    .toBe(true);
+}
+const SLOW = 600_000;
 
 /**
  * Balance harness: cross-nation round-robin (only pairings matchmaking can produce). Every species
@@ -57,22 +118,12 @@ describe('balance (cross-nation round-robin)', () => {
           }
         }
       }
-      const report: string[] = [];
       for (const id of ids) {
         const rate = (wins[id] ?? 0) / (games[id] ?? 1);
-        report.push(`${id.padEnd(10)} ${(rate * 100).toFixed(1)}%`);
-        expect(
-          rate,
-          `${id} win rate ${(rate * 100).toFixed(1)}%\n${report.join('\n')}`,
-        ).toBeGreaterThanOrEqual(0.35);
-        expect(
-          rate,
-          `${id} win rate ${(rate * 100).toFixed(1)}%\n${report.join('\n')}`,
-        ).toBeLessThanOrEqual(0.65);
+        gate(`round-robin L${level}: ${id}`, rate, { min: 0.35, max: 0.65 });
       }
       const meanTurns = turns / total;
-      expect(meanTurns).toBeGreaterThanOrEqual(3);
-      expect(meanTurns).toBeLessThanOrEqual(8);
+      gate(`round-robin L${level}: mean turns`, meanTurns, { min: 3, max: 8 }, '', turnsFmt);
       // At level 30 the pre-existing `scale` term in simulateBattle (avgLevel-based, applied on top
       // of each mon's already level-scaled atk/def) pushes raw damage up slightly faster than HP
       // grows, so timeouts creep from ~1.5 % at L10 to ~2.8 % at L30 (measured over 48k battles).
@@ -80,7 +131,7 @@ describe('balance (cross-nation round-robin)', () => {
       // the evolution multiplier introduces (it cancels between two same-level, same-stage mons);
       // it was simply never exercised above level 10 before. Bounding at 4 % here catches a real
       // regression without failing on this known, minor level-30 characteristic.
-      expect(timeouts / total).toBeLessThan(level >= 30 ? 0.04 : 0.02);
+      gate(`round-robin L${level}: timeouts`, timeouts / total, { lt: level >= 30 ? 0.04 : 0.02 });
     });
   }
 
@@ -106,8 +157,7 @@ describe('balance (cross-nation round-robin)', () => {
       });
       if (simulateBattle(a, b, `lvl-${i}`).winner === 'a') wins++;
     }
-    expect(wins / N).toBeGreaterThan(0.9);
-    expect(wins / N).toBeLessThan(1);
+    gate('3-level advantage (L13 sparkit vs L10 pebblet)', wins / N, { gt: 0.9, lt: 1 });
   });
 
   // Boundary matchups either side of a stage transition (baby/teen at 10, teen/adult at 25).
@@ -118,7 +168,7 @@ describe('balance (cross-nation round-robin)', () => {
   it.each([
     ['L9 vs L11 (baby/teen boundary)', 9, 11] as const,
     ['L24 vs L26 (teen/adult boundary)', 24, 26] as const,
-  ])('%s: unprepared low side stays in the 10-25 %% upset band', (_label, lowLevel, highLevel) => {
+  ])('%s: unprepared low side stays in the 10-25 %% upset band', (label, lowLevel, highLevel) => {
     const BATTLES_PER_PAIR = 300; // 48 cross-nation ordered pairs * 300 = 14,400 battles
     let lowWins = 0;
     let total = 0;
@@ -148,10 +198,7 @@ describe('balance (cross-nation round-robin)', () => {
         }
       }
     }
-    const rate = lowWins / total;
-    const msg = `low-level side win rate ${(rate * 100).toFixed(1)}% (n=${total})`;
-    expect(rate, msg).toBeGreaterThanOrEqual(0.1);
-    expect(rate, msg).toBeLessThanOrEqual(0.25);
+    gate(`upset band ${label}: low side`, lowWins / total, { min: 0.1, max: 0.25 });
   });
 
   it('conditional stance pairings stay within 40-60% with default builds', () => {
@@ -194,15 +241,10 @@ describe('balance (cross-nation round-robin)', () => {
           total++;
         }
       }
-      const rate = wins / total;
-      expect(
-        rate,
-        `${counterStance} vs ${losingStance} side won ${(rate * 100).toFixed(1)}% (n=${total})`,
-      ).toBeGreaterThanOrEqual(0.4);
-      expect(
-        rate,
-        `${counterStance} vs ${losingStance} side won ${(rate * 100).toFixed(1)}% (n=${total})`,
-      ).toBeLessThanOrEqual(0.6);
+      gate(`stance pairing ${counterStance} vs ${losingStance}`, wins / total, {
+        min: 0.4,
+        max: 0.6,
+      });
     }
   });
 });
@@ -286,15 +328,10 @@ describe('balance (Phase B loadout archetype matrix)', () => {
       }
     }
     for (const stance of STANCES) {
-      const rate = wins[stance] / games[stance];
-      expect(
-        rate,
-        `${stance}: ${(100 * rate).toFixed(1)}% across the build matrix`,
-      ).toBeGreaterThanOrEqual(0.4);
-      expect(
-        rate,
-        `${stance}: ${(100 * rate).toFixed(1)}% across the build matrix`,
-      ).toBeLessThanOrEqual(0.6);
+      gate(`stance mirror matrix L30+L50: ${stance}`, wins[stance] / games[stance], {
+        min: 0.4,
+        max: 0.6,
+      });
     }
   });
 
@@ -347,100 +384,156 @@ describe('balance (Phase B loadout archetype matrix)', () => {
         }
       }
 
-      const speciesReport: string[] = [];
       for (const id of ids) {
         const rate = (speciesWins[id] ?? 0) / (speciesGames[id] ?? 1);
-        speciesReport.push(`${id.padEnd(10)} ${(rate * 100).toFixed(1)}%`);
-        expect(
-          rate,
-          `${id} win rate ${(rate * 100).toFixed(1)}% across all archetypes\n${speciesReport.join('\n')}`,
-        ).toBeGreaterThanOrEqual(0.35);
-        expect(
-          rate,
-          `${id} win rate ${(rate * 100).toFixed(1)}% across all archetypes\n${speciesReport.join('\n')}`,
-        ).toBeLessThanOrEqual(0.65);
+        gate(`archetype matrix L${level}: ${id}`, rate, { min: 0.35, max: 0.65 });
       }
-
-      const archReport = ARCHETYPES.map(
-        (arch) => `${arch.padEnd(6)} ${((archWins[arch] / archGames[arch]) * 100).toFixed(1)}%`,
-      ).join('\n');
       for (const arch of ARCHETYPES) {
-        const rate = archWins[arch] / archGames[arch];
-        expect(
-          rate,
-          `${arch} averaged ${(rate * 100).toFixed(1)}% across the matrix\n${archReport}`,
-        ).toBeLessThanOrEqual(0.6);
+        gate(`archetype matrix L${level}: ${arch}`, archWins[arch] / archGames[arch], {
+          max: 0.6,
+        });
       }
     });
   }
 });
 
-// --- Phase C: talent tree (docs/design/talent-tree.md Balance targets) --------------------------
+// --- Phase C: talent tree (talent-tree spec section 7, addendum section 8) ----------------------
 //
-// Two harnesses, both same-species mirror matches (isolates the tree's own effect from species/
-// nation asymmetry, which the other matrices above already cover):
-//  - a near-budget-maxed tree across four branches (47-point budget vs. 56 points total)
-//    vs. an empty tree, checking a measured 60-73% win rate for the maxed side;
-//  - one original branch maxed (14 points vs. the 27-point budget at level 30) vs. another
-//    original branch maxed, checking no branch
-//    dominates (40-60%).
+// Same-species mirror matches isolate the tree's own effect from species/nation asymmetry, which
+// the matrices above already cover. A same-species mirror is not exactly 50% for side 'a' even
+// with no tree (cinderpup mirrors at ~41-44% for 'a'), so the pair tests run both side orders
+// and average them (`mirrorPair`): the position bias contributes the same `+d/2` to both raw
+// rates and cancels, leaving the builds' own power delta.
 
-function nodesByBranch(nation: Nation): Map<string, TreeNode[]> {
-  const byBranch = new Map<string, TreeNode[]>();
-  for (const n of nationNodes(nation)) {
-    const arr = byBranch.get(n.branch) ?? [];
-    arr.push(n);
-    byBranch.set(n.branch, arr);
-  }
-  for (const arr of byBranch.values()) arr.sort((a, b) => a.tier - b.tier);
-  return byBranch;
+const ALL_SPECIES = Object.keys(SPECIES);
+const nationSpecies = (nation: Nation) =>
+  ALL_SPECIES.filter((id) => SPECIES[id]!.nation === nation);
+const treeOf = (tree: Record<string, number>) => () => ({ tree });
+/** Capstone matchups that are inert by construction (addendum 8.2), listed in the report. */
+const INERT: string[] = [];
+
+/** Branch X against branch Y on every species of `nation`, `n` seeds per side order. The seed
+ * names X first when X is side 'a', so swapping X and Y reuses the same battles. */
+function branchPowerRate(
+  nation: Nation,
+  x: string,
+  y: string,
+  level: number,
+  n: number,
+  xTree: Record<string, number> = branchOnlyTree(x as BranchKey, level),
+  yTree: Record<string, number> = branchOnlyTree(y as BranchKey, level),
+  prefix = 'tree-branch',
+): PairStats {
+  return mirrorPair(
+    treeOf(xTree),
+    treeOf(yTree),
+    nationSpecies(nation),
+    level,
+    n,
+    (xFirst, sp, k) =>
+      xFirst
+        ? `${prefix}-${nation}-${x}-${y}-${sp}-${k}`
+        : `${prefix}-${nation}-${y}-${x}-${sp}-${k}`,
+  );
 }
 
-/** Spends ranks tier-by-tier across every branch (so prereqs are always satisfied by
- * construction) until `level`'s budget runs out. At level 50 (47 points vs. 56 to max all 4
- * branches) this lands a few points short of every branch's capstone, same as any real spend. */
-function greedyMaxTree(nation: Nation, level: number): Record<string, number> {
-  const branches = [...nodesByBranch(nation).values()];
-  const ranks: Record<string, number> = {};
-  let remaining = pointsAvailable(level);
-  for (let tier = 1; tier <= 6; tier++) {
-    for (const branchNodes of branches) {
-      const node = branchNodes.find((n) => n.tier === tier);
-      if (!node) continue;
-      if (node.prereqId && (ranks[node.prereqId] ?? 0) < 1) continue;
-      const affordable = Math.min(node.maxRank, Math.floor(remaining / node.cost));
-      if (affordable > 0) {
-        ranks[node.id] = affordable;
-        remaining -= affordable * node.cost;
-      }
-    }
-  }
-  return ranks;
+/** Addendum 8.2: a PIERCE capstone logs only when it bypasses a tree defense (only the `ward`
+ * route holds one it meets), Tailwind Crown only against a foe whose default loadout applies a
+ * status; every other capstone is eligible everywhere. */
+function capstoneEligible(capstone: string, speciesId: string, shared: string, level: number) {
+  if (capstone === 'nation.fire:6' || capstone === 'nation.water:6') return shared === 'ward';
+  if (capstone === 'nation.air:6')
+    return hasStatusMove(defaultLoadoutMoveIds(SPECIES[speciesId]!, level), speciesId);
+  return true;
 }
 
-/** Spends only in one path, never exceeding the real level budget. */
-function branchOnlyTree(nation: Nation, branch: string, level: number): Record<string, number> {
-  const nodes = (nodesByBranch(nation).get(branch) ?? [])
-    .filter((n) => !n.choiceOffset)
-    .sort((a, b) => a.tier - b.tier);
-  const ranks: Record<string, number> = {};
-  let remaining = pointsAvailable(level);
-  for (const node of nodes) {
-    if (node.cost > remaining) break;
-    ranks[node.id] = 1;
-    remaining -= node.cost;
+/** Capstone fire rate (addendum 8.2): in every eligible matchup (species, shared route) the
+ * capstone writes an entry in at least 15% of the battles. X of `s` owns the capstone. */
+function capstoneFireGate(capstone: string, s: PairStats, shared: string, level: number) {
+  for (const [sp, fired] of s.xFired) {
+    const rate = (fired.get(capstone) ?? 0) / s.perSpecies.get(sp)!.n;
+    const label = `capstone fire rate L${level}: ${capstone} (${sp} vs ${shared})`;
+    if (capstoneEligible(capstone, sp, shared, level)) gate(label, rate, { min: 0.15 });
+    else INERT.push(`${label}: ${pct(rate)}, inert by matchup`);
   }
-  return ranks;
+}
+
+/** Addendum 8.1: the battles of the nation-column pairs meet the round-robin timeout bound. These
+ * are same-nation fights, which only happen in practice or training, and earth is the tank nation
+ * (a tree-less earth mirror already lasts about 9.5 turns), so their mean turns are not gated (user
+ * decision, step D2); the cross-nation round-robins keep the 3-8 turn bound. */
+function nationTimeoutGate(label: string, runs: PairStats[]) {
+  const battles = runs.reduce((s, r) => s + r.battles, 0);
+  gate(`${label}: timeouts`, runs.reduce((s, r) => s + r.timeouts, 0) / battles, { lt: 0.04 });
 }
 
 describe('balance (Phase C talent tree)', () => {
+  // Approved exception (step D2): `tempo:1` and `tempo:9` are inert in every default loadout (no
+  // slot-1 status, no Charge move), so the firing diagnostic skips them; here they must fire with
+  // a loadout that enables them, against an empty tree.
+  it('loadout-keyed nodes fire with a loadout that enables them', () => {
+    const cases = [
+      {
+        node: 'tempo:1',
+        level: 30,
+        species: ALL_SPECIES,
+        moves: (sp: string) => roleLoadout(sp, 30, [['burn', 'def_down'], ['priority']]),
+      },
+      {
+        node: 'tempo:9',
+        level: 50,
+        species: ALL_SPECIES.filter((sp) =>
+          unlockedMoves(SPECIES[sp]!, 50).some((m) => m.effect === 'charge'),
+        ),
+        moves: (sp: string) => roleLoadout(sp, 50, [['priority'], ['charge']]),
+      },
+    ];
+    for (const c of cases) {
+      const own = routeTo(TREE_NODES[c.node]!);
+      const s = mirrorPair(
+        (sp) => ({ tree: own, moves: c.moves(sp) }),
+        () => ({}),
+        c.species,
+        c.level,
+        50,
+        (x, sp, k) => `loadout-keyed-${c.node}-${x}-${sp}-${k}`,
+      );
+      let fired = 0;
+      for (const m of s.xFired.values()) fired += m.get(c.node) ?? 0;
+      // The dead-node line of the firing diagnostic (spec section 7: below 5% needs a fallback).
+      gate(`loadout-keyed fire rate L${c.level}: ${c.node}`, fired / s.battles, { min: 0.05 });
+    }
+  });
+
+  // Step D2 (user request): the Tempo Lock archetype must not dominate. Both sides use their section
+  // 6 archetype (tree fitted to the budget, role loadout, stance); target <= 60%, gated at 65%.
+  it('the Tempo Lock archetype stays at or below 65% against the other five archetypes', () => {
+    const lock = SIX_ARCHETYPES.find((a) => a.name === 'Tempo Lock')!;
+    let wins = 0;
+    let battles = 0;
+    for (const level of [30, 50])
+      for (const foe of SIX_ARCHETYPES.filter((a) => a !== lock)) {
+        const s = mirrorPair(
+          (sp) => sixArchetypeLoadout(lock, sp, level),
+          (sp) => sixArchetypeLoadout(foe, sp, level),
+          ALL_SPECIES,
+          level,
+          20,
+          (x, sp, k) => `tempo-lock-gate-${level}-${foe.name}-${x}-${sp}-${k}`,
+        );
+        wins += s.rate * s.battles;
+        battles += s.battles;
+      }
+    gate('Tempo Lock archetype vs the other five, L30+L50', wins / battles, { max: 0.65 });
+  });
+
   it('a near-budget-maxed four-branch tree beats an empty tree 60-73% at level 50', () => {
+    const maxedTree = Object.fromEntries(GREEDY_MAX_IDS.map((id) => [id, 1]));
+    expect(treeCost(maxedTree)).toBe(46);
     let wins = 0;
     let total = 0;
     const N = 200;
-    for (const speciesId of Object.keys(SPECIES)) {
-      const nation = SPECIES[speciesId]!.nation;
-      const maxedTree = greedyMaxTree(nation, 50);
+    for (const speciesId of ALL_SPECIES) {
       for (let i = 0; i < N; i++) {
         const a = snapshotFor({
           monId: 'a',
@@ -463,152 +556,212 @@ describe('balance (Phase C talent tree)', () => {
         total++;
       }
     }
-    const rate = wins / total;
-    expect(
-      rate,
-      `maxed-tree win rate ${(rate * 100).toFixed(1)}% (n=${total})`,
-    ).toBeGreaterThanOrEqual(0.6);
-    expect(
-      rate,
-      `maxed-tree win rate ${(rate * 100).toFixed(1)}% (n=${total})`,
-    ).toBeLessThanOrEqual(0.73);
+    gate('maxed four-branch tree (fixed 46 points) vs empty L50', wins / total, {
+      min: 0.6,
+      max: 0.73,
+    });
   });
 
-  // A same-species mirror match's win rate for side 'a' is not exactly 50% for every species even
-  // with *no* tree at all (verified directly: e.g. cinderpup mirrors at ~41-44% for 'a' with an
-  // empty tree on both sides, vs. ~50% for sparkit/dripple/puffle) -- a pre-existing, Phase-B-era
-  // characteristic of some species' specific move pool/finisher-threshold interactions, not
-  // something this phase introduces or should fix. Measuring a single ordered direction (X-tree as
-  // 'a' vs Y-tree as 'b') would conflate that per-species position bias with the tree's own power
-  // difference. Running *both* orderings and averaging `rateXasA` with `1 - rateYasA` cancels the
-  // position bias (it contributes the same `+d/2` to both raw rates) and isolates the branches'
-  // own power delta -- see the branch-vs-branch matrix's own comment below for the derivation.
-  function branchPowerRate(
-    nation: Nation,
-    branchX: string,
-    branchY: string,
-    speciesIds: string[],
-    N: number,
-    level: number,
-  ): number {
-    const treeX = branchOnlyTree(nation, branchX, level);
-    const treeY = branchOnlyTree(nation, branchY, level);
-    const rateFor = (treeA: Record<string, number>, treeB: Record<string, number>, tag: string) => {
-      let wins = 0;
-      let total = 0;
-      for (const speciesId of speciesIds) {
-        for (let k = 0; k < N; k++) {
-          const a = snapshotFor({
-            monId: 'a',
-            playerId: 'a',
-            nickname: 'a',
-            speciesId,
-            stage: 'adult',
-            level,
-            loadout: { tree: treeA },
-          });
-          const b = snapshotFor({
-            monId: 'b',
-            playerId: 'b',
-            nickname: 'b',
-            speciesId,
-            stage: 'adult',
-            level,
-            loadout: { tree: treeB },
-          });
-          if (simulateBattle(a, b, `tree-branch-${tag}-${speciesId}-${k}`).winner === 'a') wins++;
-          total++;
-        }
-      }
-      return wins / total;
-    };
-    const xAsA = rateFor(treeX, treeY, `${nation}-${branchX}-${branchY}`);
-    const yAsA = rateFor(treeY, treeX, `${nation}-${branchY}-${branchX}`);
-    return (xAsA + (1 - yAsA)) / 2;
-  }
-
-  it('offense, defense and tempo mastery alternatives remain within 40-60% at level 50', () => {
-    const roles = ['offense', 'defense', 'tempo'] as const;
-    for (const nation of NATIONS)
-      for (const branch of nodesByBranch(nation).keys()) {
-        const nodes = nationNodes(nation).filter((n) => n.branch === branch);
-        const route = (role: (typeof roles)[number]) =>
-          Object.fromEntries(
-            Array.from({ length: 12 }, (_, index) => {
-              const options = nodes.filter((n) => n.tier === index + 1);
-              const node =
-                options.length === 1
-                  ? options[0]!
-                  : options.find((n) =>
-                      role === 'offense'
-                        ? n.stat === 'atk'
-                        : role === 'tempo'
-                          ? n.stat === 'spd'
-                          : n.stat === 'hp' || n.stat === 'def',
-                    )!;
-              return [node.id, 1];
-            }),
-          );
+  it(
+    'offense, defense and tempo mastery alternatives remain within 40-60% at level 50',
+    () => {
+      // Spec section 7: per shared branch, the centre, left and right 47-point routes (the role
+      // labels replace offense/defense/tempo). The nation columns' own mirrors are a diagnostic.
+      const roles = ['centre', 'left', 'right'] as const;
+      for (const key of SHARED_BRANCHES)
         for (let i = 0; i < roles.length; i++)
           for (let j = i + 1; j < roles.length; j++) {
-            let wins = 0,
-              total = 0;
-            for (const species of Object.values(SPECIES).filter((s) => s.nation === nation)) {
-              const input = {
-                monId: 'mirror',
-                playerId: 'mirror',
-                nickname: 'Mirror',
-                speciesId: species.id,
-                stage: 'adult' as const,
-                level: 50,
-              };
-              const x = snapshotFor({ ...input, loadout: { tree: route(roles[i]!) } }),
-                y = snapshotFor({ ...input, loadout: { tree: route(roles[j]!) } });
-              for (let seed = 0; seed < 100; seed++) {
-                const tag = `fork-${nation}-${branch}-${i}-${j}-${species.id}-${seed}`;
-                wins +=
-                  Number(simulateBattle(x, y, tag).winner === 'a') +
-                  Number(simulateBattle(y, x, tag).winner === 'b');
-                total += 2;
-              }
-            }
-            const rate = wins / total;
-            expect(rate, `${nation} ${branch} ${roles[i]} vs ${roles[j]}`).toBeGreaterThanOrEqual(
-              0.4,
+            const s = mirrorPair(
+              treeOf(route(key, FORK_ROUTES[roles[i]!])),
+              treeOf(route(key, FORK_ROUTES[roles[j]!])),
+              ALL_SPECIES,
+              50,
+              100,
+              (_xFirst, sp, seed) => `fork-${key}-${i}-${j}-${sp}-${seed}`,
             );
-            expect(rate).toBeLessThanOrEqual(0.6);
+            // Step D2: same-species mirror, 38-62% like the branch pairs (worst after tuning 39.0%).
+            gate(`fork L50 ${key}: ${roles[i]} vs ${roles[j]}`, s.rate, { min: 0.38, max: 0.62 });
           }
+      // Addendum 8.2 (c): each nation fork alternative in the full route against every shared
+      // centre route.
+      const variants = [{ 7: 'left' }, { 7: 'right' }, { 10: 'left' }, { 10: 'right' }] as const;
+      for (const nation of NATIONS) {
+        const key: BranchKey = `nation.${nation}`;
+        const runs: PairStats[] = [];
+        for (const v of variants) {
+          const [tier, side] = Object.entries(v)[0]!;
+          for (const shared of SHARED_BRANCHES) {
+            const s = branchPowerRate(
+              nation,
+              `${key}:${tier}:${side}`,
+              shared,
+              50,
+              100,
+              route(key, v),
+              route(shared),
+              'fork-band',
+            );
+            // Step D2: same-nation fork mirrors (practice/training only) get 36-64%; after tuning
+            // the worst values were 37.5% and 63.8% (about two standard errors at 800 battles).
+            gate(`fork band L50 ${key} with :${tier}:${side} vs ${shared}`, s.rate, {
+              min: 0.36,
+              max: 0.64,
+            });
+            runs.push(s);
+          }
+        }
+        // Addendum 8.1-8.3: the same timeout and mean-turn bounds on these battles.
+        nationTimeoutGate(`fork band L50 ${key}`, runs);
       }
-  });
+    },
+    SLOW,
+  );
 
   it.each([30, 50])(
     "no single branch dominates its nation's other branches at level %i",
     (level) => {
-      const N = 200;
       for (const nation of NATIONS) {
-        // Flow is a setup branch; evaluate it with a prepared loadout separately, not a default
-        // loadout that may never use three distinct moves before the battle ends.
-        const branches = [...nodesByBranch(nation).keys()].filter((branch) => branch !== 'Flow');
-        const speciesIds = Object.keys(SPECIES).filter((id) => SPECIES[id]!.nation === nation);
-        const rates: Array<{ pair: string; rate: number }> = [];
-        for (let i = 0; i < branches.length; i++) {
-          for (let j = i + 1; j < branches.length; j++) {
-            const rate = branchPowerRate(nation, branches[i]!, branches[j]!, speciesIds, N, level);
-            rates.push({ pair: `${branches[i]} vs ${branches[j]}`, rate });
+        const keys = [...nodesByBranch(nation).keys()];
+        const nationKey = `nation.${nation}`;
+        const nationRuns: PairStats[] = [];
+        for (let i = 0; i < keys.length; i++) {
+          for (let j = i + 1; j < keys.length; j++) {
+            // The nation column is X so its capstone firings are counted; the band is symmetric.
+            const [x, y] = keys[j] === nationKey ? [keys[j]!, keys[i]!] : [keys[i]!, keys[j]!];
+            const s = branchPowerRate(nation, x, y, level, 200);
+            // Step D2: same-nation mirrors get 38-62%; after tuning the worst values were 38.1%
+            // and 60.5% (within one standard error of the old 40-60% band).
+            gate(`branch pair L${level} ${nation}: ${x} vs ${y}`, s.rate, { min: 0.38, max: 0.62 });
+            if (x !== nationKey) continue;
+            nationRuns.push(s);
+            // Addendum 8.2 (b): the full centre route is the tier-12 capstone band.
+            if (level === 50) capstoneFireGate(`${nationKey}:12`, s, y, level);
           }
         }
-        const report = rates.map((r) => `${r.pair}: ${(r.rate * 100).toFixed(1)}%`).join('\n');
-        for (const { pair, rate } of rates) {
-          expect(
-            rate,
-            `${nation} ${pair} win rate ${(rate * 100).toFixed(1)}%\n${report}`,
-          ).toBeGreaterThanOrEqual(0.4);
-          expect(
-            rate,
-            `${nation} ${pair} win rate ${(rate * 100).toFixed(1)}%\n${report}`,
-          ).toBeLessThanOrEqual(0.6);
-        }
+        nationTimeoutGate(`branch pair L${level} ${nationKey} pairs`, nationRuns);
       }
     },
+    SLOW,
   );
+
+  it(
+    'nation tier-6 capstone routes stay within 40-60% of each shared tier-6 route at level 17',
+    () => {
+      for (const nation of NATIONS) {
+        const key: BranchKey = `nation.${nation}`;
+        const runs: PairStats[] = [];
+        for (const shared of SHARED_BRANCHES) {
+          const s = branchPowerRate(
+            nation,
+            key,
+            shared,
+            17,
+            200,
+            route(key, {}, 6),
+            route(shared, {}, 6),
+            'band-a',
+          );
+          gate(`capstone band L17 ${key}:1-6 vs ${shared}:1-6`, s.rate, { min: 0.4, max: 0.6 });
+          capstoneFireGate(`${key}:6`, s, shared, 17);
+          runs.push(s);
+        }
+        nationTimeoutGate(`capstone band L17 ${key}`, runs);
+      }
+    },
+    SLOW,
+  );
+});
+
+// --- Nation round-robin (addendum 8.1) -----------------------------------------------------------
+// The tree-less round-robin above never simulates a `nation.*` node; this copy gives each side its
+// nation column's centre route (23 points at level 30, 47 at level 50).
+describe('balance (nation round-robin)', () => {
+  const ids = Object.keys(SPECIES);
+  const BATTLES_PER_PAIR = 150;
+  for (const level of [30, 50] as const) {
+    it(
+      `keeps every species within 35-65 % with its nation column at level ${level}`,
+      () => {
+        const wins: Record<string, number> = {};
+        const games: Record<string, number> = {};
+        let turns = 0;
+        let timeouts = 0;
+        let total = 0;
+        const side = (id: string, who: 'a' | 'b') =>
+          snapshotFor({
+            monId: who,
+            playerId: who,
+            nickname: who,
+            speciesId: id,
+            stage: 'adult',
+            level,
+            loadout: { tree: branchOnlyTree(`nation.${SPECIES[id]!.nation}`, level) },
+          });
+        for (const idA of ids) {
+          for (const idB of ids) {
+            if (idA === idB || SPECIES[idA]!.nation === SPECIES[idB]!.nation) continue;
+            const a = side(idA, 'a');
+            const b = side(idB, 'b');
+            for (let i = 0; i < BATTLES_PER_PAIR; i++) {
+              const r = simulateBattle(a, b, `nation-rr-${level}-${idA}-${idB}-${i}`);
+              total++;
+              turns += r.turns.length;
+              if (r.reason !== 'ko') timeouts++;
+              const winner = r.winner === 'a' ? idA : idB;
+              wins[winner] = (wins[winner] ?? 0) + 1;
+              games[idA] = (games[idA] ?? 0) + 1;
+              games[idB] = (games[idB] ?? 0) + 1;
+            }
+          }
+        }
+        for (const id of ids) {
+          gate(`nation round-robin L${level}: ${id}`, (wins[id] ?? 0) / (games[id] ?? 1), {
+            min: 0.35,
+            max: 0.65,
+          });
+        }
+        gate(
+          `nation round-robin L${level}: mean turns`,
+          turns / total,
+          { min: 3, max: 8 },
+          '',
+          turnsFmt,
+        );
+        gate(`nation round-robin L${level}: timeouts`, timeouts / total, { lt: 0.04 });
+      },
+      SLOW,
+    );
+  }
+});
+
+// --- Report (BALANCE_REPORT only) ----------------------------------------------------------------
+const REPORT = process.env.BALANCE_REPORT;
+let diagnostics = '';
+let gatedMs = 0;
+describe.skipIf(!REPORT)('balance diagnostics (report only, never fails)', () => {
+  it('measures the diagnostics of spec section 7 and addendum 8.3', async () => {
+    gatedMs = performance.now() - T0;
+    diagnostics = await runDiagnostics(process.env.BALANCE_P13_DIR);
+  }, 3_600_000);
+});
+
+afterAll(() => {
+  if (!REPORT) return;
+  const failed = GATES.filter((g) => !g.pass).length;
+  const lines = [
+    '## Gated checks',
+    '',
+    `${GATES.length} checks, ${failed} failing. Gated suite ${(gatedMs / 1000).toFixed(1)} s, total with diagnostics ${((performance.now() - T0) / 1000).toFixed(1)} s.`,
+    '',
+    '| Check | Value | Bound | Result |',
+    '|---|---|---|---|',
+    ...GATES.map((g) => `| ${g.check} | ${g.value} | ${g.bound} | ${g.pass ? 'PASS' : 'FAIL'} |`),
+    '',
+    '### Capstone matchups inert by construction (addendum 8.2, not gated)',
+    '',
+    ...INERT.map((l) => `- ${l}`),
+    '',
+    diagnostics,
+  ];
+  writeFileSync(REPORT, lines.join('\n'));
 });

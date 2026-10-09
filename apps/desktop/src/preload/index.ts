@@ -13,6 +13,7 @@ import {
   type LeaderboardPayload,
   type PetConfig,
   type PointerMessage,
+  type LoadoutSaveResult,
   type SetLoadoutPayload,
   type StateMessage,
   type StimulusMessage,
@@ -85,9 +86,9 @@ const uiApi = {
     ipcRenderer.invoke(IPC.uiSetWaterEnabled, enabled),
   setWaterInterval: (intervalMin: number): Promise<UiSnapshot> =>
     ipcRenderer.invoke(IPC.uiSetWaterInterval, intervalMin),
-  setStance: (stance: Stance): Promise<{ ok: boolean; error: string | null }> =>
+  setStance: (stance: Stance): Promise<LoadoutSaveResult> =>
     ipcRenderer.invoke(IPC.battleSetStance, stance),
-  setLoadout: (payload: SetLoadoutPayload): Promise<{ ok: boolean; error: string | null }> =>
+  setLoadout: (payload: SetLoadoutPayload): Promise<LoadoutSaveResult> =>
     ipcRenderer.invoke(IPC.battleSetLoadout, payload),
   water: {
     done: (): Promise<UiSnapshot> => ipcRenderer.invoke(IPC.waterDone),

@@ -20,6 +20,7 @@ claude-mons is a desktop-pet overlay (Electron) crossed with Pokémon: the pet e
 |---|---|
 | change XP awards, caps, bonuses or the level curve | [docs/design/economy.md](docs/design/economy.md) |
 | change battle math, rewards, cooldowns or matchmaking | [docs/design/battle.md](docs/design/battle.md), [docs/architecture/flows/shake-to-battle.md](docs/architecture/flows/shake-to-battle.md) |
+| change a battle-engine rule, the turn step order or a tree trigger | [docs/design/battle-steps.md](docs/design/battle-steps.md), [docs/design/battle.md](docs/design/battle.md) |
 | change moves, stances or matchmaking | [docs/design/progression.md](docs/design/progression.md) |
 | change talent-tree nodes, budgets, respec or the Talents editor | [docs/design/talent-tree.md](docs/design/talent-tree.md) |
 | add or change a species or nation | [docs/design/species-and-nations.md](docs/design/species-and-nations.md), [docs/runbooks/add-a-species.md](docs/runbooks/add-a-species.md) |

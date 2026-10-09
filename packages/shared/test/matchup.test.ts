@@ -118,12 +118,12 @@ describe('explainMatchup', () => {
     const opp = snap('dripple', 25, {
       stance: 'bulwark',
       moves: ['drip-tap', 'stream-splash', 'ripple-step'],
-      tree: { 'water:current:1': 3, 'water:current:2': 2, 'shared:stone-skin': 1 },
+      tree: { 'strike:1': 3, 'strike:2': 2, 'shared:stone-skin': 1 },
     });
     const r = explainMatchup(me, opp);
     expect(r.suggestion).toBe("Burn beats Stone Skin's single-hit shield.");
-    expect(r.topBranchLine).toBe('Invested most in Current (2 talents).');
-    expect(topBranch('water', opp.loadout?.tree)).toEqual({ branch: 'Current', ranks: 2 });
+    expect(r.topBranchLine).toBe('Invested most in Strike (2 talents).');
+    expect(topBranch('water', opp.loadout?.tree)).toEqual({ branch: 'Strike', ranks: 2 });
     expect(toRoman(5)).toBe('V');
   });
 

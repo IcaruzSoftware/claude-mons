@@ -128,18 +128,22 @@ export class BattleService {
         console.warn('battle backend failed, falling back to a wild mon:', err);
       }
     }
-    if (!play) play = this.wildBattle(me, s.profile.nation);
+    // With a backend configured, a fallback battle is practice: the server never sees it, so it
+    // must not show XP that is never credited.
+    if (!play) play = this.wildBattle(me, s.profile.nation, this.deps.backend !== null);
 
     this.pending = play;
     const now = this.now();
-    this.deps.state.update((st) => {
-      st.battles.lastBattleAt = now;
-      const today = dayKey(now);
-      st.battles.today =
-        st.battles.today.day === today
-          ? { day: today, count: st.battles.today.count + 1 }
-          : { day: today, count: 1 };
-    });
+    // A practice battle never reached the server, so it uses neither cooldown nor daily count.
+    if (!play.practice)
+      this.deps.state.update((st) => {
+        st.battles.lastBattleAt = now;
+        const today = dayKey(now);
+        st.battles.today =
+          st.battles.today.day === today
+            ? { day: today, count: st.battles.today.count + 1 }
+            : { day: today, count: 1 };
+      });
     this.record(play, now);
     return { ok: true, play };
   }
@@ -163,6 +167,7 @@ export class BattleService {
       isBot: play.isBot,
       isElite: play.isElite,
       winStreak: play.winStreak,
+      ...(play.practice ? { practice: true } : {}),
       turns: play.result.turns.length,
       reason: play.result.reason,
       me: { speciesId: play.me.speciesId, stage: play.me.stage, level: play.me.level },
@@ -184,7 +189,7 @@ export class BattleService {
   }
 
   /** Offline fallback: a Wild or Trainer NPC from another nation. */
-  private wildBattle(me: MonSnapshot, myNation: Nation): BattlePlayMessage {
+  private wildBattle(me: MonSnapshot, myNation: Nation, practice: boolean): BattlePlayMessage {
     const rnd = this.deps.random ?? Math.random;
     const lastNation = this.deps.state.get().battles.history[0]?.opponent.nation;
     const nations = variedWildNations(myNation, lastNation);
@@ -208,23 +213,26 @@ export class BattleService {
     );
     const id = randomUUID();
     const result = simulateBattle(me, opponent, id);
-    const won = result.winner === 'a';
-    const prevStreak = this.deps.state.get().battles.streak;
     return {
       id,
       result,
       me,
       opponent,
-      reward: challengerReward({
-        won,
-        isBot: true,
-        opponentKind: kind,
-        myLevel: me.level,
-        oppLevel: opponent.level,
-      }),
+      reward: practice
+        ? 0
+        : challengerReward({
+            won: result.winner === 'a',
+            isBot: true,
+            opponentKind: kind,
+            myLevel: me.level,
+            oppLevel: opponent.level,
+          }),
       isBot: true,
       isElite: encounter.isElite,
-      winStreak: won ? prevStreak + 1 : 0,
+      ...(practice ? { practice: true } : {}),
+      // Only rival wins count toward the streak; NPC battles leave it unchanged
+      // (docs/design/progression.md Matchmaking and streaks).
+      winStreak: this.deps.state.get().battles.streak,
     };
   }
 }

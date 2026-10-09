@@ -47,6 +47,11 @@ export interface LocalState {
     lastSyncAt: number | null;
     /** idempotency key of the in-flight batch */
     batchId: string | null;
+    /**
+     * the exact buckets sent under `batchId`, resent unchanged on retry (also after a restart).
+     * Optional: state files written before this field load without it.
+     */
+    sentBuckets?: MinuteBucket[] | null;
   };
   streak: StreakState;
   bonusXp: number;
@@ -94,8 +99,11 @@ export interface LocalState {
     moves?: string[];
     tree?: Record<string, number>;
     /** local mirror of the server's `mons.last_respec_at`, re-synced on every successful
-     * `set-loadout` response; used only to show the 7-day respec cooldown before a round-trip. */
+     * `set-loadout` response. */
     lastRespecAt: string | null;
+    /** true after load-time normalization rebuilt a protocol-13 tree, until the next tree save
+     * (`apps/desktop/src/main/game/loadout.ts:normalizeLocalTree`) */
+    treeLegacyReset?: boolean;
   };
   water: {
     /** Last time the player clicked "Done" on the water reminder card, or null. */

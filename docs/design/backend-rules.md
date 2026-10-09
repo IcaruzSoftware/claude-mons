@@ -2,11 +2,13 @@
 doc_type: design
 purpose: "Read this when you need to know why the Supabase backend rejects, clamps or flags a client's claimed activity."
 audience: agent
-last_verified: 2026-09-13
-last_verified_commit: 8a24ac9
+last_verified: 2026-10-09
+last_verified_commit: 64b6667
 related_files:
   - supabase/functions/_shared/pipeline.ts
   - supabase/functions/ingest-xp/index.ts
+  - supabase/functions/ingest-xp/credit.ts
+  - supabase/migrations/20261009000000_apply_xp_per_day_and_concurrency.sql
   - supabase/functions/create-profile/index.ts
   - packages/shared/src/game/nickname.ts
   - packages/shared/src/game/xp.ts
@@ -65,12 +67,19 @@ is the reasoning, not the numbers. `dropped` entries are merged by reason
 
 ## Idempotent batches
 
-Each `IngestXpRequest` carries a client-generated `batch_id` (UUID). `ingest-xp` inserts it into
-`ingest_batches` before running the pipeline; a unique-violation (`23505`) means this batch was
-already applied, and the function returns `duplicate: true` with zero awarded XP and HTTP 200 rather
-than an error. This makes retries (a flaky connection, a client that resends after a timeout) safe:
+Each `IngestXpRequest` carries a client-generated `batch_id` (UUID). `ingest-xp` passes it to
+`apply_xp`, which records it in `ingest_batches` in the same transaction that credits the XP, under
+the mon row lock. A known id means this batch was already applied: `apply_xp` writes nothing and the
+function returns `duplicate: true` with zero awarded XP and HTTP 200 rather than an error. A failure
+before that transaction commits leaves no id behind, so the client's retry is credited. This makes retries (a flaky connection, a client that resends after a timeout) safe:
 replaying the same batch never credits XP twice. `ingest_batches` rows are pruned after 48 h by
 `prune_ephemeral()` (called from `heartbeat`), which is why the window matters more than the count.
+
+**Late minutes.** A bucket from yesterday is booked to and capped against yesterday's `xp_daily`
+row, and it can still activate yesterday (bonus and streak) while today is not active yet. Late
+minutes for yesterday that arrive after today is already active still earn work XP but cannot repair
+yesterday's streak: the server never activates a day before `last_active_day`, because that would
+rewind the streak.
 
 ## Suspicion heuristic
 
@@ -93,10 +102,11 @@ suspicion just as fast as someone submitting fabricated buckets, because the old
 response detail is unaffected by this — it still reports every reason, cap or not; only the
 suspicion side-effect changed.
 
-**Decay.** `apply_xp` (`supabase/migrations/20260904000000_init.sql`, patched by
-`supabase/migrations/20260913000000_suspicion_and_nations_filter.sql`) decrements `suspicion` by one
-(floor 0) every time a batch activates a new day — the same "day activated" signal
-(`p_deltas ->> 'streak_days' is not null`) already used to pay the daily/streak bonus. A player who
+**Decay.** `apply_xp` (current body in
+`supabase/migrations/20261009000000_apply_xp_per_day_and_concurrency.sql`) decrements `suspicion` by
+one (floor 0) every time a batch activates a new day: `p_deltas ->> 'streak_days'` is set and the
+player's `last_active_day` is still before the activated day, the same condition that pays the
+daily/streak bonus. A second batch for an already activated day neither pays nor decays. A player who
 keeps playing normally after being flagged recovers roughly one point per active day; nothing else
 currently lowers `suspicion`.
 

@@ -76,12 +76,11 @@ export const EFFECT_DESCRIPTIONS: Record<EffectId, string> = {
 
 /**
  * Per-side, per-battle effect bookkeeping: shield/finisher one-shot flags, `def_down`/`burn` turn
- * counters, the move pending a forced `charge` release, and (Phase C) the talent-tree state that
- * rides along with them -- a resolved tree's stat/move-upgrade/capstone/passive data is static for
- * the whole battle (`packages/shared/src/game/tree.ts:resolveTree`, computed once in
- * `simulateBattle`), but several of its effects need per-battle, per-turn bookkeeping same as the
- * move effects above (a one-shot consumed flag, an active-until-cleared multiplier, a turn
- * counter). Generic over the move type so this module never needs to import
+ * counters, the move pending a forced `charge` release, and the main-passive state that rides
+ * along with them -- a resolved tree is static for the whole battle
+ * (`packages/shared/src/game/tree.ts:resolveTree`, computed once in `simulateBattle`), but the
+ * passives need per-battle bookkeeping same as the move effects above (a one-shot consumed flag,
+ * an active-until-cleared buff). Generic over the move type so this module never needs to import
  * `packages/shared/src/game/species.ts` (which imports this module for `EffectId`) --
  * `simulateBattle` instantiates it as `SideEffectState<Move>`.
  */
@@ -90,26 +89,15 @@ export interface SideEffectState<TMove> {
   soakTurns: number;
   /** `def_down` turns remaining on this mon (0 = inactive). */
   defDownTurns: number;
-  /** Effective DEF multiplier while `defDownTurns > 0`; recomputed on every (re)application so a
-   * move-upgrade's +25% magnitude is captured at the moment `def_down` lands. */
+  /** Effective DEF multiplier while `defDownTurns > 0`, set on every (re)application. */
   defDownMult: number;
-  /** Extra fractional ATK/SPD cut riding along with `defDownTurns` (Earth's Fissure Reckoning /
-   * Water's Abyssal Pull capstones); 0 when the attacker has neither. */
-  defDownExtraAtkFrac: number;
-  defDownExtraSpdFrac: number;
-  /** `burn` turns remaining on this mon (0 = inactive); primary instance. */
+  /** `burn` turns remaining on this mon (0 = inactive). */
   burnTurns: number;
-  /** Effective per-tick fraction of max HP while `burnTurns > 0` (captures move-upgrade/Wildfire
+  /** Effective per-tick fraction of max HP while `burnTurns > 0` (captures the Wildfire
    * magnitude at the moment `burn` was applied). */
   burnFraction: number;
-  /** Fire's Ashen Cascade capstone lets a second `burn` instance stack instead of only refreshing;
-   * these two fields are that second, independent instance. */
-  burnStackTurns: number;
-  burnStackFraction: number;
-  /** Whether this mon's loadout carries a `shield_first` move (fixed for the whole battle), and
-   * which loadout slot it's in (for move-upgrade lookups when it fires). */
+  /** Whether this mon's loadout carries a `shield_first` move (fixed for the whole battle). */
   hasShieldFirst: boolean;
-  shieldFirstSlot: 1 | 2 | 3 | null;
   /** Whether the once-per-battle `shield_first` reduction has already been consumed. */
   shieldConsumed: boolean;
   /** Shared passive "Stone Skin": independent of `shield_first`, consumed on the same first hit. */
@@ -122,23 +110,78 @@ export interface SideEffectState<TMove> {
   /** Shared passive "Deep Roots": latched true once this mon first drops below the HP threshold;
    * stays true (a permanent DEF buff) for the rest of the battle once triggered. */
   deepRootsActive: boolean;
-  /** Whether this mon was hit by a direct action during the turn just completed (Air's Eye of the
-   * Storm capstone reads this to decide next turn's order); reset and recomputed every turn. */
-  tookDamageLastTurn: boolean;
   /** Shared passive "Ember Heart": still eligible to trigger (one-shot per battle). */
   emberHeartArmed: boolean;
   /** Ember Heart has triggered and its crit-chance bonus is armed for this mon's very next move. */
   emberHeartPending: boolean;
-  /** One-shot consumed flags for the once-per-battle capstones/passives. */
-  phoenixConsumed: boolean;
+  /** One-shot consumed flag for the Second Breath passive. */
   secondBreathConsumed: boolean;
-  unmovableConsumed: boolean;
-  damageCapConsumed: boolean;
+
+  // --- talent tree, protocol 14 (talent-tree spec 8.2, addendum 3.1) ---------------------------
+  /** Pending payoffs this side holds: at most one per kind, each with its source node and the
+   * turn it was armed (expires at TURN_START of `turn + PENDING_EXPIRY_TURNS`). */
+  armed: Record<PayoffKind, ArmedPayoff | null>;
+  /** Spent once-per-battle caps (node ids). */
+  onceFlags: Set<string>;
+  /** Once-per-turn caps used this turn: node id -> serial of the action that used it (an action
+   * may use its own cap again, e.g. two statuses of one hit). Cleared at TURN_START. */
+  turnUsed: Map<string, number>;
+  /** `tempo:7` Tempo Lock is armed (a move Burn, or a DEF-down on a low foe, on an acted-first turn). */
+  burnApplied: boolean;
+  /** On the target: whether its current Burn / DEF-down came from a move's own effect. */
+  burnFromMove: boolean;
+  defDownFromMove: boolean;
+  /** Due flags (spec 1.3): read at ORDER of the next turn. */
+  orderSnapDue: boolean;
+  /** Acted-first turns counted towards the next Order Snap arming (reset when it arms or clears). */
+  orderSnapCount: number;
+  initiativeDue: boolean;
+  actedSecondCount: number;
+  actedFirstStreak: number;
+  /** Control rest: this side's action was denied by a tree rule last turn / this turn (node). */
+  deniedLastTurn: boolean;
+  deniedThisTurn: string | null;
+  /** Quartermaster swap (spec 1.4): the forced-finisher flag of the base rule and the turn-2 pick
+   * deferred to the base finisher turn. */
+  baseFinisherUsed: boolean;
+  deferredPick: TMove | null;
+  /** `tempo:1` Opening Setup armed by this side's opener status. */
+  combo: { status: 'burn' | 'def_down'; moveId: string } | null;
+  /** Move ids of this side's consecutive landed actions (last three). */
+  landedMoves: string[];
+  /** Consecutive landed Priority actions. */
+  priorityStreak: number;
+  evasionPlanArmed: boolean;
+  dodgeLedgerArmed: boolean;
+  /** `nation.air:11` Cloud Bank armed by a dodge. */
+  cloudBankArmed: boolean;
+  /** `nation.air:7:left` Dust Devil armed by a dodge until it fizzles a Priority move. */
+  dustDevilArmed: boolean;
+  // per-turn facts, reset at TURN_START
+  hitThisTurn: boolean;
+  landedDirectThisTurn: boolean;
+  fellBelowRecoveryLine: boolean;
+  maxHitTakenThisTurn: number;
+  causedTickThisTurn: boolean;
+  burnEndedThisTurn: boolean;
+  soakExpiredThisTurn: boolean;
+  // battle counters
+  directHitsTaken: number;
+  // streaks, written at TURN_END (b) only
+  hitStreak: number;
+  burnStreak: number;
+}
+
+/** The three shared booleans a pending payoff can carry (spec 1.2). */
+export type PayoffKind = 'UNDODGE' | 'GUARANTEED_CRIT' | 'PIERCE';
+export const PAYOFF_KINDS: readonly PayoffKind[] = ['UNDODGE', 'GUARANTEED_CRIT', 'PIERCE'];
+export interface ArmedPayoff {
+  node: string;
+  turn: number;
 }
 
 export interface SideEffectStateInit {
   hasShieldFirst: boolean;
-  shieldFirstSlot: 1 | 2 | 3 | null;
   hasStoneSkin: boolean;
 }
 
@@ -147,27 +190,50 @@ export function initSideEffectState<TMove>(init: SideEffectStateInit): SideEffec
     soakTurns: 0,
     defDownTurns: 0,
     defDownMult: DEF_DOWN_MULT,
-    defDownExtraAtkFrac: 0,
-    defDownExtraSpdFrac: 0,
     burnTurns: 0,
     burnFraction: BURN_FRACTION,
-    burnStackTurns: 0,
-    burnStackFraction: BURN_FRACTION,
     hasShieldFirst: init.hasShieldFirst,
-    shieldFirstSlot: init.shieldFirstSlot,
     shieldConsumed: false,
     hasStoneSkin: init.hasStoneSkin,
     stoneSkinConsumed: false,
     finisherUsed: false,
     chargePending: null,
     deepRootsActive: false,
-    tookDamageLastTurn: false,
     emberHeartArmed: true,
     emberHeartPending: false,
-    phoenixConsumed: false,
     secondBreathConsumed: false,
-    unmovableConsumed: false,
-    damageCapConsumed: false,
+    armed: { UNDODGE: null, GUARANTEED_CRIT: null, PIERCE: null },
+    onceFlags: new Set(),
+    turnUsed: new Map(),
+    burnApplied: false,
+    burnFromMove: false,
+    defDownFromMove: false,
+    orderSnapDue: false,
+    orderSnapCount: 0,
+    initiativeDue: false,
+    actedSecondCount: 0,
+    actedFirstStreak: 0,
+    deniedLastTurn: false,
+    deniedThisTurn: null,
+    baseFinisherUsed: false,
+    deferredPick: null,
+    combo: null,
+    landedMoves: [],
+    priorityStreak: 0,
+    evasionPlanArmed: false,
+    dodgeLedgerArmed: false,
+    cloudBankArmed: false,
+    dustDevilArmed: false,
+    hitThisTurn: false,
+    landedDirectThisTurn: false,
+    fellBelowRecoveryLine: false,
+    maxHitTakenThisTurn: 0,
+    causedTickThisTurn: false,
+    burnEndedThisTurn: false,
+    soakExpiredThisTurn: false,
+    directHitsTaken: 0,
+    hitStreak: 0,
+    burnStreak: 0,
   };
 }
 
@@ -180,10 +246,6 @@ export function burnTickDamage(maxHp: number, fraction: number = BURN_FRACTION):
 // --- talent tree magnitudes (docs/design/talent-tree.md; Phase C) -----------------------------
 // Wired in packages/shared/src/battle/battle.ts. Node structure/budget/prereqs live in
 // packages/shared/src/game/tree.ts; these are only the numbers `simulateBattle` reads.
-
-/** Tier-5 move upgrade, tuned with the four-branch protocol-9 balance matrix. */
-export const MOVE_UPGRADE_EFFECT_MULT = 1.03;
-export const MOVE_UPGRADE_POWER_MULT = 1.01;
 
 /** Shared passive "Stone Skin": reduces the first hit taken each battle (stacks multiplicatively
  * with a `shield_first` move's own reduction, since they are independent sources). */
@@ -203,21 +265,46 @@ export const EMBER_HEART_HP_THRESHOLD = 0.5;
 export const EMBER_HEART_CRIT_BONUS = 0.2;
 /** Shared passive "Second Breath": HP left after surviving the one KO-preventing hit per battle. */
 export const SECOND_BREATH_HP = 1;
-/**
- * Fire's Phoenix Reborn capstone: chance the once/battle KO-prevention actually triggers. Tuned
- * by simulation on 2026-09-13 (docs/design/talent-tree.md Balance targets, see the trigger site's
- * own comment in `packages/shared/src/battle/battle.ts`): a *guaranteed* save, even shrunk to a
- * minimal HP fraction, still won this capstone's branch ~75% of its branch-vs-branch matchup
- * (40-60% target) -- merely surviving to act again is what wins short battles, regardless of how
- * much HP it survives at, so probability (not magnitude) is the lever that actually works.
- */
-export const PHOENIX_TRIGGER_CHANCE = 0.22;
-/**
- * Air's Eye of the Storm capstone: chance the "always acts first the turn after taking damage"
- * effect actually triggers on a turn where it would otherwise apply. Tuned by simulation on
- * 2026-09-13 (docs/design/talent-tree.md Balance targets, see the trigger site's own comment in
- * `packages/shared/src/battle/battle.ts`): a *guaranteed* version fires most turns of a real
- * fight (a mon rarely goes a whole turn unhit), beating both sibling branches well above the
- * 40-60% target.
- */
-export const EYE_OF_STORM_CHANCE = 0.4;
+
+// --- protocol-14 talent tree magnitudes (talent-tree spec 8.2) -------------------------------
+// Node-specific HP lines (50%, 40%, 35%, 25%, 15%, 80%, 75%) live with the node rules in
+// packages/shared/src/battle/treeRules.ts.
+
+/** A pending payoff expires if not consumed within this many turns of arming. */
+export const PENDING_EXPIRY_TURNS = 2;
+/** `ward:4` Bulwark Pulse and `bastion:3:alt` Hold the Line clamp lines (fraction of max HP). */
+export const CLAMP_PULSE_LINE = 0.5;
+export const CLAMP_HOLD_LINE = 0.25;
+/** `ward:6` Lastline: HP left (fraction of max HP) instead of a knockout. */
+export const LASTLINE_HP = 0.08;
+/** `ward:12` Bulwark Cap: one direct hit is capped at this fraction of max HP. */
+export const BULWARK_CAP = 0.5;
+/** `bastion:5` Anchor: own live SPD must be at least this fraction of the foe's. */
+export const ANCHOR_SPD_RATIO = 0.9;
+/** `tempo:2` Initiative Read: own live SPD must be at least this multiple of the foe's. */
+export const INITIATIVE_READ_RATIO = 1.0;
+/** `tempo:12` Initiative: acted-second turns needed to arm. */
+export const INITIATIVE_ACTED_SECOND_TURNS = 2;
+/** `tempo:10:right` Order Snap: consecutive acted-first turns needed to arm. */
+export const ORDER_SNAP_TURNS = 2;
+
+// --- nation column magnitudes (nation addendum 9.2) -------------------------------------------
+// Read by the nation rules in packages/shared/src/battle/treeRules.ts; constants so the balance
+// harness can read them. Clamp lines must stay strictly ordered (addendum 8.2).
+
+/** Crit multipliers that replace 1.75x under the one-factor rule (addendum 3.3). */
+export const KINDLING_MULT = 2.1;
+export const PYRE_LORD_MULT = 2.4;
+export const CONTINENT_MULT = 1.8;
+export const STRATOSPHERE_MULT = 1.9;
+/** Clamp lines (fraction of max HP): Rootwork, Tectonic, Terrace, Brine Skin. */
+export const ROOTWORK_HP_LINE = 0.2;
+export const TECTONIC_HP_LINE = 0.28;
+export const TERRACE_HP_LINE = 0.4;
+export const BRINE_HP_LINE = 0.5;
+/** Air speed-lead gates (`spdLead`, addendum 2 item 7). `LIFT_SPD_RATIO` is read by Lift,
+ * Headwind, Tailwind Crown, Ridge and Sovereign Wind. */
+export const LIFT_SPD_RATIO = 1.1;
+export const LEE_SHORE_SPD_RATIO = 1.05;
+export const GUST_LINE_SPD_RATIO = 1.1;
+export const STRATOSPHERE_SPD_RATIO = 1.12;

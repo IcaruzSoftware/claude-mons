@@ -74,7 +74,7 @@ Constants live in `BONUS` (`packages/shared/src/game/xp.ts:BONUS`):
 | Streak length cap | `streakMaxDays` | 7 |
 | Gap (calendar days) the streak survives | `streakGapDays` | 3 |
 
-`activateDay(state, today)` is idempotent for a day already marked active (returns `bonus: 0`) and pays `BONUS.daily + BONUS.streakPerDay * min(streak, BONUS.streakMaxDays)` the first time a day crosses the threshold. A gap of 1–3 calendar days since the last active day continues the streak (e.g. Friday → Monday); a longer gap resets it to a streak of 1.
+`activateDay(state, today)` is a no-op for a day at or before the last active day (returns `bonus: 0`, so a late spooled event never resets the streak) and pays `BONUS.daily + BONUS.streakPerDay * min(streak, BONUS.streakMaxDays)` the first time a day crosses the threshold. A gap of 1–3 calendar days since the last active day continues the streak (e.g. Friday → Monday); a longer gap resets it to a streak of 1.
 
 ## UTC day semantics
 

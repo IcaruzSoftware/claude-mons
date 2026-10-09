@@ -2,8 +2,8 @@
 doc_type: architecture
 purpose: "Read this when tracing how a Claude Code or Codex hook event turns into pet animation and player XP, or debugging why an animation or an XP credit didn't happen."
 audience: agent
-last_verified: 2026-09-25
-last_verified_commit: 08cd894
+last_verified: 2026-10-09
+last_verified_commit: 64b6667
 related_files:
   - packages/hook-cli/main.go
   - apps/desktop/src/main/hooks/HookServer.ts
@@ -16,6 +16,7 @@ related_files:
   - apps/desktop/src/main/game/GameService.ts
   - apps/desktop/src/main/net/SyncQueue.ts
   - supabase/functions/ingest-xp/index.ts
+  - supabase/functions/ingest-xp/credit.ts
   - supabase/functions/_shared/pipeline.ts
   - docs/decisions/0014-curl-script-mode-hook-fallback.md
   - docs/decisions/0021-codex-hook-integration.md
@@ -143,14 +144,18 @@ sequenceDiagram
    a delayed `PetHost.setStage` call so the crack/evolve animation finishes first.
 10. A `Stop` event also makes `App.onHookEvent` call `SyncQueue.scheduleSoon()`, which debounces then
     calls `flush`.
-11. `apps/desktop/src/main/net/SyncQueue.ts:flush` takes up to the batch's bucket limit from
-    `ledger.pending`, reuses or creates `ledger.batchId`, snapshots `localXpAtSend`, and calls
-    `SupabaseClient.invoke('ingest-xp', ...)`.
-12. `supabase/functions/ingest-xp/index.ts` authenticates the caller, inserts `batch_id` into
-    `ingest_batches` for idempotency (a duplicate short-circuits with the current mon state), then runs
-    the pure `supabase/functions/_shared/pipeline.ts:runIngestPipeline` — the same cap/bonus math as
-    the client, so provisional XP normally matches — before persisting through the `apply_xp` RPC
-    (`supabase/migrations/20260904000000_init.sql`). See
+11. `apps/desktop/src/main/net/SyncQueue.ts:flush` takes the oldest pending buckets from
+    `ledger.pending` (up to the bucket limit, halved until the body fits the byte limit), freezes them
+    under a new `ledger.batchId`, snapshots `localXpAtSend`, and calls
+    `SupabaseClient.invoke('ingest-xp', ...)`. A retry resends the same frozen batch under the same
+    id; on success exactly the sent counts are subtracted from `ledger.pending`.
+12. `supabase/functions/ingest-xp/index.ts` authenticates the caller, then
+    `supabase/functions/ingest-xp/credit.ts:creditBatch` runs the pure
+    `supabase/functions/_shared/pipeline.ts:runIngestPipeline` — the same cap/bonus math as the
+    client, so provisional XP normally matches — and persists through the `apply_xp` RPC
+    (`supabase/migrations/20261009000000_apply_xp_per_day_and_concurrency.sql`), which records
+    `batch_id` in `ingest_batches` in the same transaction (a known id returns `duplicate` with the
+    current mon state). See
     [backend-rules.md](../../design/backend-rules.md) for the plausibility clamps and idempotency
     details.
 13. The response's `events` (`hatched`/`level_up`/`evolved`/`streak`) and `mon` state come back through
@@ -171,6 +176,7 @@ sequenceDiagram
 | Sync debounce after `Stop` | 5 s | `apps/desktop/src/main/net/SyncQueue.ts` |
 | Sync poll interval | 60 s (+2 s after start; ~5 min idle ping for notifications) | `apps/desktop/src/main/net/SyncQueue.ts` |
 | Max buckets per batch | 180 (client and server agree) | `apps/desktop/src/main/net/SyncQueue.ts`, `supabase/functions/ingest-xp/index.ts` |
+| Max batch body | client 60 000 bytes of buckets, server 64 KiB | `apps/desktop/src/main/net/SyncQueue.ts`, `supabase/functions/ingest-xp/index.ts` |
 | Sync retry backoff | 5 s, doubling to 5 min cap | `apps/desktop/src/main/net/SyncQueue.ts` |
 | Client pending-bucket horizon | 24 h | `apps/desktop/src/main/game/GameService.ts` |
 | Client credited-minute horizon | 48 h | `apps/desktop/src/main/game/GameService.ts` |
@@ -194,10 +200,19 @@ applied at the ingest boundary live in [backend-rules.md](../../design/backend-r
 - **`NO_PROFILE` (409 from `ingest-xp`)**: the player row is missing server-side; `SyncQueue.flush`
   clears `profile.userId`/`nickname` so the next flush recreates the profile via `ensureProfile` before
   retrying the batch.
-- **Other 4xx, not 429**: `SyncQueue.flush` treats the batch itself as bad and clears `ledger.batchId`
-  rather than retrying it forever; the event is logged, not retried.
-- **429 (rate-limited), 5xx, or network error**: `SyncQueue.scheduleRetry` backs off exponentially
-  (5 s → 5 min) and keeps the same `batchId`, so the identical batch is retried once reachable.
+- **400 or 413**: `SyncQueue.flush` treats the batch itself as bad: it logs the error, removes the
+  sent buckets from `ledger.pending` and clears `ledger.batchId`, so the rejected batch is dropped
+  (its XP is lost) and later buckets still sync.
+- **Any other error (401, 403, 404, 408, 429, 5xx, network)**: transient, for example an expired
+  token after sleep or a gateway error during a deploy. `SyncQueue.scheduleRetry` backs off exponentially
+  (5 s → 5 min) and keeps the same `batchId` and the frozen buckets, so the identical batch is
+  retried once reachable. Both are persisted (`ledger.batchId`, `ledger.sentBuckets`), so an app
+  restart resends exactly the same batch.
+- **Two devices syncing at once**: `ingest-xp` passes the `mons.work_xp` it read first to `apply_xp`,
+  which writes nothing and reports a conflict when another batch was applied in between;
+  `ingest-xp` then reloads and recomputes (the third attempt skips the check). `apply_xp` also pays
+  a day's bonus only once (migration
+  `supabase/migrations/20261009000000_apply_xp_per_day_and_concurrency.sql`).
 - **Malformed or unauthorized POST to either route**: `HookServer` answers `404` for a wrong
   path/method, a bad bearer token on `/event`, or a bad/missing `X-Claude-Mons-Token` on `/hook` —
   all made indistinguishable from each other on purpose.

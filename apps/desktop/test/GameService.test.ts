@@ -142,6 +142,36 @@ describe('GameService', () => {
     expect(a.state.ledger.pending).toHaveLength(pendingLengthBefore);
   });
 
+  it('adopts the server daily streak on every sync, and the day the server activated', () => {
+    const a = access();
+    const now = Date.UTC(2026, 8, 4, 12, 0, 0);
+    const game = new GameService(a, { localGame: false, rollSpecies: () => 'x', now: () => now });
+    a.state.streak = { streakDays: 1, lastActiveDay: null };
+    game.applyServerState({ totalXp: 0, speciesId: null, stage: 'egg', streakDays: 5 });
+    expect(a.state.streak).toEqual({ streakDays: 5, lastActiveDay: null });
+    // an older server without `day` on the event: today
+    game.applyServerState({
+      totalXp: 0,
+      speciesId: null,
+      stage: 'egg',
+      streakDays: 6,
+      streakEvent: {},
+    });
+    expect(a.state.streak).toEqual({ streakDays: 6, lastActiveDay: '2026-09-04' });
+  });
+
+  it('stamps the day the server activated, which can be yesterday, never moving backwards', () => {
+    const a = access();
+    const now = Date.UTC(2026, 8, 4, 12, 0, 0);
+    const game = new GameService(a, { localGame: false, rollSpecies: () => 'x', now: () => now });
+    const server = { totalXp: 0, speciesId: null, stage: 'egg' as const, streakDays: 3 };
+    game.applyServerState({ ...server, streakEvent: { day: '2026-09-03' } });
+    expect(a.state.streak.lastActiveDay).toBe('2026-09-03');
+    a.state.streak.lastActiveDay = '2026-09-04';
+    game.applyServerState({ ...server, streakEvent: { day: '2026-09-03' } });
+    expect(a.state.streak.lastActiveDay).toBe('2026-09-04');
+  });
+
   it('spooled events are credited at their original time', () => {
     const a = access();
     const now = Date.UTC(2026, 8, 4, 12, 0, 0);

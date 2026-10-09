@@ -8,7 +8,6 @@ import {
 import { speciesOf } from '../src/game/species.ts';
 import { stanceBuildHint, type Stance } from '../src/game/progression.ts';
 import type { EffectId } from '../src/battle/effects.ts';
-import { nationNodes } from '../src/game/tree.ts';
 
 function mon(stance: Stance, effects: EffectId[], hp = 4000, atk = 250) {
   const speciesId =
@@ -37,7 +36,7 @@ const mainActions = (result: BattleResult, side: 'a' | 'b') =>
   }));
 
 describe('conditional stance passives', () => {
-  it('Tempo and Brace change actual damage, while instant charges cannot activate Brace', () => {
+  it('Tempo and Brace change actual damage', () => {
     let tempoChecks = 0;
     for (let seed = 0; seed < 100; seed++) {
       const enemy = mon('fury', ['true_hit', 'drain', 'shield_first']);
@@ -72,24 +71,6 @@ describe('conditional stance passives', () => {
       expect(Math.abs(direct.damage - plain.damage * 0.9)).toBeLessThan(2);
     }
     expect(tempoChecks).toBeGreaterThan(0);
-    const instant = mon('bulwark', ['charge', 'true_hit', 'crit_up']);
-    const capstone = nationNodes('air').find((node) => node.capstone?.kind === 'chargeInstant')!;
-    instant.loadout!.tree = Object.fromEntries(
-      nationNodes('air')
-        .filter((node) => node.branch === capstone.branch)
-        .map((node) => [node.id, 1]),
-    );
-    const result = simulateBattle(
-      mon('gale', ['true_hit', 'priority', 'crit_up']),
-      instant,
-      'instant-brace',
-    );
-    expect(
-      result.turns.flatMap((turn) => turn.actions).some((hit) => hit.charge === 'telegraph'),
-    ).toBe(false);
-    expect(
-      result.turns.flatMap((turn) => turn.actions).some((hit) => triggered(hit, 'b', 'bulwark')),
-    ).toBe(false);
   });
   it('Exploit needs a previous debuff and a crit/release, and never boosts setup or doubles', () => {
     let crits = 0,

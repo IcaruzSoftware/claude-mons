@@ -20,11 +20,12 @@ import {
 import { stageForLevel } from '../_shared/game/game/levels.ts';
 import { variedWildNations } from '../_shared/game/game/nations.ts';
 import type { MonLoadout } from '../_shared/game/game/progression.ts';
-import { speciesForNation } from '../_shared/game/game/species.ts';
+import { speciesForNation, speciesOf } from '../_shared/game/game/species.ts';
 import type { Nation, Stage } from '../_shared/game/types.ts';
 import { requireUser } from '../_shared/auth.ts';
 import { rpc, serviceClient, type MonRow, type ServiceClient } from '../_shared/db.ts';
 import { error, json, serve } from '../_shared/http.ts';
+import { normalizedLoadout } from '../_shared/loadout.ts';
 import { buildMonState } from '../_shared/monState.ts';
 import { loadPlayer, loadToday } from '../_shared/queries.ts';
 import { randomInt, randomUnit } from '../_shared/random.ts';
@@ -87,7 +88,14 @@ serve(async (req) => {
     speciesId: myMon.species_id,
     stage: myMon.stage,
     level: myMon.level,
-    loadout: (myMon.loadout as MonLoadout | null) ?? undefined,
+    // Both stored trees are normalized before they reach a snapshot, so simulateBattle and the
+    // stored battle snapshots never see a protocol-13 tree. The snapshot's nation is the species'
+    // nation, so the tree is normalized by it: a player/species mismatch can never make
+    // simulateBattle throw UNKNOWN_TREE_ID after claim_battle_slot spent the slot.
+    loadout: normalizedLoadout(
+      speciesOf(myMon.species_id).nation,
+      myMon.loadout as MonLoadout | null,
+    ),
   });
 
   const { data: recent, error: recentError } = await db
@@ -182,7 +190,7 @@ async function findOpponent(
         speciesId: row.species_id,
         stage: row.stage,
         level: row.level,
-        loadout: row.loadout ?? undefined,
+        loadout: normalizedLoadout(speciesOf(row.species_id).nation, row.loadout),
       });
     }
   }

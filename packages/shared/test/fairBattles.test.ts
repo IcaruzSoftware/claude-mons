@@ -75,7 +75,7 @@ describe('passive fair battles', () => {
           stage: 'teen',
           loadout: {
             moves: [setup.id, hit.id, third.id],
-            tree: { [`${species.nation}:flow:1`]: 1 },
+            tree: { 'tempo:1': 1 },
           },
         });
         const b = snapshotFor({
@@ -308,7 +308,7 @@ describe('passive fair battles', () => {
           loadout: {
             stance: 'bulwark',
             moves: [setup.id, follow.id, third.id],
-            tree: { [`${species.nation}:flow:1`]: 1 },
+            tree: { 'tempo:1': 1 },
           },
         });
         const b = snapshotFor({
@@ -324,7 +324,20 @@ describe('passive fair battles', () => {
         const hits = actions.filter((x) => x.followThrough);
         expect(hits.length).toBeLessThanOrEqual(1);
         for (const hit of hits) {
-          expect(actions[0]!.dodged).toBe(false);
+          // Protocol 14: any landed slot-1 status arms the combo, not only the turn-1 opener.
+          const before = actions.slice(0, actions.indexOf(hit));
+          // The setup must have applied its status: not refused or fizzled, and Opening Setup
+          // logged its arming on that action.
+          expect(
+            before.some(
+              (x) =>
+                x.moveId === setup.id &&
+                !x.dodged &&
+                !x.doubleStrike &&
+                !x.treeTriggers?.some((e) => e.effect === 'refused' || e.effect === 'fizzled') &&
+                !!x.treeTriggers?.some((e) => e.node === 'tempo:1' && e.effect === 'payoff_armed'),
+            ),
+          ).toBe(true);
           expect(hit.dodged).toBe(false);
           expect(hit.damage).toBeGreaterThan(0);
           expect(hit.moveId).not.toBe(setup.id);

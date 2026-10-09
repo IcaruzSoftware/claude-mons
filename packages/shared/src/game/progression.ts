@@ -83,7 +83,7 @@ export interface MonLoadout {
 
 /**
  * Stable, machine-readable reasons a submitted loadout was rejected (`set-loadout`'s response
- * carries this as `error.details.code`). The `TREE_*` codes come from
+ * carries this as `error.details.code`). The `TREE_*` and `WRONG_NATION` codes come from
  * `packages/shared/src/game/tree.ts:validateTree`.
  */
 export type LoadoutErrorCode =
@@ -99,7 +99,8 @@ export type LoadoutErrorCode =
   | 'TREE_PREREQ'
   | 'TREE_OVER_BUDGET'
   | 'TREE_PASSIVE_LIMIT'
-  | 'TREE_CHOICE_LIMIT';
+  | 'TREE_CHOICE_LIMIT'
+  | 'WRONG_NATION';
 
 export type ValidateLoadoutResult =
   | { ok: true; loadout: MonLoadout; isRespec: boolean }

@@ -32,10 +32,10 @@ The battle itself stays a deterministic autobattle (`packages/shared/src/battle/
 
 ## Goals
 
-- Keep autobattle: no in-battle move selection by the player.
-- Move the skill expression into preparation: move pool, loadout, stance, talents.
-- Extend rather than replace `docs/design/battle.md`'s damage formula, turn order and RNG protocol.
-- Widen matchmaking and reward streaks without introducing Elo.
+- Keep autobattle (no in-battle selection); move the skill expression into preparation: move pool,
+  loadout, stance, talents.
+- Extend rather than replace `docs/design/battle.md`'s damage formula, turn order and RNG protocol;
+  widen matchmaking and reward streaks without introducing Elo.
 
 ## Move pool and effects
 
@@ -52,9 +52,9 @@ Every species gets six core moves and two evolution signature moves. Each move h
 | `true_hit` | Ignores the target's dodge chance |
 | `charge` | Turn 1 telegraphs for 0 damage; turn 2 auto-releases at 2.2× power |
 
-**Tuned by simulation on 2026-09-24**: protocol 5 reduces the elemental swing and rebalances
-burn/drain against direct offense (`crit_up` +20pp, ceiling 60%). Five species redistribute the
-same rarity stat budget; the shared balance harness retains its equal-level acceptance bands.
+**Tuned by simulation on 2026-09-24**: protocol 5 reduces the elemental swing and rebalances burn/drain
+against direct offense (`crit_up` +20pp, ceiling 60%). Five species redistribute the same rarity stat
+budget; the balance harness keeps its equal-level bands.
 
 Core unlock schedule (by mon level): 2 moves at hatch (level 2), 3rd at 5, 4th at 10, 5th at 15, 6th at 20. Slots 1–3 are each species' current `normal`/`typed`/`special` move, kept as-is (unlock 2/2/5); slots 4–6 are new (unlock 10/15/20). Slot 1 is always `priority` — it doubles as the loadout's fixed opener (see Loadout policy). Renaming the existing moves to the new convention is a possible follow-up, not part of this design.
 
@@ -115,10 +115,10 @@ Core unlock schedule (by mon level): 2 moves at hatch (level 2), 3rd at 5, 4th a
 | wispit | 5 | Foretold Squall | 58 | nation | true_hit | 15 |
 | wispit | 6 | Gathering Storm | 60 | nation | charge | 20 |
 
-Evolution signatures append to the pool without changing any existing move id. At level 10 the teen form learns a new 80-power attack; at level 25 the adult learns a new 85-power attack. Both
-use the species' original finisher effect and nation type. These exceed the 75-power core
-finisher and automatically fill slot 3 of the default loadout. Saved custom move selections remain
-intact and can equip the unlocked signatures through the existing editor. Ottlet learns **Fish
+Evolution signatures append to the pool without changing any existing move id. At level 10 the teen
+form learns a new 80-power attack; at level 25 the adult learns an 85-power one. Both use the
+species' original finisher effect and nation type, exceed the 75-power core finisher and fill slot 3
+of the default loadout automatically. Saved custom selections stay intact and can equip them. Ottlet learns **Fish
 Breaker** and **Torrent Fish Slam**, respectively. The existing stage stat multipliers below
 apply at the same thresholds; no XP or hatch-odds changes are required.
 
@@ -126,22 +126,21 @@ apply at the same thresholds; no XP or hatch-odds changes are required.
 
 A loadout is 3 of the mon's unlocked moves plus a stance. Selection each turn (one RNG draw, replacing the current `normal`/`typed`/`special` choice in `simulateBattle`):
 
-- **Slot 1** always opens turn 1.
-- **Slot 3** fires once per battle from turn 3 below 60% HP on either side, or on turn 4 if the fight lasts that long.
+- **Slot 1** always opens turn 1; **slot 3** fires once per battle from turn 3 below 60% HP on either side, or on turn 4.
 - Otherwise: slot 2 with probability 0.8, slot 1 with probability 0.2.
 - A `charge` move's release always fires on its own second turn regardless of this policy.
 
-This supersedes `docs/design/battle.md`'s `special`-at-≤50%-own-HP rule once Phase B ships; slot 3 keeps each species' current `special` move, so the finisher role carries over.
+This supersedes `docs/design/battle.md`'s `special`-at-≤50%-own-HP rule; slot 3 keeps each species' `special` move as the finisher.
 
 ## Automatic opening combo
 
-Combat remains passive. First learn Quick Setup in the Flow path, then arrange a Burn or DEF-down move in slot 1 before battle. While that
-landed opening effect is active, the first different landed Priority, True-hit, Crit-up or Charge
-release gets 1.2x direct damage, once per side per battle. Against a higher-level foe,
-add 0.4 per higher level (gap capped at 3): 1.6x / 2.0x / 2.4x for this one hit.
-The underdog bonus makes a prepared challenge winnable without boosting equal-level combos. Dodges and charge telegraphs do not
-consume it; expiry discards it. Healing and further status moves cannot trigger it. Existing
-slot selection and combat timing are unchanged; no clicks or timing inputs are added.
+Combat remains passive. Learn Opening Setup (`tempo:1`) and put a Burn or DEF-down move in slot 1.
+While that landed opening effect is active, the first different landed Priority, True-hit, Crit-up or
+Charge release gets 1.2x direct damage, once per side per battle; against a higher-level foe add 0.4
+per higher level (gap capped at 3): 1.6x / 2.0x / 2.4x for this one hit.
+The underdog bonus makes a prepared challenge winnable without boosting equal-level combos. Dodges,
+charge telegraphs, healing and further status moves neither consume nor trigger it; expiry discards
+it. Slot selection and timing are unchanged.
 
 ## Stances
 
@@ -154,56 +153,52 @@ Choose a stance for free in the Skill Tree; existing ids and saved choices remai
 | Bulwark | Brace | 10% less direct damage during a charge telegraph turn or at <=35% HP before the hit |
 | Gale | Tempo | +10% direct damage when acting first with a different move the turn immediately after landing Priority |
 
-The hit that applies a debuff cannot Exploit that new debuff. Tempo's window is consumed by
-repetition, a miss, acting second or telegraphing; a landed repeated Priority opens a fresh
-window for the following turn. Double strikes neither receive offensive stance bonuses nor
-consume/rearm Tempo. Brace protects the entire telegraph turn regardless of initiative, not
-the release turn; instant-charge talents remove that window. It can protect double strikes,
-but never burn ticks. Its low-HP condition checks HP before each individual hit.
-The shared metadata and build hints live in `packages/shared/src/game/progression.ts`.
+The hit that applies a debuff cannot Exploit it. Tempo's window is consumed by repetition, a miss,
+acting second or telegraphing; a landed repeated Priority opens a fresh window. Double strikes get
+no offensive stance bonuses and neither consume nor rearm Tempo. Brace protects the whole telegraph
+turn regardless of initiative (not the release turn; instant-charge talents remove that window),
+protects double strikes but never burn ticks, and checks HP before each individual hit.
+Metadata and build hints live in `packages/shared/src/game/progression.ts`;
 `packages/shared/test/stancePassives.test.ts` checks activation, missed windows, real damage,
-instant charge and unusable builds. No new RNG draws are added.
+instant charge and unusable builds. No new RNG draws.
 
 ## Talent tree
 
-4 branches of 12 single-purchase nodes per nation, plus a small shared-passive pool, spent from level 4
-(47 points by level 50). Full node tables, the shared-passive list, the respec rule and the
-"tuned by simulation" magnitudes all live in `docs/design/talent-tree.md` -- this section is
-just the pointer so this doc stays under its length budget.
+Four shared branches plus the mon's own nation column (17 nodes each), one 47-point tree pool from
+level 4, and a separate main-passive pool. Rules: `docs/design/talent-tree.md`; nodes:
+`packages/shared/src/game/tree.ts`; engine: `docs/design/battle-steps.md`.
 
 ## Evolution multipliers
 
-`packages/shared/src/game/levels.ts:statAtLevel` gains a per-stage multiplier on top of its existing linear level scaling: Baby ×1.00, Teen ×1.03, Adult ×1.06, keyed off `stageForLevel(level)` (same file). Each level now adds 4% of the base stat, with a minimum one-point gain before evolution: `floor((base + (level - 1) * max(1, base / 25)) * stageMultiplier)`. Integer arithmetic matches PostgreSQL numeric rounding. Every level adds at least one HP, ATK, DEF and SPD; XP thresholds stay unchanged. The Mon panel previews next-level gains. Server mirror: `supabase/migrations/20260927120000_level_stat_growth.sql`.
+`packages/shared/src/game/levels.ts:statAtLevel` gains a per-stage multiplier on top of its existing linear level scaling: Baby ×1.00, Teen ×1.03, Adult ×1.06, keyed off `stageForLevel(level)` (same file). Each level now adds 4% of the base stat, with a minimum one-point gain before evolution: `floor((base + (level - 1) * max(1, base / 25)) * stageMultiplier)`. Integer arithmetic matches PostgreSQL rounding; every level adds at least one HP, ATK, DEF and SPD; XP thresholds are unchanged. The Mon panel previews next-level gains. Server mirror: `supabase/migrations/20260927120000_level_stat_growth.sql`.
 
-The stage multipliers remain unchanged. Protocol 11 leaves room for elemental counters:
-the unprepared lower-level side wins 10-25% at evolution boundaries (9/11 and 24/26).
-Prepared +3 challenges still win 30-60% in the opening-combo matrix. A bounded experience multiplier keeps level differences relevant
-late in the game (see battle.md Damage formula).
-Equal-level species, archetype and talent balance bounds remain unchanged; passive stances use the non-dominance target below.
+The stage multipliers remain unchanged. Protocol 11 leaves room for elemental counters: the
+unprepared lower-level side wins 10-25% at evolution boundaries (9/11 and 24/26), prepared +3
+challenges still win 30-60% in the opening-combo matrix, and a bounded experience multiplier keeps
+level differences relevant late (battle.md Damage formula). Equal-level species, archetype and talent
+bounds are unchanged; passive stances use the non-dominance target below.
 
 ## Matchmaking and streaks
 
-Rivals (real players) appear on 30% of online matchmaking attempts when an eligible player exists.
-They search peers first: [0, 0], then [-1, +1], then [-3, +3].
-The previous opponent is never picked immediately again; other repeats wait one hour. A repeated
-element sends matchmaking to another band or an NPC. Selection caps gaps at three; SQL retains its five-level defense cap for older callers.
+Rivals (real players) appear on 30% of online matchmaking attempts when an eligible player exists,
+searching peers first: [0, 0], then [-1, +1], then [-3, +3]. The previous opponent is never picked
+immediately again; other repeats wait one hour. A repeated element sends matchmaking to another band
+or an NPC. Selection caps gaps at three; SQL retains its five-level defense cap for older callers.
 Without a rival, Wild and Trainer NPCs alternate. Both have no invested talents. Trainer stats are
 90% of a comparable Rival's; Wild stats are 80% of Trainer stats. The offline fallback mirrors
-these NPCs. NPC levels are 75% weaker (-1: 40%, -2: 30%, -3: 5%), 15% peers, and
-10% elite (equally split across +1/+2/+3);
-levels clamp to [2, 50]. At the hatch floor, weaker enemies may therefore be equal. On wins,
-Wild, Trainer and Rival base rewards are 20, 30 and 45 XP respectively, plus 15 XP per higher
-opponent level (capped at +5). All challenger losses pay the same 10 XP
-(`docs/design/battle.md` Rewards). No real-player pool can guarantee weaker candidates exist.
+these NPCs. NPC levels are 75% weaker (-1: 40%, -2: 30%, -3: 5%), 15% peers and 10% elite (equally split across
++1/+2/+3); levels clamp to [2, 50], so at the hatch floor weaker enemies may be equal. On wins,
+Wild, Trainer and Rival base rewards are 20, 30 and 45 XP, plus 15 XP per higher opponent level
+(capped at +5). All challenger losses pay the same 10 XP (`docs/design/battle.md` Rewards). No
+real-player pool can guarantee weaker candidates exist.
 
-Win streaks add +10% challenger XP per consecutive win, capped at +50% (5 wins), resetting to 0 on a loss; tracked in `mons.win_streak` (new column). No Elo/rating system in v1.
+Win streaks count consecutive wins against real players (Rivals) only. Each Rival win adds +10% challenger XP, capped at +50% (5 wins); a Rival loss resets the streak to 0. Wild and Trainer battles, online or offline, neither raise nor reset it and are paid without the multiplier. Tracked in `mons.win_streak` (`supabase/migrations/20261009010000_win_streak_rivals_only.sql`). No Elo/rating system in v1.
 
 ## Data model and API
 
-Fields on `public.mons` (`supabase/migrations/20260904000000_init.sql`), added across two later
-migrations per `CLAUDE.md`'s "init migration is not edited in place" gotcha --
-`supabase/migrations/20260913020000_progression_phase_a.sql` (columns) and
-`supabase/migrations/20260913040000_progression_phase_b.sql` (docs only):
+Fields on `public.mons` (`supabase/migrations/20260904000000_init.sql`), added by later migrations
+(the init migration is not edited in place): `supabase/migrations/20260913020000_progression_phase_a.sql`
+(columns) and `supabase/migrations/20260913040000_progression_phase_b.sql` (docs only):
 
 | Column | Type | Holds |
 |---|---|---|
@@ -211,23 +206,22 @@ migrations per `CLAUDE.md`'s "init migration is not edited in place" gotcha --
 | `win_streak` | `int` | Consecutive real-player wins, see Matchmaking above |
 | `last_respec_at` | `timestamptz` | Legacy timestamp, no longer limits respecs |
 
-`loadout.moves` has no backfill for mons predating Phase B: `packages/shared/src/battle/
-battle.ts:snapshotFor` always defaults an absent/incomplete `moves` to
-`defaultLoadoutMoveIds(species, level)` (`packages/shared/src/game/species.ts`), so every mon battles
-with a valid loadout whether or not it has ever called `set-loadout`. The `set-loadout` Edge
-Function validates a submitted `{ stance?, moves?, tree?, respec? }` against
-the mon's level (unlocked moves and the talent tree's node/prereq/budget rules — see
-`docs/design/talent-tree.md`) via the pure shared `validateLoadout`
-(`packages/shared/src/game/progression.ts`), returning typed `LoadoutErrorCode`s (e.g. `MOVE_LOCKED`,
-`MOVES_NOT_DISTINCT`, `TREE_OVER_BUDGET`) as `error.details.code`. `MonSnapshot`
-(`packages/shared/src/battle/battle.ts`) carries a `loadout` field, stored in
-`public.battles.challenger_snapshot`/`opponent_snapshot` so old battle logs keep replaying against
-the loadout actually equipped. `MonState` (`packages/shared/src/api.ts`) carries the mon's own
-`loadout`, `unlockedMoveIds`, `treePoints`/`sharedPassivePoints` and `lastRespecAt` so the client
-renders the loadout editor without a separate call. `apps/desktop/src/renderer/panel/views/
-Battles.tsx` shows abilities, the Skill Tree entry and the latest battle history. Stances,
-nation talents and main passives are exclusively inside the map. Left click autosaves; right
-click refunds; Reset all is free. At most one main passive (from level 10) plus one stance may be equipped. An explicitly cleared stance is stored as null and grants no stance bonus; missing legacy stance fields keep the old Bulwark fallback. Map roles and availability are documented in `docs/design/ui-panels.md`.
+`loadout.moves` has no backfill for mons predating Phase B: `packages/shared/src/battle/battle.ts:snapshotFor`
+defaults an absent or incomplete `moves` to `defaultLoadoutMoveIds(species, level)`
+(`packages/shared/src/game/species.ts`), so every mon battles with a valid loadout. The `set-loadout`
+Edge Function validates a submitted `{ stance?, moves?, tree?, respec? }` against the mon's level
+(unlocked moves; the tree's rules in `docs/design/talent-tree.md`) via the pure shared
+`validateLoadout` (`packages/shared/src/game/progression.ts`), returning typed `LoadoutErrorCode`s
+(e.g. `MOVE_LOCKED`, `MOVES_NOT_DISTINCT`, `TREE_OVER_BUDGET`) as `error.details.code`. `MonSnapshot`
+(`packages/shared/src/battle/battle.ts`) carries a `loadout`, stored in
+`public.battles.challenger_snapshot`/`opponent_snapshot` so old logs keep replaying against the
+loadout actually equipped. `MonState` (`packages/shared/src/api.ts`) carries the mon's `loadout`,
+`unlockedMoveIds`, `treePoints`/`sharedPassivePoints` and `lastRespecAt` so the client renders the
+editor without a separate call. `apps/desktop/src/renderer/panel/views/Battles.tsx` shows abilities,
+the Skill Tree entry and the latest battle history; stances, nation talents and main passives are
+only in the map (autosave on click, free Reset all; map roles in `docs/design/ui-panels.md`). At most
+one main passive (from level 10) plus one stance may be equipped. An explicitly cleared stance is
+stored as null and grants no bonus; missing legacy stance fields keep the old Bulwark fallback.
 
 ## Matchup explanations
 
@@ -235,28 +229,43 @@ The shared pure `explainMatchup(me, opp)` in `packages/shared/src/battle/matchup
 read-only helper over snapshots. It names each equipped passive without claiming a stance
 counter or recommending a switch. Suggestions prioritize Burn against single-hit shields,
 then elemental advantage/disadvantage, then a neutral fallback. Missing loadouts use the same
-stance/move defaults as battle snapshots; missing trees omit branch facts.
-The Battle panel's compact history does not display this helper's detailed explanations.
-`packages/shared/test/matchup.test.ts` verifies facts, fallbacks and suggestion priority.
+stance/move defaults as battle snapshots; missing trees omit branch facts. The Battle panel's history
+does not display the detailed explanations. `packages/shared/test/matchup.test.ts` verifies facts,
+fallbacks and suggestion priority.
 
 ## Balance targets
 
-`packages/shared/test/balance.test.ts` runs the original cross-nation round-robin (35–65% per
+`packages/shared/test/balance.test.ts` runs the cross-nation round-robin (35–65% per
 species, level 10 and 30) plus a Phase B archetype matrix — every species × 4 loadout archetypes
 (aggro/bulk/dot/tempo, each a 3-move pick favoring a cluster of effects) × 4 opposing archetypes ×
-cross-nation pairs, at levels 10 and 30 (stances cycled rather than fully crossed, to keep the battle
-count tractable):
+cross-nation pairs, at levels 10 and 30 (stances cycled, not fully crossed):
 
-- every species stays within **35–65%** win rate (unchanged threshold from `docs/design/battle.md`);
-- no single archetype exceeds **60%** win rate (measured: all 8 level × archetype combos landed 46–55%);
+- every species stays within **35–65%** in the cross-nation round-robin at levels 10 and 30 (150
+  battles per ordered pair, no mirrors); mean length **3–8 turns**; timeouts under **2%** at level 10
+  and **4%** at level 30;
+- a +3 level lead (`sparkit` L13 vs `pebblet` L10, 600 battles) wins over **90%** but not always;
+- `packages/shared/test/fairBattles.test.ts`: a tree-less player mon facing trained bots (which use
+  `defaultBotTree`) on the encounter distribution wins **50–82%** overall at levels 5, 10, 20, 30 and 50 (normal encounters 55–86%, elites at least 8
+  points lower); elemental counters stay favored at levels 2, 5, 10, 30 and 50;
+- in the archetype matrix (levels 10 and 30) every species stays within **35–65%** and no single archetype exceeds **60%**;
 - same-species default-build stance pairings stay within **40–60%** across four species; there is no universal stance counter (see Stances above);
-- boundary matchups (level 9 vs. 11, level 24 vs. 26) land the low-level side at **10–25%** (see
-  Evolution multipliers above);
-- Phase C's talent-tree matrix (a maxed tree vs. an empty one, and every pair of a nation's branches
-  against each other) — see `docs/design/talent-tree.md` Balance targets.
+- non-dominance of passive stances (mirror matrix, levels 30 and 50, every species × 4 archetypes): each stance wins **40–60%**;
+- boundary matchups (level 9 vs. 11, 24 vs. 26) land the low-level side at **10–25%** (see Evolution multipliers);
+- talent-tree gates: a maxed four-branch tree (46 points) beats an empty tree **60–73%** at
+  level 50; shared-branch fork routes at level 50 (centre vs left vs right) stay within **38–62%**,
+  every branch pair of a nation (levels 30 and 50, 10 pairs per nation) within **38–62%**, nation
+  fork alternatives against each shared centre route (level 50) within **36–64%**, and the tier-6
+  capstone routes (level 17) within **40–60%**; capstones fire in at least 15% of eligible battles.
+  Those are same-nation fights (practice and training only) and earth is the tank nation, so they
+  gate only timeouts (**under 4%**), not mean turns (`nationTimeoutGate`);
+- the nation round-robin with each side on its nation column (cross-nation, levels 30 and 50) keeps
+  every species within **35–65%**, mean turns **3–8** and timeouts under **4%**;
+- the Tempo Lock archetype wins at most **65%** against the other five archetypes at levels 30 and 50;
+- `tempo:1` (level 30) and `tempo:9` (level 50) are inert in default loadouts; with an enabling
+  loadout they must fire in at least **5%** of battles.
 
 Any change to `simulateBattle`'s RNG call order resets the golden log snapshot (`docs/design/battle.md`
-Determinism contract) and bumps `BATTLE_PROTOCOL_VERSION` (**13** for the current combat rules).
+Determinism contract) and bumps `BATTLE_PROTOCOL_VERSION` (**14** for the current combat rules).
 
 ## Phases
 
@@ -264,5 +273,5 @@ Determinism contract) and bumps `BATTLE_PROTOCOL_VERSION` (**13** for the curren
 |---|---|---|
 | A | Stances, evolution multipliers, matchmaking windows, win streaks | shipped |
 | B | Move pool (6/species), loadout policy, `MonSnapshot.loadout`, `set-loadout` | shipped |
-| C | Talent tree (nation branches + shared passives), respec | shipped |
+| C | Talent tree (four shared branches plus the mon's own nation column, one pool; main passives), free respec | shipped |
 | D | Recent-opponent intel: `explainMatchup` summaries on the Battles tab | shipped |

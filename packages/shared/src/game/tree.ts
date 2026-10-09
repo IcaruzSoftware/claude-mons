@@ -1,165 +1,417 @@
-/** Single-purchase talent trees: three nation branches and one combination branch.
- * Stored legacy ranks resolve as one purchase; surplus rank points become available again.
- * Pure validation and resolution are shared by the client and server. */
-import {
-  DEF_DOWN_MULT,
-  MOVE_UPGRADE_EFFECT_MULT,
-  MOVE_UPGRADE_POWER_MULT,
-} from '../battle/effects.ts';
+/** Protocol-14 talent tree: four shared branches (bastion, strike, ward, tempo) and one nation
+ * column per nation, 17 single-purchase nodes each, all drawing on one 47-point pool. Pure
+ * validation, normalization and resolution are shared by the client and server. */
 import type { Nation } from '../types.ts';
 
-export type TreeNodeKind = 'stat' | 'passive' | 'moveUpgrade' | 'capstone';
-export type StatKey = 'hp' | 'atk' | 'def' | 'spd';
-export type LoadoutSlot = 1 | 2 | 3;
+export type TreeBranch = 'bastion' | 'strike' | 'ward' | 'tempo' | 'nation';
+export const TREE_BRANCHES: readonly TreeBranch[] = [
+  'bastion',
+  'strike',
+  'ward',
+  'tempo',
+  'nation',
+];
 
-/** Stat bonus for one tier-1/2 purchase. Low because every branch also grants tactical effects. */
-export const STAT_PCT_PER_RANK = 0.0033;
+/** `passive` = a bastion standing rule, `capstone` = tier 6 or 12, `active` = everything else.
+ * Only the editor reads it (glyph and frame); battle rules key on the node id. */
+export type TreeNodeKind = 'passive' | 'active' | 'capstone';
 
-/** Capstone effect payloads wired into `simulateBattle`/`effects.ts`. */
-export type CapstoneEffect =
-  | { kind: 'flatStat'; stat: StatKey; pct: number }
-  | { kind: 'critMultiplier'; multiplier: number }
-  | { kind: 'defDownAlsoSpd'; fraction: number }
-  | { kind: 'defDownAlsoAtk'; fraction: number }
-  | { kind: 'critIgnoresGuards' }
-  | { kind: 'burnStacks' }
-  | { kind: 'phoenix'; hpFraction: number }
-  | { kind: 'hitFloor'; floorPct: number }
-  | { kind: 'chargeInstant' }
-  | { kind: 'actFirstAfterDamage' }
-  | { kind: 'damageCap'; capPct: number };
+/** Battle steps a node hooks into (talent-tree spec section 1.1); also the `TreeTrigger.step` set. */
+export type TreeStep =
+  | 'turn_start'
+  | 'order'
+  | 'pick'
+  | 'act_pre'
+  | 'dodge'
+  | 'crit'
+  | 'damage'
+  | 'clamp'
+  | 'lethal'
+  | 'hit'
+  | 'status'
+  | 'turn_end';
+
+/** Effect vocabulary (spec section 1.2). */
+export type TreeEffect =
+  | 'UNDODGE'
+  | 'GUARANTEED_CRIT'
+  | 'PIERCE'
+  | 'VOID'
+  | 'REFUSE'
+  | 'CAP'
+  | 'CLAMP'
+  | 'NOCRIT'
+  | 'MULTIPLIER'
+  | 'FIZZLE'
+  | 'HEAL'
+  | 'CLEANSE'
+  | 'SKIP_TICK'
+  | 'EXTEND'
+  | 'ORDER';
+
+/** Use limit: `battle` = once per battle, `turn` = once per turn, `pending` = arms a payoff for
+ * the next action and may re-arm (at most once per turn), `state` = applies whenever its
+ * condition holds. */
+export type TreeCap = 'battle' | 'turn' | 'pending' | 'state';
+
+export type TreeTier = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12;
 
 export interface TreeNode {
-  /** `${nation}:${branchSlug}:${tier}` for a nation node. */
+  /** `${branch}:${tier}` or `nation.${nation}:${tier}`, plus `:alt` (tier 3) or `:left`/`:right`
+   * (tiers 7 and 10) for a fork alternative. */
   id: string;
-  nation: Nation;
-  branch: string;
-  /** loadout slot this branch's move-upgrade node (tier 5) applies to. */
-  slot: LoadoutSlot;
-  tier: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12;
+  branch: TreeBranch;
+  /** Present only on nation-column nodes. */
+  nation?: Nation;
+  tier: TreeTier;
   name: string;
   kind: TreeNodeKind;
-  maxRank: number;
+  maxRank: 1;
   /** Points for this one-time purchase. */
   cost: number;
+  /** One player-facing sentence. */
   description: string;
-  /** id of the node in the previous tier of the same branch; null for tier 1. */
+  /** Centre node of the previous tier; null for tier 1. */
   prereqId: string | null;
-  /** Merge after a three-way fork: any one prerequisite is sufficient. */
+  /** Tiers 4, 8 and 11: any alternative of the previous fork is sufficient. */
   prereqIds?: readonly string[];
-  /** At most one alternative in each fork may be purchased. */
+  /** At most one node of a fork group may be purchased. */
   choiceGroup?: string;
-  /** -1/+1 for side alternatives; original ids are the central route. */
+  /** -1 for `:left`, +1 for `:right` and `:alt`; absent on the centre route. */
   choiceOffset?: -1 | 1;
-  /** present only for `kind: 'stat'`. */
-  stat?: StatKey;
-  /** Larger late-path stat purchases; early nodes keep STAT_PCT_PER_RANK. */
-  statBonusPct?: number;
-  /** Passive behavior key consumed by the battle simulator. */
-  passive?: string;
-  /** Present only for `kind: 'capstone'`. */
-  capstone?: CapstoneEffect;
+  /** Step at which the node fires or arms (the spec's trigger column, first step). */
+  trigger: TreeStep | 'aura';
+  effect: TreeEffect;
+  /** Second effect of a node that sets two booleans (for example UNDODGE and PIERCE). */
+  extraEffect?: TreeEffect;
+  cap: TreeCap;
+  /** Holds the spec's declared once-per-battle `(flag)`. */
+  flag: boolean;
+  /** Fixed one-line log text; `{placeholders}` are filled in by the battle log. */
+  logText: string;
 }
 
-function slugify(name: string): string {
-  return name
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '');
-}
+const TIER_COSTS = [1, 1, 2, 2, 3, 5, 4, 5, 5, 6, 6, 7] as const;
 
-interface BranchSpec {
-  nation: Nation;
-  branch: string;
-  slot: LoadoutSlot;
-  stat: StatKey;
-  tier1: string;
-  tier2: string;
-  tier3: { name: string; description: string };
-  tier4: { name: string; description: string };
-  tier5: string;
-  tier6: { name: string; description: string; capstone: CapstoneEffect };
-}
+/** [id suffix, name, effect(s), trigger, cap, description, log text override] */
+type Row = [
+  string,
+  string,
+  TreeEffect | readonly [TreeEffect, TreeEffect],
+  TreeStep,
+  TreeCap,
+  string,
+  string?,
+];
 
-const statName: Record<StatKey, string> = {
-  hp: 'max HP',
-  atk: 'attack',
-  def: 'defense',
-  spd: 'speed',
+const DEFAULT_LOG: Record<TreeEffect, string> = {
+  UNDODGE: 'cannot be dodged',
+  GUARANTEED_CRIT: 'guaranteed crit',
+  PIERCE: 'pierced {defense}',
+  VOID: 'hit voided',
+  REFUSE: 'refused {status}',
+  CAP: 'hit capped ({amount} cut)',
+  CLAMP: 'held at {hp} HP',
+  NOCRIT: 'crit cancelled',
+  MULTIPLIER: 'crit multiplier {factor}x',
+  FIZZLE: "foe's Priority fizzled",
+  HEAL: 'healed {amount} HP',
+  CLEANSE: 'cleared {statuses}',
+  SKIP_TICK: 'burn tick skipped',
+  EXTEND: 'DEF-down kept ({turns} turns left)',
+  ORDER: 'you act first',
 };
 
-/** Two three-way mastery forks, each route retaining the full 47-point level-50 budget. */
-function masteryNodes(
-  nation: Nation,
-  branch: string,
-  slot: LoadoutSlot,
-  identity: StatKey,
-): TreeNode[] {
-  const stats: StatKey[] = [identity, 'hp', 'def', 'spd', 'atk', identity];
-  const baseId = (tier: number) => `${nation}:${slugify(branch)}:${tier}`;
-  const forkIds = (tier: number) => [baseId(tier), `${baseId(tier)}:left`, `${baseId(tier)}:right`];
-  return [4, 5, 5, 6, 6, 7].flatMap((cost, index) => {
-    const tier = (index + 7) as TreeNode['tier'];
-    const fork = tier === 7 || tier === 10;
-    const baseStat = stats[index]!;
-    const defense: StatKey = baseStat === 'hp' ? 'hp' : 'def';
-    const alternatives = (['atk', defense, 'spd'] as StatKey[]).filter((stat) => stat !== baseStat);
-    const make = (stat: StatKey, offset?: -1 | 1): TreeNode => {
-      const pct = cost * 0.0015;
-      const role = stat === 'atk' ? 'Offense' : stat === 'spd' ? 'Tempo' : 'Defense';
-      const trait = fork
-        ? `mastery-${tier}-${stat}-${slugify(branch)}`
-        : `mastery-${tier}-${slugify(branch)}`;
-      const effect =
-        tier === 7
-          ? stat === 'atk'
-            ? 'Crit chance rises 2% against healthy foes.'
-            : stat === 'spd'
-              ? 'Dodge chance rises 2% after you act first.'
-              : 'Take 3% less damage from strong element hits.'
-          : tier === 8
-            ? 'Once per battle, after a turn in which you were hit, heal 3% max HP.'
-            : tier === 9
-              ? 'Strong element hits deal 5% more damage.'
-              : tier === 10
-                ? stat === 'atk'
-                  ? 'Deal 3% more damage to foes below half HP.'
-                  : stat === 'spd'
-                    ? 'Crit chance rises 2% when you act first.'
-                    : 'Critical hits against you deal 3% less damage.'
-                : tier === 11
-                  ? 'Once per battle below half HP, heal 3% max HP after a turn.'
-                  : 'Your first landed hit each battle deals 6% more damage.';
-      return {
-        id: offset ? `${baseId(tier)}:${offset === -1 ? 'left' : 'right'}` : baseId(tier),
-        nation,
-        branch,
-        slot,
-        tier,
-        name: offset
-          ? `${branch} ${role}`
-          : tier === 12
-            ? `${branch} Ascendance`
-            : `${branch} ${['Instinct', 'Second Wind', 'Elemental Edge', 'Surge', 'Last Light'][index]}`,
-        kind:
-          tier === 12 ? 'capstone' : tier === 8 || tier === 9 || tier === 11 ? 'passive' : 'stat',
-        maxRank: 1,
-        cost,
-        description: `${tier === 8 || tier === 9 || tier === 11 ? '' : `+${(pct * 100).toFixed(2)}% ${statName[stat]}. `}${effect}`,
-        prereqId: baseId(tier - 1),
-        ...(tier === 8 || tier === 11 ? { prereqIds: forkIds(tier - 1) } : {}),
-        ...(fork ? { choiceGroup: baseId(tier) } : {}),
-        ...(offset ? { choiceOffset: offset } : {}),
-        passive: trait,
-        ...(tier === 12
-          ? { capstone: { kind: 'flatStat' as const, stat, pct } }
-          : { stat, statBonusPct: pct }),
-      };
+/** Once-per-battle flags declared `(flag)` in the spec rows. */
+const FLAG_IDS = new Set([
+  'bastion:3:alt',
+  'bastion:4',
+  'bastion:5',
+  'bastion:7',
+  'bastion:11',
+  'tempo:10:right',
+  'tempo:12',
+  'nation.fire:10',
+  'nation.water:3:alt',
+  'nation.water:10:left',
+  'nation.water:12',
+  'nation.earth:3',
+  'nation.earth:3:alt',
+  'nation.earth:6',
+  'nation.earth:7',
+  'nation.earth:7:right',
+  'nation.earth:10',
+  'nation.air:7',
+  'nation.air:11',
+  'nation.air:12',
+]);
+
+function buildColumn(prefix: string, branch: TreeBranch, rows: Row[], nation?: Nation): TreeNode[] {
+  return rows.map(([suffix, name, effects, trigger, cap, description, log]) => {
+    const [tierText, alt] = suffix.split(':') as [string, string | undefined];
+    const tier = Number(tierText) as TreeTier;
+    const id = `${prefix}:${suffix}`;
+    const centre = (t: number) => `${prefix}:${t}`;
+    const forkIds = (t: number) =>
+      t === 3
+        ? [centre(3), `${centre(3)}:alt`]
+        : [centre(t), `${centre(t)}:left`, `${centre(t)}:right`];
+    const [effect, extraEffect] = typeof effects === 'string' ? [effects] : effects;
+    return {
+      id,
+      branch,
+      ...(nation ? { nation } : {}),
+      tier,
+      name,
+      kind: tier === 6 || tier === 12 ? 'capstone' : branch === 'bastion' ? 'passive' : 'active',
+      maxRank: 1,
+      cost: TIER_COSTS[tier - 1]!,
+      description,
+      prereqId: tier === 1 ? null : centre(tier - 1),
+      ...(tier === 4 || tier === 8 || tier === 11 ? { prereqIds: forkIds(tier - 1) } : {}),
+      ...(tier === 3 || tier === 7 || tier === 10 ? { choiceGroup: centre(tier) } : {}),
+      ...(alt ? { choiceOffset: alt === 'left' ? (-1 as const) : (1 as const) } : {}),
+      trigger,
+      effect,
+      ...(extraEffect ? { extraEffect } : {}),
+      cap,
+      flag: FLAG_IDS.has(id),
+      logText: `${name}: ${log ?? (extraEffect ? `${DEFAULT_LOG[effect]} and ${DEFAULT_LOG[extraEffect]}` : DEFAULT_LOG[effect])}`,
     };
-    return fork
-      ? [make(baseStat), make(alternatives[0]!, -1), make(alternatives[1]!, 1)]
-      : [make(baseStat)];
   });
+}
+
+const UNDODGE_PIERCE = ['UNDODGE', 'PIERCE'] as const;
+
+// --- shared branches (spec sections 3 and 4) ------------------------------------------------
+
+// prettier-ignore
+const BASTION: Row[] = [
+  ['1', 'Keel', 'NOCRIT', 'crit', 'battle', "Once per battle, while your HP leads the foe's by at least 15 points of max HP, a direct hit against you cannot crit."],
+  ['2', 'Ballast', 'UNDODGE', 'dodge', 'state', 'While your HP is at or below 60%, your slot-2 move cannot be dodged.'],
+  ['3', 'Quartermaster', 'ORDER', 'pick', 'battle', "If at turn-2 pick time your HP is at least 70% and above the foe's, you play your finisher on turn 2 and the drawn move on the turn the finisher was due (not with Charge, Priority or true-hit moves, and only when both moves share their type and Burn effect).", 'finisher played early ({detail})'],
+  ['3:alt', 'Hold the Line', 'CLAMP', 'clamp', 'battle', 'Once per battle, a non-crit hit that would take you from above 50% HP to below 25% leaves you at exactly 25%.'],
+  ['4', 'Stonewall', 'SKIP_TICK', 'turn_end', 'battle', 'Once per battle, while your HP is above 75%, the first burn tick on you deals no damage.'],
+  ['5', 'Anchor', 'ORDER', 'order', 'battle', "Once per battle, while your HP is below the foe's, when only the foe picked Priority and your SPD is at least 90% of the foe's, you act first."],
+  ['6', 'Keystone', 'UNDODGE', 'dodge', 'state', "While your HP is at or below 70% and below the foe's, your direct moves cannot be dodged."],
+  ['7', 'Tough Hide', 'REFUSE', 'status', 'battle', "While your HP is at or below 60%, the first status applied to you each battle is refused; the hit's damage still applies."],
+  ['7:left', 'Hard Edge', 'PIERCE', 'turn_end', 'battle', "Once per battle, after a turn that ends with your HP at least 80%, your next action pierces the foe's tree defenses."],
+  ['7:right', 'Cool Head', 'NOCRIT', 'crit', 'turn', 'While you carry no status, the first direct hit against you each turn cannot crit.'],
+  ['8', 'Low Tide', 'VOID', 'damage', 'battle', "Once per battle, while your HP is at or below 25% and a DEF-down you applied is active on the foe, the foe's Priority move deals no damage."],
+  ['9', 'Sea Legs', 'UNDODGE', 'turn_end', 'pending', 'After a turn in which you acted second, your next action cannot be dodged.'],
+  ['10', 'Iron Chin', 'NOCRIT', 'crit', 'battle', 'Once per battle, while your HP is at or below 25%, a crit against you is cancelled, even a piercing one.'],
+  ['10:left', 'Long Haul', 'MULTIPLIER', 'damage', 'state', 'While your HP is above 60%, a crit against you deals normal damage.'],
+  ['10:right', 'Overwatch', 'REFUSE', 'status', 'turn', "The foe's opener (slot 1) cannot apply its status to you."],
+  ['11', 'Holdfast', ['NOCRIT', 'REFUSE'], 'crit', 'battle', 'Once per battle, while your HP is at least 85%, the first non-piercing hit that would crit you or apply a status to you does neither.', 'blocked {blocked}'],
+  ['12', 'Ascendance', 'REFUSE', 'status', 'state', "While your HP is above the foe's HP, every status applied to you is refused."],
+];
+
+// prettier-ignore
+const STRIKE: Row[] = [
+  ['1', "Hunter's Eye", 'GUARANTEED_CRIT', 'hit', 'battle', 'After your crit leaves the foe below 40% HP, your next action is a guaranteed crit.'],
+  ['2', 'Opening Volley', 'PIERCE', 'act_pre', 'battle', "Once per battle, on a turn you act first, your direct hit pierces the foe's tree defenses."],
+  ['3', 'Burn Ledger', 'UNDODGE', 'status', 'battle', 'Once per battle, when your move lands Burn or DEF-down, your next action cannot be dodged.'],
+  ['3:alt', 'Cut Short', 'UNDODGE', 'hit', 'battle', 'Once per battle, after your direct hit leaves the foe below 50% HP, your next action cannot be dodged.'],
+  ['4', 'Shortfuse', 'PIERCE', 'hit', 'pending', "After your crit lands, your next action pierces the foe's tree defenses."],
+  ['5', 'Execution Window', 'PIERCE', 'act_pre', 'state', "Your direct hits against a foe below 40% HP pierce the foe's tree defenses."],
+  ['6', 'Coup Rule', 'MULTIPLIER', 'damage', 'battle', 'Once per battle, a crit that would leave the foe at 35% HP or less deals 2.0x instead of 1.75x.'],
+  ['7', 'Pressure Cascade', 'PIERCE', 'act_pre', 'state', "While the foe carries any Burn or your HP trails the foe's by at least 10 points, your direct hits pierce the foe's tree defenses."],
+  ['7:left', 'Bleed Line', 'EXTEND', 'turn_end', 'turn', "When your move's DEF-down on the foe would run out at the end of a turn in which your direct hit landed, it stays active through the next turn.", 'DEF-down kept through the next turn'],
+  ['7:right', 'Opening Gambit', 'UNDODGE', 'dodge', 'state', 'On turns 1 to 3, your direct moves cannot be dodged.'],
+  ['8', 'Heavy Hand', 'MULTIPLIER', 'damage', 'state', 'Your crits against a foe below 60% HP deal 2.0x instead of 1.75x.'],
+  ['9', 'Bloodscent', 'GUARANTEED_CRIT', 'hit', 'battle', 'When your hit leaves the foe at or below 25% HP, your next action is a guaranteed crit.'],
+  ['10', 'Executioner Prep', 'GUARANTEED_CRIT', 'act_pre', 'turn', 'While the foe is below 25% HP and has a status, your direct move is a guaranteed crit.'],
+  ['10:left', 'Breaker', 'PIERCE', 'status', 'battle', "After you apply DEF-down, your next action pierces the foe's tree defenses."],
+  ['10:right', 'Retaliation Edge', 'PIERCE', 'hit', 'pending', "After a foe's direct hit lands on you, your next action pierces the foe's tree defenses."],
+  ['11', 'Afterburn', 'GUARANTEED_CRIT', 'turn_end', 'battle', "The first tick of your move's Burn in a battle makes your next action a guaranteed crit."],
+  ['12', 'Kill Clock', UNDODGE_PIERCE, 'hit', 'battle', "After your hit leaves the foe at 25% HP or less, your next action cannot be dodged and pierces the foe's tree defenses."],
+];
+
+// prettier-ignore
+const WARD: Row[] = [
+  ['1', 'Brace Reflex', 'NOCRIT', 'crit', 'battle', 'While your HP is at or below 30%, the first critical hit against you each battle is cancelled and deals normal damage.'],
+  ['2', 'Riposte Step', 'UNDODGE', 'dodge', 'pending', 'After you dodge a direct hit, your next action cannot be dodged.'],
+  ['3', 'Layered Shell', 'VOID', 'damage', 'battle', 'The first Priority or Charge move that would crit you deals no damage; its statuses still apply.'],
+  ['3:alt', 'Dodge Ledger', 'REFUSE', 'status', 'battle', "After you dodge, the foe's next status applied to you is refused."],
+  ['4', 'Bulwark Pulse', 'CLAMP', 'clamp', 'turn', 'A Priority or Charge hit that would take you from above 50% HP to below 50% leaves you at exactly 50%.'],
+  ['5', 'Hard Shell', 'REFUSE', 'status', 'battle', 'Once per battle, while your HP is below 35%, the first direct hit against you that would apply a status applies none.'],
+  ['6', 'Lastline', 'CLAMP', 'lethal', 'battle', 'Once per battle, a hit that would knock you out from above 30% HP leaves you at 8% of max HP instead.'],
+  ['7', 'Layered Plating', 'REFUSE', 'status', 'turn', 'While you carry Burn or DEF-down, the first status the foe would apply or refresh on you each turn is refused.'],
+  ['7:left', 'Thermal Break', 'REFUSE', 'status', 'battle', 'The first Burn applied to you each battle is refused.'],
+  ['7:right', 'Evasion Plan', 'NOCRIT', 'dodge', 'battle', "Once per battle, after you dodge, the foe's next direct hit on you cannot crit."],
+  ['8', 'Second Skin', 'HEAL', 'turn_end', 'battle', 'Once per battle, after a turn in which one direct hit took at least 20% of your max HP, you heal half that hit, at most 5% of max HP.'],
+  ['9', 'Debt Refusal', 'REFUSE', 'status', 'battle', 'The first DEF-down the foe applies to you is refused.'],
+  ['10', 'Iron Tide', 'VOID', 'damage', 'battle', "Once per battle, while your HP is at or below 40%, the foe's finisher (slot 3) or Charge release deals no damage; its status still applies."],
+  ['10:left', 'Slipstream Guard', 'REFUSE', 'status', 'turn', "When you act first on a turn, the foe's first direct hit that turn cannot apply a status."],
+  ['10:right', 'Counterfire', 'GUARANTEED_CRIT', 'damage', 'battle', 'Once per battle, the first direct hit against you that a Ward rule voids or refuses arms a guaranteed crit for your next action.'],
+  ['11', 'Recovery Cycle', 'HEAL', 'turn_end', 'battle', 'Once per battle, if your HP fell below 35% during a turn, you heal 3% of max HP at the end of that turn.'],
+  ['12', 'Bulwark Cap', 'CAP', 'clamp', 'battle', 'Once per battle, a single direct hit against you is capped at 50% of your max HP.'],
+];
+
+// prettier-ignore
+const TEMPO: Row[] = [
+  ['1', 'Opening Setup', 'MULTIPLIER', 'hit', 'battle', 'Once per battle, after your slot-1 move lands Burn or DEF-down, your next different Priority, true-hit, crit-up or charge-release hit on that debuffed foe deals 1.2x (up to 2.4x against a higher-level foe).', 'combo {factor}x'],
+  ['2', 'Initiative Read', 'ORDER', 'order', 'turn', "When both sides picked Priority and your live SPD is at least the foe's, you act first."],
+  ['3', 'Chain Priority', 'PIERCE', 'act_pre', 'battle', "Once per battle, your Priority move pierces the foe's tree defenses."],
+  ['3:alt', 'Read the Board', 'UNDODGE', 'dodge', 'turn', 'On turns you act first, your direct move cannot be dodged.'],
+  ['4', 'Rhythm', 'GUARANTEED_CRIT', 'hit', 'battle', 'Once per battle, landing three different moves in a row makes your next action a guaranteed crit.'],
+  ['5', 'Tempo Edge', 'PIERCE', 'act_pre', 'battle', "Once per battle, on a turn you act first, your direct action pierces the foe's tree defenses."],
+  ['6', 'Flow State', 'CLEANSE', 'hit', 'battle', 'Once per battle, landing three different moves in a row ends your own Burn and DEF-down.'],
+  ['7', 'Tempo Lock', 'FIZZLE', 'act_pre', 'battle', "After your move applies Burn (or DEF-down to a foe below 25% HP) on a turn you acted first, the foe's next Priority move fizzles: it still acts first but deals and applies nothing."],
+  ['7:left', 'Momentum', 'PIERCE', 'act_pre', 'battle', "Once per battle, your first direct action on a turn you act second pierces the foe's tree defenses."],
+  ['7:right', 'Setup Chain', 'GUARANTEED_CRIT', 'status', 'pending', 'Each Burn or DEF-down your move lands arms a guaranteed crit for your next action.'],
+  ['8', 'Quick Recovery', 'SKIP_TICK', 'turn_end', 'battle', 'Once per battle, on a turn you acted first and landed a direct hit, your own burn tick that turn is skipped.'],
+  ['9', 'Charge Focus', 'UNDODGE', 'dodge', 'state', 'Your charge release cannot be dodged.'],
+  ['10', 'Consecutive Priority', 'UNDODGE', 'hit', 'battle', 'After you land a Priority move on two turns in a row, your next action cannot be dodged.'],
+  ['10:left', 'Counter Setup', 'PIERCE', 'act_pre', 'pending', "If the foe's Priority move fizzles, misses or is dodged, your next action pierces the foe's tree defenses."],
+  ['10:right', 'Order Snap', 'ORDER', 'order', 'battle', "Once per battle, after you act first on two turns in a row, the foe's Priority does not grant first action next turn; live SPD decides and a tie goes to you.", "foe's Priority suppressed (SPD {spd})"],
+  ['11', 'Burst Window', 'GUARANTEED_CRIT', 'hit', 'battle', 'Once per battle, after you acted first on the two previous turns, your next action is a guaranteed crit.'],
+  ['12', 'Initiative', 'ORDER', 'order', 'battle', 'Once per battle, after you have acted second on two turns, you act first on the next turn, even against Priority.'],
+];
+
+// --- nation columns (addendum section 5) ----------------------------------------------------
+
+// prettier-ignore
+const FIRE: Row[] = [
+  ['1', 'Kindling', 'MULTIPLIER', 'damage', 'state', "While the foe carries any Burn or your move's DEF-down, your crits deal 2.1x instead of 1.75x."],
+  ['2', 'Fuel Line', 'UNDODGE', 'turn_end', 'pending', "After a turn that ends with the foe carrying any Burn or your move's DEF-down, your next action cannot be dodged."],
+  ['3', 'Kindle Chain', 'GUARANTEED_CRIT', 'status', 'battle', 'Once per battle, when your nation-type hit ignites an unburned foe, your next action is a guaranteed crit.'],
+  ['3:alt', 'Burn-Hardened', 'NOCRIT', 'crit', 'turn', "While the foe carries any Burn or your move's DEF-down, the foe's first direct hit each turn cannot crit."],
+  ['4', 'Ember Spread', 'PIERCE', 'status', 'battle', "Once per battle, after a Burn you apply lands on the foe, your next action pierces the foe's tree defenses."],
+  ['5', 'Heat Tithe', 'GUARANTEED_CRIT', 'hit', 'battle', "Once per battle, after a crit lands on you while the foe carries any Burn or your move's DEF-down, your next action is a guaranteed crit."],
+  ['6', 'Inferno', 'PIERCE', 'act_pre', 'turn', "While the foe carries any Burn or your move's DEF-down, or is below 20% HP, your first direct hit each turn pierces the foe's tree defenses."],
+  ['7', 'Forge', 'NOCRIT', 'crit', 'turn', "While the foe carries no Burn and no DEF-down from your move, the first crit you take each turn deals normal damage."],
+  ['7:left', 'Kiln Skin', 'REFUSE', 'status', 'turn', "While the foe carries any Burn or your move's DEF-down, or while you are below 50% HP, the foe's first direct move each turn that would apply a status to you is refused."],
+  ['7:right', 'Sear', 'UNDODGE', 'hit', 'pending', "After your crit lands on a foe carrying any Burn or your move's DEF-down, your next action cannot be dodged."],
+  ['8', 'Ash Cloud', 'GUARANTEED_CRIT', 'turn_end', 'battle', "Once per battle, when the foe's Burn ends, your next action is a guaranteed crit."],
+  ['9', 'Ignition Chain', 'GUARANTEED_CRIT', 'status', 'battle', 'Once per battle, when your move lands Burn or DEF-down on a foe below 50% HP, your next action is a guaranteed crit.'],
+  ['10', 'Crucible', 'GUARANTEED_CRIT', 'act_pre', 'battle', 'Once per battle, while the foe is below 50% HP, your direct hit is a guaranteed crit.'],
+  ['10:left', 'Bellows', 'PIERCE', 'turn_end', 'battle', "Once per battle, after the foe ends two turns in a row burned, your next action pierces the foe's tree defenses."],
+  ['10:right', 'Afterheat', 'GUARANTEED_CRIT', 'crit', 'battle', "The first crit drawn against you while the foe carries any Burn or your move's DEF-down arms a guaranteed crit for your next action, even if it is cancelled."],
+  ['11', 'Hot Streak', UNDODGE_PIERCE, 'hit', 'battle', "Once per battle, after your direct hit lands on a foe carrying any Burn or your move's DEF-down, your next action cannot be dodged and pierces the foe's tree defenses."],
+  ['12', 'Pyre Lord', 'MULTIPLIER', 'damage', 'state', "While the foe carries any Burn or your move's DEF-down, or is below 50% HP, your crits deal 2.4x instead of 1.75x."],
+];
+
+// prettier-ignore
+const WATER: Row[] = [
+  ['1', 'Undertow', 'UNDODGE', 'hit', 'battle', 'Once per battle, when your nation-type hit soaks the foe, your next action cannot be dodged.'],
+  ['2', 'Drag', 'NOCRIT', 'crit', 'turn', "While the foe is soaked, the foe's first direct hit each turn cannot crit."],
+  ['3', 'Undercurrent', 'ORDER', 'order', 'turn', 'While the foe is soaked and picked Priority, its Priority does not grant first action; live SPD decides and a tie goes to you.', "foe's Priority suppressed (SPD {spd})"],
+  ['3:alt', 'Slack Tide', 'REFUSE', 'status', 'battle', 'Once per battle, the first status applied to you while the foe is soaked is refused.'],
+  ['4', 'Undertow Grip', 'PIERCE', 'hit', 'battle', "Once per battle, after your Soak lands, your next action pierces the foe's tree defenses."],
+  ['5', 'Release', 'GUARANTEED_CRIT', 'turn_end', 'battle', "Once per battle, when the foe's soak expires, your next action is a guaranteed crit."],
+  ['6', 'Tidal Lock', 'PIERCE', 'act_pre', 'turn', "While the foe is soaked or below 20% HP, the first direct hit you land each turn pierces the foe's tree defenses."],
+  ['7', 'Waterlogged', 'REFUSE', 'status', 'turn', 'While the foe is soaked, the first status applied to you each turn is refused.'],
+  ['7:left', 'Surge', 'UNDODGE', 'turn_end', 'battle', "The first time the foe's soak expires, your next action cannot be dodged."],
+  ['7:right', 'Cold Current', 'UNDODGE', 'turn_end', 'battle', 'Once per battle, after a turn that ends with the foe soaked, your next action cannot be dodged.'],
+  ['8', 'Ebb Flow', 'PIERCE', 'turn_end', 'battle', "Once per battle, after a turn that ends with the foe soaked, your next action pierces the foe's tree defenses."],
+  ['9', 'Saturate', 'GUARANTEED_CRIT', 'turn_end', 'battle', 'The first time a turn ends with the foe soaked and below 20% HP, your next action is a guaranteed crit.'],
+  ['10', 'Deep Current', 'VOID', 'damage', 'battle', "Once per battle, while the foe is soaked or your HP is at or below 15%, the foe's Priority move deals no damage; its statuses still apply."],
+  ['10:left', 'Undertow Pull', 'ORDER', 'order', 'battle', 'Once per battle, while the foe is soaked, you act first.'],
+  ['10:right', 'Wave Break', 'GUARANTEED_CRIT', 'hit', 'battle', 'Once per battle, when your Soak lands on a foe below 50% HP, your next action is a guaranteed crit.'],
+  ['11', 'Brine Skin', 'CLAMP', 'clamp', 'battle', 'Once per battle, while the foe is soaked, a hit that would take you from above 50% HP to below 50% leaves you at exactly 50%.'],
+  ['12', 'Maelstrom', 'GUARANTEED_CRIT', 'crit', 'battle', 'Once per battle, while the foe is soaked and below 50% HP, your direct hit is a guaranteed crit.'],
+];
+
+// prettier-ignore
+const EARTH: Row[] = [
+  ['1', 'Stand Firm', 'GUARANTEED_CRIT', 'turn_end', 'battle', "Once per battle, after direct hits land on you on four or more turns in a row while your HP is at or below 50% and trails the foe's by at least 10 points, your next action is a guaranteed crit."],
+  ['2', 'Sod', 'UNDODGE', 'turn_end', 'battle', 'Once per battle, after direct hits land on you on two turns in a row, your next action cannot be dodged.'],
+  ['3', 'Rootwork', 'CLAMP', 'clamp', 'battle', 'Once per battle, a crit that would take you below 20% HP leaves you at exactly 20%.'],
+  ['3:alt', 'Hardpan', 'REFUSE', 'status', 'battle', 'Once per battle, the first status applied to you on a turn after a direct hit landed on you is refused.'],
+  ['4', 'Strata', 'PIERCE', 'turn_end', 'pending', "After direct hits land on you on two turns in a row, your next action pierces the foe's tree defenses."],
+  ['5', 'Mantle', 'VOID', 'damage', 'battle', 'Once per battle, a Priority crit against you while you have been hit two turns in a row deals no damage; its statuses still apply.'],
+  ['6', 'Monolith', 'NOCRIT', 'crit', 'battle', 'Once per battle, the first crit against you while you have been hit three turns in a row and your HP is at or below 35% is cancelled, even by a piercing hit.'],
+  ['7', 'Tectonic', 'CLAMP', 'clamp', 'battle', 'Once per battle, a hit that would take you from above 40% HP to below 28% leaves you at exactly 28%.'],
+  ['7:left', 'Grounding', 'FIZZLE', 'act_pre', 'battle', "Once per battle, while you have been hit two turns in a row and the foe is at or below 15% HP, the foe's Priority move fizzles."],
+  ['7:right', 'Fault Line', 'GUARANTEED_CRIT', 'act_pre', 'battle', "Once per battle, while you have been hit two turns in a row, your HP is below the foe's and the foe is at or below 20% HP, your direct hit is a guaranteed crit."],
+  ['8', 'Sediment', 'UNDODGE', 'hit', 'battle', 'After you have taken six direct hits in a battle, your next action cannot be dodged.'],
+  ['9', 'Silt', 'REFUSE', 'status', 'battle', "Once per battle, while you took a direct hit last turn, the foe's status-applying move is refused."],
+  ['10', 'Hardrock', 'GUARANTEED_CRIT', 'act_pre', 'battle', 'Once per battle, while the foe has been hit four turns in a row and is at or below 20% HP, your direct hit is a guaranteed crit.'],
+  ['10:left', 'Quarry', 'GUARANTEED_CRIT', 'act_pre', 'battle', 'Once per battle, while the foe is at or below 30% HP, your direct hit is a guaranteed crit.'],
+  ['10:right', 'Mudslide', UNDODGE_PIERCE, 'turn_end', 'battle', "Once per battle, after direct hits land on you on three turns in a row, your next action cannot be dodged and pierces the foe's tree defenses."],
+  ['11', 'Terrace', 'CLAMP', 'clamp', 'battle', 'Once per battle, while you took a direct hit last turn, a hit that would take you from above 60% HP to below 40% leaves you at exactly 40%.'],
+  ['12', 'Continent', 'MULTIPLIER', 'damage', 'state', 'While you have been hit three turns in a row, your crits deal 1.8x instead of 1.75x.'],
+];
+
+// prettier-ignore
+const AIR: Row[] = [
+  ['1', 'Glide Step', 'PIERCE', 'dodge', 'battle', "Once per battle, after you dodge a direct hit, your next action pierces the foe's tree defenses."],
+  ['2', 'Lift', 'UNDODGE', 'dodge', 'state', 'While your speed lead is at least 110% and you acted first this turn, your direct move cannot be dodged.'],
+  ['3', 'Headwind', 'NOCRIT', 'crit', 'battle', "Once per battle, while your speed lead is at least 110% and you acted first, the foe's direct hit cannot crit."],
+  ['3:alt', 'Crosswind', 'GUARANTEED_CRIT', 'dodge', 'battle', 'Once per battle, the first direct move you dodge makes your next action a guaranteed crit.'],
+  ['4', 'Gust Line', 'PIERCE', 'act_pre', 'battle', "Once per battle, while you act first with a speed lead of at least 110%, your direct move pierces the foe's tree defenses."],
+  ['5', 'Hover', 'UNDODGE', 'turn_end', 'battle', 'Once per battle, after a turn in which you acted first, your next action cannot be dodged.'],
+  ['6', 'Tailwind Crown', 'REFUSE', 'status', 'battle', "Once per battle, while your speed lead is at least 110%, the foe's direct hit applies no status to you."],
+  ['7', 'Ridge', 'NOCRIT', 'crit', 'battle', 'Once per battle, the first crit against you while your speed lead is at least 110% and your HP is at or below 50% is cancelled.'],
+  ['7:left', 'Dust Devil', 'FIZZLE', 'act_pre', 'turn', "After you dodge a direct hit, the foe's next Priority move fizzles."],
+  ['7:right', 'Eddy', 'PIERCE', 'turn_end', 'battle', "Once per battle, after you act first on two turns in a row, your next direct move pierces the foe's tree defenses."],
+  ['8', 'Stratosphere', 'MULTIPLIER', 'damage', 'state', 'While your speed lead is at least 112%, your crits deal 1.9x instead of 1.75x.'],
+  ['9', 'Thermal Column', 'GUARANTEED_CRIT', 'dodge', 'battle', 'Once per battle, after you dodge a direct hit on a turn you acted first, your next action is a guaranteed crit.'],
+  ['10', 'Lee Shore', 'REFUSE', 'status', 'turn', "While your speed lead is at least 105% and you took no direct hit last turn, the foe's first status-applying direct hit each turn is refused."],
+  ['10:left', 'Ascent', UNDODGE_PIERCE, 'turn_end', 'battle', "Once per battle, after you act first on two turns in a row, your next action cannot be dodged and pierces the foe's tree defenses."],
+  ['10:right', 'Gale Shield', 'PIERCE', 'dodge', 'pending', "After you dodge a direct hit, your next action pierces the foe's tree defenses."],
+  ['11', 'Cloud Bank', 'REFUSE', 'status', 'battle', "Once per battle, after you dodge a direct hit, the foe's next status applied to you is refused."],
+  ['12', 'Sovereign Wind', 'GUARANTEED_CRIT', 'act_pre', 'battle', 'Once per battle, while your speed lead is at least 110% and the foe is below 30% HP, your direct move is a guaranteed crit.'],
+];
+
+const NATION_ROWS: Record<Nation, Row[]> = { water: WATER, fire: FIRE, earth: EARTH, air: AIR };
+
+const SHARED_NODES: readonly TreeNode[] = [
+  ...buildColumn('bastion', 'bastion', BASTION),
+  ...buildColumn('strike', 'strike', STRIKE),
+  ...buildColumn('ward', 'ward', WARD),
+  ...buildColumn('tempo', 'tempo', TEMPO),
+];
+const column = (nation: Nation) =>
+  buildColumn(`nation.${nation}`, 'nation', NATION_ROWS[nation], nation);
+const NATION_NODES: Record<Nation, readonly TreeNode[]> = {
+  water: column('water'),
+  fire: column('fire'),
+  earth: column('earth'),
+  air: column('air'),
+};
+
+/** All 136 nodes (68 shared, 68 nation), in roster order: branch, then tier. */
+export const TREE_NODES: Record<string, TreeNode> = Object.fromEntries(
+  [...SHARED_NODES, ...Object.values(NATION_NODES).flat()].map((n) => [n.id, n]),
+);
+
+const CHOICE_GROUPS = new Map<string, TreeNode[]>();
+for (const node of Object.values(TREE_NODES)) {
+  if (node.choiceGroup) {
+    CHOICE_GROUPS.set(node.choiceGroup, [...(CHOICE_GROUPS.get(node.choiceGroup) ?? []), node]);
+  }
+}
+
+/** The four shared branches (68 nodes). */
+export function sharedNodes(): TreeNode[] {
+  return [...SHARED_NODES];
+}
+
+/** One nation's column (17 nodes). */
+export function nationNodes(nation: Nation): TreeNode[] {
+  return [...NATION_NODES[nation]];
+}
+
+/** Every node a mon of `nation` can see and buy: the shared branches and its own column (85). */
+export function treeNodesFor(nation: Nation): TreeNode[] {
+  return [...SHARED_NODES, ...NATION_NODES[nation]];
+}
+
+export function nodesByBranch(nation: Nation): Record<TreeBranch, TreeNode[]> {
+  const out = Object.fromEntries(TREE_BRANCHES.map((b) => [b, [] as TreeNode[]])) as Record<
+    TreeBranch,
+    TreeNode[]
+  >;
+  for (const node of treeNodesFor(nation)) out[node.branch].push(node);
+  return out;
+}
+
+/** Display name of a node's branch; the nation column is named after its nation. */
+export function treeBranchLabel(node: TreeNode): string {
+  const key = node.nation ?? node.branch;
+  return key[0]!.toUpperCase() + key.slice(1);
 }
 
 export function treePrerequisiteMet(node: TreeNode, ranks: Record<string, number>): boolean {
@@ -172,439 +424,14 @@ export function treeChoiceConflict(
   ranks: Record<string, number>,
 ): TreeNode | undefined {
   return node.choiceGroup
-    ? nationNodes(node.nation).find(
-        (other) =>
-          other.id !== node.id &&
-          other.choiceGroup === node.choiceGroup &&
-          (ranks[other.id] ?? 0) > 0,
+    ? CHOICE_GROUPS.get(node.choiceGroup)?.find(
+        (other) => other.id !== node.id && (ranks[other.id] ?? 0) > 0,
       )
     : undefined;
 }
 
-function buildBranch(spec: BranchSpec): TreeNode[] {
-  const branchSlug = slugify(spec.branch);
-  const idFor = (tier: number) => `${spec.nation}:${branchSlug}:${tier}`;
-  const nodes: TreeNode[] = [
-    {
-      id: idFor(1),
-      nation: spec.nation,
-      branch: spec.branch,
-      slot: spec.slot,
-      tier: 1,
-      name: spec.tier1,
-      kind: 'stat',
-      maxRank: 1,
-      cost: 1,
-      description: `+${(STAT_PCT_PER_RANK * 100).toFixed(2)}% ${statName[spec.stat]}.`,
-      prereqId: null,
-      stat: spec.stat,
-    },
-    {
-      id: idFor(2),
-      nation: spec.nation,
-      branch: spec.branch,
-      slot: spec.slot,
-      tier: 2,
-      name: spec.tier2,
-      kind: 'stat',
-      maxRank: 1,
-      cost: 1,
-      description: `+${(STAT_PCT_PER_RANK * 100).toFixed(2)}% ${statName[spec.stat]}.`,
-      prereqId: idFor(1),
-      stat: spec.stat,
-    },
-    {
-      id: idFor(3),
-      nation: spec.nation,
-      branch: spec.branch,
-      slot: spec.slot,
-      tier: 3,
-      name: spec.tier3.name,
-      kind: 'passive',
-      maxRank: 1,
-      cost: 2,
-      description: spec.tier3.description,
-      passive: slugify(spec.tier3.name),
-      prereqId: idFor(2),
-    },
-    {
-      id: idFor(4),
-      nation: spec.nation,
-      branch: spec.branch,
-      slot: spec.slot,
-      tier: 4,
-      name: spec.tier4.name,
-      kind: 'passive',
-      maxRank: 1,
-      cost: 2,
-      description: spec.tier4.description,
-      passive: slugify(spec.tier4.name),
-      prereqId: idFor(3),
-    },
-    {
-      id: idFor(5),
-      nation: spec.nation,
-      branch: spec.branch,
-      slot: spec.slot,
-      tier: 5,
-      name: spec.tier5,
-      kind: 'moveUpgrade',
-      maxRank: 1,
-      cost: 3,
-      description: `Your ${['first', 'main', 'finisher'][spec.slot - 1]} move gets a stronger effect, or more damage if it has no effect to boost.`,
-      prereqId: idFor(4),
-    },
-    {
-      id: idFor(6),
-      nation: spec.nation,
-      branch: spec.branch,
-      slot: spec.slot,
-      tier: 6,
-      name: spec.tier6.name,
-      kind: 'capstone',
-      maxRank: 1,
-      cost: 5,
-      description: spec.tier6.description,
-      prereqId: idFor(5),
-      capstone: spec.tier6.capstone,
-    },
-  ];
-  return [...nodes, ...masteryNodes(spec.nation, spec.branch, spec.slot, spec.stat)];
-}
-
-/** `1 - DEF_DOWN_MULT`: the flat fraction a mon's own `def_down` cuts DEF by (docs/design/
- * progression.md Move pool and effects). Water's Abyssal Pull and Earth's Fissure Reckoning
- * capstones both piggyback on this same magnitude ("also cuts target SPD/ATK by the same/half
- * that %"), so it is derived here rather than re-declared as a separate magic number. */
-const DEF_DOWN_FRACTION = 1 - DEF_DOWN_MULT;
-
-const BRANCHES: BranchSpec[] = [
-  // --- water --------------------------------------------------------------------------------
-  {
-    nation: 'water',
-    branch: 'Current',
-    slot: 2,
-    stat: 'atk',
-    tier1: 'Riverrun',
-    tier2: 'Millrace',
-    tier3: {
-      name: 'Pressure Head',
-      description: 'Element attacks deal 3% more damage to healthy foes.',
-    },
-    tier4: {
-      name: 'Spillway',
-      description: 'Lowering a foe’s defense also slows it by 5%.',
-    },
-    tier5: 'Jetstream Coupling',
-    tier6: {
-      name: 'Maelstrom',
-      description: 'Critical element attacks hit 1.9× as hard instead of 1.75×.',
-      capstone: { kind: 'critMultiplier', multiplier: 1.9 },
-    },
-  },
-  {
-    nation: 'water',
-    branch: 'Undertow',
-    slot: 3,
-    stat: 'def',
-    tier1: 'Backwash',
-    tier2: 'Riptide Step',
-    tier3: { name: 'Silt Cloud', description: 'Your defense-lowering effects last one more turn.' },
-    tier4: {
-      name: 'Undercurrent',
-      description: 'Dodge 2.5% more often while the foe has lowered defense.',
-    },
-    tier5: 'Drift Anchor',
-    tier6: {
-      name: 'Abyssal Pull',
-      description: 'Lowering a foe’s defense also slows it by the same amount.',
-      capstone: { kind: 'defDownAlsoSpd', fraction: DEF_DOWN_FRACTION },
-    },
-  },
-  {
-    nation: 'water',
-    branch: 'Reservoir',
-    slot: 1,
-    stat: 'hp',
-    tier1: 'Cistern',
-    tier2: 'Aquifer',
-    tier3: {
-      name: 'Slow Leak',
-      description: 'Draining attacks heal 4% more of the damage they deal.',
-    },
-    tier4: {
-      name: 'Watershed',
-      description: 'Once per battle, heal 3% max HP just before a hit drops you below 20% HP.',
-    },
-    tier5: 'Sluice Control',
-    tier6: {
-      name: 'Deep Reserve',
-      description: '+4% max HP.',
-      capstone: { kind: 'flatStat', stat: 'hp', pct: 0.04 },
-    },
-  },
-  // --- fire ---------------------------------------------------------------------------------
-  {
-    nation: 'fire',
-    branch: 'Blaze',
-    slot: 2,
-    stat: 'atk',
-    tier1: 'Flarelight',
-    tier2: 'Firebrand',
-    tier3: {
-      name: 'Scorchmark',
-      description: 'Critical hits deal 5% more damage to burning foes.',
-    },
-    tier4: {
-      name: 'Detonation',
-      description: 'Moves that boost critical hits gain another 3% crit chance.',
-    },
-    tier5: 'Forge Temper',
-    tier6: {
-      name: 'Supernova',
-      description: 'Your critical hits ignore first-hit shields and lowered defense.',
-      capstone: { kind: 'critIgnoresGuards' },
-    },
-  },
-  {
-    nation: 'fire',
-    branch: 'Kindling',
-    slot: 3,
-    stat: 'atk',
-    tier1: 'Spark Catch',
-    tier2: 'Smolder',
-    tier3: {
-      name: 'Ashfall',
-      description: 'Your burns deal an extra 0.25% max HP each turn.',
-    },
-    tier4: { name: 'Slow Burn', description: 'Your burns last one more turn.' },
-    tier5: 'Tinder Box',
-    tier6: {
-      name: 'Ashen Cascade',
-      description: 'Burning a foe again adds a second burn instead of refreshing it.',
-      capstone: { kind: 'burnStacks' },
-    },
-  },
-  {
-    nation: 'fire',
-    branch: 'Backdraft',
-    slot: 1,
-    stat: 'def',
-    tier1: 'Firebreak',
-    tier2: 'Ember Ward',
-    tier3: {
-      name: 'Flashover',
-      description: 'Your first-hit shield blocks 55% damage instead of 50%.',
-    },
-    tier4: {
-      name: 'Rekindle Surge',
-      description: 'After taking a critical hit, your next turn deals 3% more damage.',
-    },
-    tier5: 'Heat Shield',
-    tier6: {
-      name: 'Phoenix Reborn',
-      description:
-        // Tuned by simulation on 2026-09-13 (docs/design/talent-tree.md Balance targets): the
-        // design doc's literal "...with its next hit a guaranteed crit" made this branch beat
-        // its sibling Blaze 85-95% of the time in the branch-vs-branch matrix (40-60% target);
-        // the guaranteed-crit follow-up is dropped (see packages/shared/src/battle/battle.ts).
-        'Once per battle, a knockout has a 22% chance to leave you at 5% HP.',
-      capstone: { kind: 'phoenix', hpFraction: 0.05 },
-    },
-  },
-  // --- earth --------------------------------------------------------------------------------
-  {
-    nation: 'earth',
-    branch: 'Tremor',
-    slot: 2,
-    stat: 'atk',
-    tier1: 'Fault Crack',
-    tier2: 'Shockwave Step',
-    tier3: {
-      name: 'Ground Shatter',
-      description: 'Your defense-lowering moves cut another 2.5% defense.',
-    },
-    tier4: {
-      name: 'Resonant Crack',
-      description: 'A critical hit refreshes lowered defense on the foe.',
-    },
-    tier5: 'Seismic Brace',
-    tier6: {
-      name: 'Fissure Reckoning',
-      description: 'Lowering a foe’s defense also lowers its attack by half as much.',
-      capstone: { kind: 'defDownAlsoAtk', fraction: DEF_DOWN_FRACTION / 2 },
-    },
-  },
-  {
-    nation: 'earth',
-    branch: 'Canopy',
-    slot: 3,
-    stat: 'hp',
-    tier1: 'Undergrowth',
-    tier2: 'Root Lattice',
-    tier3: {
-      name: 'Canopy Cover',
-      description: 'Draining attacks heal 2% more of the damage they deal.',
-    },
-    tier4: {
-      name: 'Mulch Layer',
-      description: 'Above half HP, lowered defense wears off one turn sooner.',
-    },
-    tier5: 'Grafted Bough',
-    tier6: {
-      // Tuned by simulation on 2026-09-13 (docs/design/talent-tree.md Balance targets): matching
-      // water's Deep Reserve pct exactly (both are flat-HP capstones) left Canopy the weakest of
-      // earth's 3 branches (~37% vs Foundation, ~40% vs Tremor, against the 40-60% target) even
-      // though water's own HP branch (Reservoir/Deep Reserve) landed in-band at the same pct --
-      // earth's other two branches (Tremor's Fissure Reckoning, Foundation's Unmovable) are
-      // simply stronger secondary effects than water's, so Canopy needed a larger flat bonus to
-      // compensate, not a nation-wide change to the shared Deep-Reserve-style magnitude.
-      name: 'Old Growth',
-      description: '+9% max HP.',
-      capstone: { kind: 'flatStat', stat: 'hp', pct: 0.09 },
-    },
-  },
-  {
-    nation: 'earth',
-    branch: 'Foundation',
-    slot: 1,
-    stat: 'def',
-    tier1: 'Stoneframe',
-    tier2: 'Ironvein',
-    tier3: {
-      name: 'Load Bearing',
-      description: 'Your first-hit shield blocks 55% damage instead of 50%.',
-    },
-    tier4: {
-      name: 'Reinforced Crust',
-      description: 'Once per battle, the second hit against you deals 5% less damage.',
-    },
-    tier5: 'Retaining Wall',
-    tier6: {
-      name: 'Unmovable',
-      description: 'Once per battle, a hit cannot drop you below 10% max HP.',
-      capstone: { kind: 'hitFloor', floorPct: 0.1 },
-    },
-  },
-  // --- air ----------------------------------------------------------------------------------
-  {
-    nation: 'air',
-    branch: 'Cyclone',
-    slot: 2,
-    stat: 'atk',
-    tier1: 'Squall Line',
-    tier2: 'Downburst',
-    tier3: { name: 'Wind Shear', description: 'Unavoidable attacks deal 5% more damage.' },
-    tier4: {
-      name: 'Funnel Force',
-      description: 'Charged attacks deal 7% more damage when released.',
-    },
-    tier5: 'Vortex Edge',
-    tier6: {
-      name: 'Tempest',
-      description: 'Charged attacks hit immediately instead of waiting a turn.',
-      capstone: { kind: 'chargeInstant' },
-    },
-  },
-  {
-    nation: 'air',
-    branch: 'Cirrus',
-    slot: 3,
-    stat: 'spd',
-    tier1: 'Windrise',
-    tier2: 'Jetstream Wing',
-    tier3: {
-      name: 'Slipstream',
-      description: 'Fast attacks give you 3% more speed for that turn.',
-    },
-    tier4: {
-      name: 'Thermal Lift',
-      description: 'When you act first, deal 2.5% more damage.',
-    },
-    tier5: 'Wingtip Trim',
-    tier6: {
-      name: 'Eye of the Storm',
-      description: 'After taking damage, you have a 40% chance to act first next turn.',
-      capstone: { kind: 'actFirstAfterDamage' },
-    },
-  },
-  {
-    nation: 'air',
-    branch: 'Stratus',
-    slot: 1,
-    stat: 'def',
-    tier1: 'Cloudbank',
-    tier2: 'High Pressure',
-    tier3: {
-      name: 'Fog Bank',
-      description: 'Your first-hit shield blocks 55% damage instead of 50%.',
-    },
-    tier4: {
-      name: 'Static Charge',
-      description: 'After taking a critical hit, dodge 5% more often next turn.',
-    },
-    tier5: 'Overcast Veil',
-    tier6: {
-      name: 'Ceiling Break',
-      description: 'Once per battle, a huge hit cannot deal more than 40% of your max HP.',
-      capstone: { kind: 'damageCap', capPct: 0.4 },
-    },
-  },
-];
-
-/** Combo branch uses the same nation-point budget and single-purchase prerequisites. */
-const COMBO_BRANCHES = [
-  {
-    branch: 'Flow',
-    slot: 2 as const,
-    nodes: [
-      [
-        'Quick Setup',
-        'Unlocks setup combos: Burn or Defense Down, then a different attack, deals 20% more damage. Once per battle, Priority into Burn or Defense Down cannot miss.',
-      ],
-      [
-        'Expose Weakness',
-        'Once per battle, an unavoidable hit against a foe with lowered defense deals 4% more damage.',
-      ],
-      [
-        'Kindled Recovery',
-        'Once per battle, a draining hit against a burning foe heals 3% max HP.',
-      ],
-      ['Rhythm', 'Once per battle, land three different moves in a row to deal 5% more damage.'],
-      [
-        'Patient Followup',
-        'Once per battle, a charged hit against a burning or weakened foe deals 5% more damage.',
-      ],
-      ['Flow State', 'Once per battle, land three different moves in a row to heal 4% max HP.'],
-    ],
-  },
-] as const;
-const comboNodes: TreeNode[] = (['water', 'fire', 'earth', 'air'] as const).flatMap((nation) =>
-  COMBO_BRANCHES.flatMap(({ branch, slot, nodes }) => [
-    ...nodes.map(([name, description], i) => ({
-      id: `${nation}:${slugify(branch)}:${i + 1}`,
-      nation,
-      branch,
-      slot,
-      tier: (i + 1) as TreeNode['tier'],
-      name,
-      description,
-      kind: 'passive' as const,
-      maxRank: 1,
-      cost: [1, 1, 2, 2, 3, 5][i]!,
-      passive: slugify(name),
-      prereqId: i === 0 ? null : `${nation}:${slugify(branch)}:${i}`,
-    })),
-    ...masteryNodes(nation, branch, slot, 'spd'),
-  ]),
-);
-
-/** 64 nodes per nation: four paths, two three-way forks each, 47 points per complete route. */
-export const TREE_NODES: Record<string, TreeNode> = Object.fromEntries(
-  [...BRANCHES.flatMap(buildBranch), ...comboNodes].map((n) => [n.id, n]),
-);
-
-/** Read old saved trees without discarding purchases or charging a respec for rank consolidation. */
+/** Legacy main-passive consolidation used by `validateLoadout`: keeps only the equipped main
+ * passive and clamps every other positive rank to 1. Roster changes are `normalizeTree`'s job. */
 export function singlePurchaseTree(ranks: Record<string, number> = {}): Record<string, number> {
   const main = equippedMainPassive(ranks);
   return Object.fromEntries(
@@ -612,10 +439,6 @@ export function singlePurchaseTree(ranks: Record<string, number> = {}): Record<s
       .filter(([id, rank]) => rank > 0 && (!isSharedPassiveId(id) || id === main))
       .map(([id]) => [id, 1]),
   );
-}
-
-export function nationNodes(nation: Nation): TreeNode[] {
-  return Object.values(TREE_NODES).filter((n) => n.nation === nation);
 }
 
 // --- shared passives (docs/design/talent-tree.md Shared passives) -------------------------------
@@ -628,6 +451,13 @@ export interface SharedPassiveNode {
   cost: number;
   /** Always 1 -- a shared passive is either taken or not, no ranks. */
   maxRank: 1;
+}
+
+function slugify(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
 }
 
 function sharedPassive(name: string, description: string): SharedPassiveNode {
@@ -679,9 +509,16 @@ export function sharedPassivePoints(level: number): number {
   return level >= 10 ? MAX_SHARED_PASSIVE_POINTS : 0;
 }
 
-/** Points already spent in each pool (ignores unknown/wrong-nation ids rather than throwing, same
- * as `resolveTree` -- used to report `MonState.treePoints`/`sharedPassivePoints` without
- * re-validating a stored tree that was valid when it was written). */
+/** A roster node this nation may own (shared branches, or its own column). */
+function ownNode(nation: Nation, id: string): TreeNode | undefined {
+  const node = TREE_NODES[id];
+  return node && (!node.nation || node.nation === nation) ? node : undefined;
+}
+
+/** Points already spent in each pool: `nation` is the one tree pool (all five branches), `shared`
+ * the main-passive pool. Ignores unknown and other-nation ids rather than throwing, same as
+ * `resolveTree` -- used to report `MonState.treePoints`/`sharedPassivePoints` without
+ * re-validating a stored tree that was valid when it was written. */
 export function treeSpent(
   nation: Nation,
   ranks: Record<string, number> | undefined,
@@ -696,8 +533,7 @@ export function treeSpent(
       if (node && id === equippedMainPassive(ranks)) sharedSpent += node.cost;
       continue;
     }
-    const node = TREE_NODES[id];
-    if (node && node.nation === nation) nationSpent += node.cost;
+    nationSpent += ownNode(nation, id)?.cost ?? 0;
   }
   return { nation: nationSpent, shared: sharedSpent };
 }
@@ -706,6 +542,7 @@ export function treeSpent(
 
 export type TreeErrorCode =
   | 'TREE_UNKNOWN_NODE'
+  | 'WRONG_NATION'
   | 'TREE_RANK'
   | 'TREE_PREREQ'
   | 'TREE_OVER_BUDGET'
@@ -713,17 +550,11 @@ export type TreeErrorCode =
   | 'TREE_CHOICE_LIMIT';
 export type ValidateTreeResult = { ok: true } | { ok: false; code: TreeErrorCode; reason: string };
 
-function findNode(nation: Nation, id: string): TreeNode | SharedPassiveNode | undefined {
-  if (isSharedPassiveId(id)) return SHARED_PASSIVE_BY_ID[id];
-  const node = TREE_NODES[id];
-  return node && node.nation === nation ? node : undefined;
-}
-
 /**
- * Pure validation for `set-loadout`: every node exists (for this mon's nation, or the shared
- * pool), every rank is a non-negative integer within the node's `maxRank`, every node's prereq
- * (>=1 rank in the previous tier of the same branch) is met, and the total spent in each pool
- * stays within its budget for `level`.
+ * Pure validation for `set-loadout`: every node exists (a shared branch, this mon's own nation
+ * column, or the shared main-passive pool), every rank is a non-negative integer within the
+ * node's `maxRank`, at most one node per fork is bought, every node's prerequisite is met, and
+ * the total spent in each pool stays within its budget for `level`.
  */
 export function validateTree(
   nation: Nation,
@@ -745,7 +576,14 @@ export function validateTree(
     if (!Number.isInteger(rank) || rank < 0) {
       return { ok: false, code: 'TREE_RANK', reason: `${id}: rank must be a non-negative integer` };
     }
-    const node = findNode(nation, id);
+    const treeNode = TREE_NODES[id];
+    if (treeNode?.nation && treeNode.nation !== nation)
+      return {
+        ok: false,
+        code: 'WRONG_NATION',
+        reason: `${id} belongs to the ${treeNode.nation} column, not ${nation}`,
+      };
+    const node = isSharedPassiveId(id) ? SHARED_PASSIVE_BY_ID[id] : treeNode;
     if (!node)
       return { ok: false, code: 'TREE_UNKNOWN_NODE', reason: `unknown talent node: ${id}` };
     if (rank > node.maxRank) {
@@ -755,18 +593,18 @@ export function validateTree(
         reason: `${id}: rank ${rank} exceeds max ${node.maxRank}`,
       };
     }
-    if ('prereqId' in node) {
-      if (treeChoiceConflict(node, ranks))
+    if (treeNode) {
+      if (treeChoiceConflict(treeNode, ranks))
         return {
           ok: false,
           code: 'TREE_CHOICE_LIMIT',
-          reason: `${node.name}: choose only one alternative at this fork.`,
+          reason: `${treeNode.name}: choose only one alternative at this fork.`,
         };
-      if (!treePrerequisiteMet(node, ranks))
+      if (!treePrerequisiteMet(treeNode, ranks))
         return {
           ok: false,
           code: 'TREE_PREREQ',
-          reason: `${id} requires one of ${(node.prereqIds ?? [node.prereqId]).join(', ')} first`,
+          reason: `${id} requires one of ${(treeNode.prereqIds ?? [treeNode.prereqId]).join(', ')} first`,
         };
     }
     if (isSharedPassiveId(id)) {
@@ -778,7 +616,7 @@ export function validateTree(
     return {
       ok: false,
       code: 'TREE_OVER_BUDGET',
-      reason: `spent ${nationSpent} nation talent points, only ${nationBudget} available at level ${level}`,
+      reason: `spent ${nationSpent} talent points, only ${nationBudget} available at level ${level}`,
     };
   }
   const sharedBudget = sharedPassivePoints(level);
@@ -793,9 +631,41 @@ export function validateTree(
 }
 
 /**
+ * Saved-tree normalization (spec 8.6, addendum 9.6), run on every read path: keeps the equipped
+ * main passive and every roster node this nation may own (rank clamped to 1), drops everything
+ * else (v13 ids such as `water:current:1`, other nations' columns, unknown ids), then refunds
+ * nodes whose prerequisite is missing or whose fork already has a kept alternative until the
+ * structure is valid. The budget is left to `validateTree`. `legacyReset` is true when anything
+ * with a positive rank was dropped or refunded.
+ */
+export function normalizeTree(
+  nation: Nation,
+  ranks: Record<string, number> = {},
+): { tree: Record<string, number>; legacyReset: boolean } {
+  const main = equippedMainPassive(ranks);
+  const tree: Record<string, number> = {};
+  let legacyReset = false;
+  for (const [id, rank] of Object.entries(ranks)) {
+    if (!(rank > 0)) continue;
+    if (id === main || ownNode(nation, id)) tree[id] = 1;
+    else legacyReset = true;
+  }
+  for (let changed = true; changed;) {
+    changed = false;
+    for (const node of treeNodesFor(nation)) {
+      if (!tree[node.id]) continue;
+      if (!treePrerequisiteMet(node, tree) || treeChoiceConflict(node, tree)) {
+        delete tree[node.id];
+        changed = legacyReset = true;
+      }
+    }
+  }
+  return { tree, legacyReset };
+}
+
+/**
  * True when going from `prev` to `next` lowers any node's rank -- the design doc's respec
- * definition ("a respec is any change that lowers a node's rank"), checked by `validateLoadout`
- * against the free-below-level-10 / once-per-7-days rule.
+ * definition ("a respec is any change that lowers a node's rank"); respecs are free.
  */
 export function isRespec(prev: Record<string, number>, next: Record<string, number>): boolean {
   for (const [id, prevRank] of Object.entries(prev)) {
@@ -804,7 +674,8 @@ export function isRespec(prev: Record<string, number>, next: Record<string, numb
   return false;
 }
 
-/** `{ branch: { nodeName: rank } }` grouping for a snapshot/UI summary of a spent tree. */
+/** `{ branchLabel: { nodeName: 1 } }` grouping for a snapshot/UI summary of a spent tree; the main
+ * passive is grouped under "Shared". */
 export function treeSummary(
   nation: Nation,
   ranks: Record<string, number>,
@@ -812,23 +683,21 @@ export function treeSummary(
   const out: Record<string, Record<string, number>> = {};
   for (const [id, rank] of Object.entries(ranks)) {
     if (!rank) continue;
-    const node = findNode(nation, id);
-    if (!node) continue;
-    const branch = isSharedPassiveId(id) ? 'Shared' : (node as TreeNode).branch;
-    (out[branch] ??= {})[node.name] = 1;
+    if (isSharedPassiveId(id)) {
+      const passive = SHARED_PASSIVE_BY_ID[id];
+      if (passive) (out.Shared ??= {})[passive.name] = 1;
+      continue;
+    }
+    const node = ownNode(nation, id);
+    if (node) (out[treeBranchLabel(node)] ??= {})[node.name] = 1;
   }
   return out;
 }
 
 // --- resolved tree (battle-ready summary) ------------------------------------------------------
 
-export interface MoveUpgrade {
-  effectMult: number;
-  powerMult: number;
-}
-
-/** Every shared-passive slug this phase wires into `simulateBattle` (docs/design/talent-tree.md
- * Shared passives); matches `SHARED_PASSIVE_NODES`' slugs 1:1. */
+/** Every shared-passive slug wired into `simulateBattle` (docs/design/talent-tree.md Shared
+ * passives); matches `SHARED_PASSIVE_NODES`' slugs 1:1. */
 export type SharedPassiveSlug =
   | 'stone-skin'
   | 'deep-roots'
@@ -841,79 +710,42 @@ export type SharedPassiveSlug =
   | 'second-breath'
   | 'ember-heart';
 
-/** A mon's purchased stats, upgrades, capstones and nation/shared passives for battle. */
+/** A mon's active tree node ids and equipped main passive, as `simulateBattle` reads them. */
 export interface ResolvedTree {
-  statBonusPct: Partial<Record<StatKey, number>>;
-  moveUpgradeBySlot: Partial<Record<LoadoutSlot, MoveUpgrade>>;
-  capstones: CapstoneEffect[];
+  nodes: ReadonlySet<string>;
   sharedPassives: ReadonlySet<SharedPassiveSlug>;
-  passives: ReadonlySet<string>;
 }
-
-const EMPTY_RESOLVED_TREE: ResolvedTree = {
-  statBonusPct: {},
-  moveUpgradeBySlot: {},
-  capstones: [],
-  sharedPassives: new Set(),
-  passives: new Set(),
-};
 
 /**
  * Reduces a mon's raw `{ [nodeId]: rank }` tree into the shape `simulateBattle` reads. Pure and
- * cheap enough to call once per side per battle; ignores unknown ids and ids from the wrong
- * nation rather than throwing, since a stored tree should never invalidate an otherwise-playable
+ * cheap enough to call once per side per battle; ignores unknown ids and other nations' column
+ * ids rather than throwing, since a stored tree should never invalidate an otherwise-playable
  * battle (mirrors `resolveLoadoutMoves`'s "repair, don't throw" stance for stale move ids).
  */
 export function resolveTree(
   nation: Nation,
   ranks: Record<string, number> | undefined,
 ): ResolvedTree {
-  if (!ranks) return EMPTY_RESOLVED_TREE;
-  const statBonusPct: Partial<Record<StatKey, number>> = {};
-  const moveUpgradeBySlot: Partial<Record<LoadoutSlot, MoveUpgrade>> = {};
-  const capstones: CapstoneEffect[] = [];
+  const nodes = new Set<string>();
   const sharedPassives = new Set<SharedPassiveSlug>();
-  const passives = new Set<string>();
-  for (const [id, rank] of Object.entries(ranks)) {
-    if (!rank || rank < 1) continue;
-    if (isSharedPassiveId(id)) {
-      if (SHARED_PASSIVE_BY_ID[id] && id === equippedMainPassive(ranks))
-        sharedPassives.add(id.slice('shared:'.length) as SharedPassiveSlug);
-      continue;
-    }
-    const node = TREE_NODES[id];
-    if (!node || node.nation !== nation) continue;
-    if (node.passive) passives.add(node.passive);
-    if (node.kind === 'stat' && node.stat) {
-      statBonusPct[node.stat] =
-        (statBonusPct[node.stat] ?? 0) + (node.statBonusPct ?? STAT_PCT_PER_RANK);
-    } else if (node.kind === 'moveUpgrade') {
-      moveUpgradeBySlot[node.slot] = {
-        effectMult: MOVE_UPGRADE_EFFECT_MULT,
-        powerMult: MOVE_UPGRADE_POWER_MULT,
-      };
-    } else if (node.kind === 'capstone' && node.capstone) {
-      capstones.push(node.capstone);
-    }
+  const main = equippedMainPassive(ranks);
+  if (main) sharedPassives.add(main.slice('shared:'.length) as SharedPassiveSlug);
+  for (const [id, rank] of Object.entries(ranks ?? {})) {
+    if (rank > 0 && ownNode(nation, id)) nodes.add(id);
   }
-  return { statBonusPct, moveUpgradeBySlot, capstones, sharedPassives, passives };
+  return { nodes, sharedPassives };
 }
 
-/** Wild Mons invest in one identity branch; their unspent points keep fallback fights forgiving. */
-export function defaultBotTree(nation: Nation, level: number): Record<string, number> {
-  const budget = pointsAvailable(level);
+/** Wild Mons buy the shared Strike centre route `strike:1` to `strike:6` tier by tier and never a
+ * nation column; their unspent points keep fallback fights forgiving. */
+export function defaultBotTree(_nation: Nation, level: number): Record<string, number> {
   const ranks: Record<string, number> = {};
-  if (budget <= 0) return ranks;
-  const branch = nationNodes(nation)
-    .filter((n) => n.tier <= 6 && n.branch === nationNodes(nation)[0]!.branch)
-    .sort((a, b) => a.tier - b.tier);
-  let remaining = budget;
-  for (const node of branch) {
-    if (remaining <= 0) break;
-    const affordableRanks = Math.min(node.maxRank, Math.floor(remaining / node.cost));
-    if (affordableRanks <= 0) continue;
-    ranks[node.id] = affordableRanks;
-    remaining -= affordableRanks * node.cost;
+  let remaining = pointsAvailable(level);
+  for (let tier = 1; tier <= 6; tier++) {
+    const node = TREE_NODES[`strike:${tier}`]!;
+    if (node.cost > remaining) break;
+    ranks[node.id] = 1;
+    remaining -= node.cost;
   }
   return ranks;
 }

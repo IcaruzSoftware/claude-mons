@@ -1,93 +1,203 @@
 ---
 doc_type: design
-purpose: "Read this when changing talent-tree nodes, budgets, respec rules, or the loadout editor's Talents section."
+purpose: "Read this when changing talent-tree nodes, budgets, forks, saved-tree normalization, respec behaviour or the Skill Tree editor."
 audience: agent
-last_verified: 2026-10-04
-last_verified_commit: 0d5dfe3
+last_verified: 2026-10-09
+last_verified_commit: 64b6667
 related_files:
   - packages/shared/src/game/tree.ts
-  - packages/shared/src/battle/battle.ts
-  - packages/shared/src/battle/effects.ts
   - packages/shared/src/game/progression.ts
+  - packages/shared/src/battle/treeRules.ts
+  - packages/shared/src/battle/effects.ts
+  - packages/shared/src/battle/battle.ts
   - packages/shared/test/tree.test.ts
-  - packages/shared/test/treeCombos.test.ts
+  - packages/shared/test/treeNodes.test.ts
+  - packages/shared/test/treeInvariants.test.ts
   - packages/shared/test/balance.test.ts
-  - supabase/functions/set-loadout/index.ts
+  - apps/desktop/src/main/game/loadout.ts
+  - apps/desktop/src/renderer/panel/views/SkillTree.tsx
   - apps/desktop/src/renderer/panel/views/Battles.tsx
+  - supabase/functions/_shared/loadout.ts
+  - supabase/functions/set-loadout/index.ts
+  - supabase/functions/battle-request/index.ts
+  - docs/design/battle-steps.md
   - docs/design/progression.md
+  - docs/decisions/0022-talent-tree-v2.md
 ---
 
 # Talent tree
 
-Each nation has four radial twelve-stage paths: its original three identity branches, plus Flow, an
-optional branch for move-order combos. Ten main passives use a separate three-point pool, with exactly one equipped alongside one free stance. All talents
-are single purchases; move slots also require three distinct attacks. The exact node names, costs,
-prerequisites and descriptions are data in `packages/shared/src/game/tree.ts`. The battle effects
-are implemented in `packages/shared/src/battle/battle.ts`.
+Since battle protocol 14 a mon's tree is five columns of 17 single-purchase nodes: four shared
+branches (Bastion, Strike, Ward, Tempo) and one nation column for the mon's own nation. Every node
+is an event-triggered battle rule; none adds a stat. The roster (136 nodes: 4 x 17 shared plus
+4 x 17 nation columns) is data in `packages/shared/src/game/tree.ts`; its node names,
+prerequisites, trigger steps, caps and one-sentence descriptions live only there, and
+`packages/shared/test/tree.test.ts` pins every node's name, effect, trigger, cap and
+once-per-battle flag, and checks the costs and prerequisites structurally. This doc
+describes the structure and the rules around the roster. How the engine runs the rules is in
+[battle-steps.md](battle-steps.md); why the tree looks like this is in
+[ADR 0022](../decisions/0022-talent-tree-v2.md).
 
-## Budget and saved trees
+## Branches
 
-One nation point arrives per level from level 4, up to 47 at level 50. Each path costs exactly
-47 to finish: the original six nodes cost 1/1/2/2/3/5 (14 total), followed by six mastery nodes
-costing 4/5/5/6/6/7 (33 total). Any one path can consume the full level-50 budget without
-buying another path. Each mastery fork has three alternatives at tiers 7 and 10. Choose one per fork; tiers 8 and 11 accept any of those choices. Four default routes cost 188; all available nodes cost 268, so specialization remains necessary.
-Tier 1/2 grant +0.33% of the path's stat each; tiers 3/4 have battle effects; tier 5 upgrades a
-move slot; tier 6 is the original capstone. Tiers 7 and 10 offer offensive, defensive or tempo
-alternatives with small stat bonuses and conditional battle effects. Tiers 8 and 11 grant
-once-per-battle recovery, tier 9 improves favorable element hits, and tier 12 strengthens the
-first landed hit. Effects bought in separate paths stack. The original node IDs and point costs
-stay stable for saved trees.
-
-Main passives cost three separate points; this pool grants three at level 10 and stays capped
-at three. Exactly one may be equipped. The passives sit directly in the gaps between the four
-paths, without containers or connections. Their only unlock gate is level 10. Normal nation
-skills and Flow bonuses remain combinable; they do not occupy the main-passive slot. A free
-stance occupies its own independent slot. Unselected passives dim while one is equipped.
-
-Legacy multi-ranks resolve as one purchase. Legacy multiple main passives resolve to the first
-owned entry in the stable shared-passive roster; extra purchases cease consuming points. The
-next automatic edit submits this normalized map. The server tolerates trusted previously-owned
-multi-ranks/passives only to normalize them; new duplicates or multiple main passives are rejected.
-
-Left click purchases and autosaves immediately. Right click refunds a node and its dependants.
-Reset all clears the tree and stance selection immediately, with no cooldown or cost.
-Failed saves visibly restore the last confirmed allocation and permit retry. Skill edits never
-submit unsaved attack drafts. No database migration is needed because loadouts are JSON.
-
-## Flow combos
-
-Flow appears alongside the three other nation branches. The player arranges the three distinct move
-slots and buys the Flow nodes; combat executes itself. Nodes require the previous Flow tier:
-
-| Tier | Talent | Automatic effect, at most once per battle |
+| Branch | Id prefix | Identity |
 |---|---|---|
-| 1 | Quick Setup | Unlocks the opening setup combo: a landed Burn or DEF-down opener empowers a different offensive follow-up. Also, after Priority, a different Burn or DEF-down move cannot miss and deals +5% damage once. |
-| 2 | Expose Weakness | True hit against a DEF-down target deals +4% damage. |
-| 3 | Kindled Recovery | Drain against a burning target heals an extra 3% max HP. |
-| 4 | Rhythm | The third distinct consecutive landed move deals +5% damage. |
-| 5 | Patient Followup | Charge release against a burned or DEF-down target deals +5% damage. |
-| 6 | Flow State | The third distinct consecutive landed move heals 4% max HP. |
+| Bastion | `bastion:` | Standing defensive rules keyed on HP lines and HP leads: cancelled crits, refused statuses, held HP, early finishers. Its nodes have kind `passive` in the editor, except the capstones (tiers 6 and 12). |
+| Strike | `strike:` | Offense that rewards finishing: guaranteed crits, undodgeable and piercing follow-ups, larger crit multipliers against a weakened foe. |
+| Ward | `ward:` | Denial and survival: refused statuses, voided hits, HP clamps, a knockout hold, small heals, a damage cap. |
+| Tempo | `tempo:` | Turn order and move sequencing: Priority control, the opening combo, acting first, charge releases. |
+| Nation column | `nation.<nation>:` | One column per nation, buildable only by mons of that nation (see Nation lock). |
 
-The other branches' tier-3/4 effects are active too: debuffs, burn, drain, shields, dodge, speed,
-critical hits and counterplay. On one hit, only the strongest regular talent damage bonus and the
-strongest Flow damage bonus apply; this prevents multiplying many bought talents into a huge hit.
-Specific numbers stay in `packages/shared/src/game/tree.ts` descriptions and
-`packages/shared/src/battle/battle.ts` formulas. The triggered Flow name
-is stored as `BattleAction.comboTalent` and displayed during playback.
+The nation columns build on the nation trait in `packages/shared/src/game/nations.ts`:
 
-Wild Mons receive a default tree down their first nation branch, limited to the original six tiers to preserve fallback difficulty. Battle snapshots
-keep the tree and protocol version, so prior logs are read from stored results rather than rerun
-under new rules. Protocol 9 adds combo talents and a finisher that normally fires on turn 3–4,
-allowing more equipped attacks to appear.
+| Nation | Trait | Column theme |
+|---|---|---|
+| Fire | Kindle (ignite) | "Heat": the foe carries a Burn or a move-applied DEF-down; payoffs arm from landing or ending it. |
+| Water | Soak | A soaked foe: order suppression, refusals and crit arming while the soak is live or expires. |
+| Earth | Stonehide | Hit streaks: payoffs from taking direct hits on consecutive turns, HP clamps; the tank column. |
+| Air | Tailwind | Speed lead and dodges: payoffs from acting first with a lead or from dodging. |
 
-## Verification and balance
+The editor marks a node inert when the mon's loadout cannot trigger it (`treeNodeInertNote` in
+`apps/desktop/src/renderer/panel/views/SkillTree.tsx`; the rules are in `docs/design/ui-panels.md`).
+The `tempo:1` and `tempo:9` nodes are inert in every default loadout and are tested with an enabling
+loadout instead.
 
-`packages/shared/test/tree.test.ts` checks node counts, costs, prerequisites, single purchases,
-legacy-rank conversion and server validation. `packages/shared/test/treeCombos.test.ts` verifies
-prepared Flow triggers in deterministic battles. The desktop render test checks visible Flow
-choices, immediate persistence, ordered rapid edits, error recovery, one main passive plus stance, prerequisite refunds and legacy conversion.
+## Shape of a column
 
-The cross-species and archetype bounds in `packages/shared/test/balance.test.ts` remain unchanged.
-A near-budget-maxed four-branch tree wins about 72% against an empty tree at level 50 (60–73%
-limit). The three identity-path mirror matchups stay within 40–60% at levels 30 and 50, using legal level budgets. Flow is setup-dependent
-and is tested with a prepared move order instead of a default loadout that may not activate it.
+Each column has twelve tiers and 17 nodes. Ids are `<branch>:<tier>`, `nation.<nation>:<tier>`,
+with `:alt` (tier 3) or `:left` / `:right` (tiers 7 and 10) on a fork alternative.
+
+| Tier | Nodes | Role |
+|---|---|---|
+| 1, 2 | one each | Entry nodes on a single line. |
+| 3 | centre and `:alt` | Two-way fork (choice group); choose one. |
+| 4 | one | Joins the fork: either alternative of tier 3 satisfies it (`prereqIds`). |
+| 5 | one | Single line. |
+| 6 | one | First capstone (kind `capstone`). |
+| 7 | centre, `:left`, `:right` | Three-way fork. |
+| 8 | one | Joins the tier-7 fork. |
+| 9 | one | Single line. |
+| 10 | centre, `:left`, `:right` | Three-way fork. |
+| 11 | one | Joins the tier-10 fork. |
+| 12 | one | Second capstone. |
+
+Every node has `maxRank` 1. The prerequisite of tier N is the centre node of tier N-1 unless the
+node is a join (tiers 4, 8, 11), which accepts any alternative of the previous fork.
+`treeChoiceConflict` rejects two alternatives of one fork. Tier costs are 1/1/2/2/3/5/4/5/5/6/6/7 for
+every alternative of a tier, so any complete route through one column costs exactly 47.
+
+## Budget
+
+| Pool | Size | Spent on |
+|---|---|---|
+| Tree pool | `pointsAvailable(level)` = `min(level, 50) - 3`, so 1 at level 4 and 47 at level 50 | Nodes of all five columns together |
+| Main-passive pool | 3 points from level 10 (`sharedPassivePoints`) | One main passive from `SHARED_PASSIVE_NODES`, cost 3 |
+
+One pool serves all five columns, so a mon at level 50 can finish exactly one column or split the 47
+points across several. At most one main passive is equipped; the stance is a free, independent
+choice (`docs/design/progression.md`). Stats are not touched by the tree; the main passives and
+stances keep their own battle effects.
+
+## Nation lock
+
+A mon sees and may buy only its own nation column. `validateTree` returns `WRONG_NATION` for another
+nation's node and `TREE_UNKNOWN_NODE` for an unknown id. `resolveTree` and `treeSpent` silently
+ignore other nations' ids so a stored tree never invalidates a battle, while `simulateBattle` throws
+`UnknownTreeIdError` for an id that is neither shared, own-nation nor a main passive.
+
+Other validation codes: `TREE_RANK`, `TREE_PREREQ`, `TREE_OVER_BUDGET`, `TREE_PASSIVE_LIMIT`,
+`TREE_CHOICE_LIMIT`. They surface through `validateLoadout` in
+`packages/shared/src/game/progression.ts` and the `set-loadout` Edge Function.
+
+## Rules every node follows
+
+A node names a trigger step (one of the `TreeStep` ids in [battle-steps.md](battle-steps.md)), an
+effect, and a cap:
+
+| Cap | Meaning |
+|---|---|
+| `battle` | Once per battle, spent when the rule changes an outcome |
+| `turn` | Once per turn |
+| `pending` | Arms a payoff for the next action; may re-arm at most once per turn |
+| `state` | Applies whenever its condition holds |
+
+- **Payoffs.** A pending node arms one of three booleans for the owner's next action: cannot be
+  dodged, guaranteed crit, or pierces the foe's tree defenses. At most one payoff per kind is armed;
+  arming again refreshes its expiry and keeps the first source. It is consumed by the next direct
+  action, lost if that turn has none, and expires at turn start two turns after arming. Each arming,
+  use, loss and expiry is logged.
+- **Pierce.** A piercing action bypasses the foe's tree defenses (cancelled crits, refusals, voids,
+  clamps), never the base mechanics.
+- **One damage factor.** At the damage step at most one tree factor applies: the largest of the
+  crit-multiplier overrides and the opening combo. The others stay unspent.
+- **One denial.** A foe's action is denied by at most one rule per turn, and an action denied last
+  turn is not denied again (control rest). The losing rule writes a `denied` entry and keeps its flag.
+- **No new draws.** Rules read state and may overwrite or defer a draw the base mechanics made; a
+  rule that needs its own random draw is not allowed.
+- **Conflicting sources** of one boolean are credited by cap rank, then shared before nation, then
+  lower tier.
+
+## Battle log
+
+Every fired rule writes a `TreeTrigger` (`side`, `node`, `step`, `effect`, `detail`). Action-level
+steps go to `BattleAction.treeTriggers`, turn-level steps to `BattleTurn.treeTriggers`; the array is
+absent when nothing fired, so protocol-13 logs read unchanged. The table and the player's banner
+playback are described in [battle-steps.md](battle-steps.md) and `docs/design/ui-panels.md`.
+
+## Saved-tree normalization
+
+`normalizeTree(nation, ranks)` runs on every read path: it keeps the equipped main passive and every
+roster node the nation may own (rank clamped to 1), drops everything else (protocol-13 ids such as
+`water:current:1`, other nations' columns, unknown ids), then refunds nodes whose prerequisite is
+missing or whose fork already has a kept alternative. It returns `legacyReset`, true when anything
+with a positive rank was dropped or refunded. Budgets are left to `validateTree`.
+
+| Where | What happens |
+|---|---|
+| `apps/desktop/src/main/game/loadout.ts` | `normalizeLocalTree` rebuilds the stored tree on profile load and sets `treeLegacyReset` until the next tree save |
+| `supabase/functions/_shared/loadout.ts` | `normalizedLoadout` runs in `set-loadout` and `battle-request` for both fighters, using the species' nation |
+| `supabase/functions/_shared/monState.ts` | `buildMonState` / `monStateFor` normalize on the read path behind `ingest-xp`, `create-profile` and `set-loadout` responses and set `MonState.treeLegacyReset`; `apps/desktop/src/main/net/account.ts` adopts it |
+| Skill Tree HUD and Battles panel | While `treeLegacyReset` is set both show a one-line notice that the tree was rebuilt, removed skills were dropped and their points are back in the pool |
+
+An old tree therefore resets without a database migration (loadouts are JSON); old battle logs
+replay from their stored result and snapshot, never re-simulated. Any `set-loadout` (also a
+stance- or moves-only save) writes the normalized tree back, so a second device that signs in
+afterwards gets the clean tree without the notice.
+
+## Editing and respec
+
+Left click buys a node and autosaves; right click refunds it and its dependants; Reset all clears the
+tree and stance with no cooldown or cost. A respec is any change that lowers a node's rank
+(`isRespec`) and is always free. Saves run one at a time. A definite server rejection (4xx) restores
+the previous local loadout; after a network error or 5xx the change is kept with an "unconfirmed"
+warning, and the next change syncs it (`apps/desktop/src/main/game/loadout.ts`). The map layout and
+HUD are in `docs/design/ui-panels.md`; the editor is `apps/desktop/src/renderer/panel/views/SkillTree.tsx`.
+
+## Bot trees
+
+Wild and Trainer opponents in matchmaking and the offline fallback fight with no tree
+(`apps/desktop/src/main/game/BattleService.ts` and `supabase/functions/battle-request/index.ts` pass an
+empty tree). `defaultBotTree` applies only to a snapshot with `playerId` null and no stored tree, such
+as the trained bots in `packages/shared/test/fairBattles.test.ts`: the shared Strike
+centre route, bought tier by tier up to the level's points and capped at tier 6, never a nation column
+or main passive.
+
+## Tests and balance
+
+| Test | Proves |
+|---|---|
+| `packages/shared/test/tree.test.ts` | Pinned roster, costs, prerequisites, forks, nation lock, validation, normalization |
+| `packages/shared/test/treeNodes.test.ts` | One scenario per node and worked interactions |
+| `packages/shared/test/treeInvariants.test.ts` | Determinism, draw-site, one-factor and control-rest invariants over random trees; every node fires |
+| `apps/desktop/test/talentEditor.render.test.tsx` | Editor behaviour: purchase, refund, autosave, errors, legacy notice |
+
+The balance bounds (route mirrors, fork bands, capstone fire rates, the Tempo Lock archetype gate,
+the nation round-robin) are the talent-tree bullet under "Balance targets" in
+[progression.md](progression.md), enforced by `packages/shared/test/balance.test.ts`.
+
+## Changing the roster
+
+Edit `packages/shared/src/game/tree.ts` and its rule in `packages/shared/src/battle/treeRules.ts`
+together, update the pinned roster in `packages/shared/test/tree.test.ts` and the scenario in
+`packages/shared/test/treeNodes.test.ts`, then rerun the balance suite. A change that adds or
+removes an `rng()` call bumps `BATTLE_PROTOCOL_VERSION` and resets the golden log.

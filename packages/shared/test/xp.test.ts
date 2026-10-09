@@ -184,6 +184,11 @@ describe('days and streaks', () => {
     expect(r.state.streakDays).toBe(1);
   });
 
+  it('ignores a day on or before the last active day (late spooled events)', () => {
+    const s = { streakDays: 5, lastActiveDay: '2026-09-05' };
+    expect(activateDay(s, '2026-09-04')).toEqual({ state: s, bonus: 0 });
+  });
+
   it('caps the streak bonus at 7 days', () => {
     let s = { streakDays: 0, lastActiveDay: null as string | null };
     let bonus = 0;

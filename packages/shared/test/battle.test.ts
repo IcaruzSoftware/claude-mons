@@ -144,11 +144,72 @@ describe('simulateBattle', () => {
   });
 
   it('golden log: pins the protocol so client and server cannot drift', () => {
-    expect(BATTLE_PROTOCOL_VERSION).toBe(13);
+    expect(BATTLE_PROTOCOL_VERSION).toBe(14);
     const res = simulateBattle(snap('sparkit', 10, 'a'), snap('puffle', 10, 'b'), 'golden-1');
     // If this test fails after an intentional formula change, update the fixture AND bump the
     // battle protocol version in the Edge Function; old logs keep replaying from stored snapshots.
     expect(res.turns.length).toBeGreaterThan(0);
+    expect(res).toMatchSnapshot();
+  });
+
+  it('golden log with talent trees: pins the tree rules and both treeTriggers hosts', () => {
+    const tree = (ids: string[]) => Object.fromEntries(ids.map((id) => [id, 1]));
+    const wall = snapshotFor({
+      monId: 'a',
+      playerId: 'a',
+      nickname: 'a',
+      speciesId: 'pebblet',
+      stage: 'adult',
+      level: 40,
+      loadout: {
+        stance: 'bulwark',
+        moves: ['pebble-toss', 'landslide', 'monolith-drop'],
+        tree: tree([
+          'bastion:1',
+          'bastion:2',
+          'bastion:3',
+          'bastion:4',
+          'bastion:5',
+          'bastion:6',
+          'ward:1',
+          'ward:2',
+          'ward:3',
+          'ward:4',
+          'ward:5',
+          'ward:6',
+          'ward:7',
+        ]),
+      },
+    });
+    const burst = snapshotFor({
+      monId: 'b',
+      playerId: 'b',
+      nickname: 'b',
+      speciesId: 'cinderpup',
+      stage: 'adult',
+      level: 40,
+      loadout: {
+        stance: 'fury',
+        moves: ['hotfix-howl', 'ember-bite', 'overclock'],
+        tree: tree([
+          'strike:1',
+          'strike:2',
+          'strike:3',
+          'strike:4',
+          'strike:5',
+          'strike:6',
+          'strike:7',
+          'tempo:1',
+          'tempo:2',
+          'tempo:3',
+          'tempo:4',
+          'tempo:5',
+        ]),
+      },
+    });
+    const res = simulateBattle(wall, burst, 'golden-tree-1');
+    expect(res.turns.some((t) => t.treeTriggers?.length)).toBe(true);
+    expect(res.turns.some((t) => t.actions.some((x) => x.treeTriggers?.length))).toBe(true);
     expect(res).toMatchSnapshot();
   });
 

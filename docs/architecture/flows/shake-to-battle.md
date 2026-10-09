@@ -95,7 +95,9 @@ typed errors on the exact same conditions — the client cannot out-race its own
 the server directly. `RemoteBattleBackend` rethrows those three codes so `BattleService` turns them
 into the same refusals as above; any other failure (offline, network error, unrecognized code) is
 swallowed and treated as "no backend," and `BattleService.wildBattle` runs an offline battle against
-a Wild Mon from another nation using the shared bounded encounter distribution. The server path
+a Wild Mon from another nation using the shared bounded encounter distribution. When a backend is
+configured, that fallback is a practice battle (`practice: true`) with a reward of 0 XP that uses
+neither the cooldown nor the daily count, because the server never sees it. NPC battles on either path leave the win streak unchanged (only Rival wins count). The server path
 tries equal-level real opponents first, then expands to ±1 and ±3 levels, and falls back to that
 same distribution when no player qualifies. Recent-opponent and element-variety rules still apply.
 `isElite` labels the encounter in `BattlePlayMessage`/`BattleSummary`; XP comes from the actual

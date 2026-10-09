@@ -1,35 +1,26 @@
 // POST IngestXpRequest -> IngestXpResponse (DESIGN.md §6.2).
-// auth -> idempotency insert -> pure pipeline (caps, bonuses) -> apply_xp RPC -> events.
+// auth -> pure pipeline (caps, bonuses) -> apply_xp RPC (idempotency, persistence) -> events.
 import type { IngestEvent, IngestXpRequest, IngestXpResponse } from '../_shared/game/api.ts';
 import type { MinuteBucket } from '../_shared/game/game/xp.ts';
 import { requireUser } from '../_shared/auth.ts';
-import {
-  rpc,
-  serviceClient,
-  type MonRow,
-  type ServiceClient,
-  type XpMinuteRow,
-} from '../_shared/db.ts';
+import { rpc, serviceClient, type ServiceClient, type XpMinuteRow } from '../_shared/db.ts';
 import { error, json, readJson, serve } from '../_shared/http.ts';
 import { buildMonState } from '../_shared/monState.ts';
-import { emptyDayTotals, runIngestPipeline } from '../_shared/pipeline.ts';
-import { loadMonState, loadNotifications, loadPlayer, loadToday } from '../_shared/queries.ts';
+import {
+  loadMon,
+  loadMonState,
+  loadNotifications,
+  loadPlayer,
+  loadToday,
+} from '../_shared/queries.ts';
 import { randomUnit } from '../_shared/random.ts';
+import { creditBatch, type ApplyXpResult } from './credit.ts';
 
 const MAX_BODY_BYTES = 64 * 1024;
 const MAX_BUCKETS = 180;
 const HISTORY_WINDOW_MS = 25 * 60 * 60 * 1000;
-const UNIQUE_VIOLATION = '23505';
+const DAY_MS = 24 * 60 * 60 * 1000;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-interface ApplyXpResult {
-  mon: MonRow;
-  hatched: boolean;
-  level_before: number;
-  level_after: number;
-  stage_before: MonRow['stage'];
-  stage_after: MonRow['stage'];
-}
 
 serve(async (req) => {
   if (req.method !== 'POST') return error('BAD_REQUEST', 'POST only', 405);
@@ -50,14 +41,36 @@ serve(async (req) => {
   const player = await loadPlayer(db, uid);
   if (!player) return error('NO_PROFILE', 'create a profile first', 409);
 
-  // --- idempotency ------------------------------------------------------------------------------
-  const { error: batchError } = await db
-    .from('ingest_batches')
-    .insert({ batch_id: body.batch_id, player_id: uid });
-  if (batchError) {
-    if (batchError.code !== UNIQUE_VIOLATION) {
-      throw new Error(`ingest_batches: ${batchError.message}`);
-    }
+  // --- pipeline + apply_xp (idempotency lives in apply_xp's transaction, see credit.ts) --------------
+  const { out, applied, today, bonus } = await creditBatch(
+    {
+      loadWorkXp: async () => (await loadMon(db, uid))?.work_xp ?? null,
+      loadState: async (attempt) => {
+        const [history, todayRow, yesterday, fresh] = await Promise.all([
+          loadHistory(db, uid, now),
+          loadToday(db, uid, now),
+          loadToday(db, uid, new Date(now.getTime() - DAY_MS)),
+          attempt === 1 ? Promise.resolve(player) : loadPlayer(db, uid),
+        ]);
+        const p = fresh ?? player;
+        return {
+          history,
+          today: todayRow,
+          yesterday,
+          streak: { streakDays: p.streak_days, lastActiveDay: p.last_active_day },
+        };
+      },
+      applyXp: (deltas) =>
+        rpc<ApplyXpResult>(db, 'apply_xp', {
+          p_player: uid,
+          p_deltas: deltas,
+          p_species_roll: randomUnit(),
+        }),
+    },
+    { batchId: body.batch_id, now, buckets },
+  );
+
+  if (applied.duplicate) {
     const response: IngestXpResponse = {
       batch_id: body.batch_id,
       duplicate: true,
@@ -70,35 +83,6 @@ serve(async (req) => {
     };
     return json(response, 200);
   }
-
-  // --- pipeline -----------------------------------------------------------------------------------
-  const [history, today] = await Promise.all([loadHistory(db, uid, now), loadToday(db, uid, now)]);
-  const out = runIngestPipeline({
-    now: now.getTime(),
-    buckets,
-    history,
-    dayTotals: today
-      ? { prompts: today.prompts, stops: today.stops, toolXp: today.tool_xp, workXp: today.work_xp }
-      : emptyDayTotals(),
-    streak: { streakDays: player.streak_days, lastActiveDay: player.last_active_day },
-  });
-
-  const applied = await rpc<ApplyXpResult>(db, 'apply_xp', {
-    p_player: uid,
-    p_deltas: {
-      minutes: out.minutes.map((m) => ({
-        minute: new Date(m.minute).toISOString(),
-        prompts: m.prompts,
-        stops: m.stops,
-        tool_xp: m.toolXp,
-      })),
-      work_xp: out.awarded.total,
-      bonus_xp: out.bonus,
-      streak_days: out.dayActivated ? out.streak.streakDays : null,
-      last_active_day: out.dayActivated ? out.streak.lastActiveDay : null,
-    },
-    p_species_roll: randomUnit(),
-  });
 
   // --- events -------------------------------------------------------------------------------------
   const events: IngestEvent[] = [];
@@ -115,8 +99,8 @@ serve(async (req) => {
   ) {
     events.push({ type: 'evolved', stage: applied.stage_after });
   }
-  if (out.dayActivated) {
-    events.push({ type: 'streak', days: out.streak.streakDays, bonus: out.bonus });
+  if (out.dayActivated && bonus > 0) {
+    events.push({ type: 'streak', days: out.streak.streakDays, bonus, day: out.dayActivated });
   }
 
   // --- suspicion: more than half of a meaningfully large batch's claimed XP was dropped for a
@@ -134,7 +118,7 @@ serve(async (req) => {
   const response: IngestXpResponse = {
     batch_id: body.batch_id,
     duplicate: false,
-    awarded: { ...out.awarded, bonus: out.bonus, total: out.awarded.total + out.bonus },
+    awarded: { ...out.awarded, bonus, total: out.awarded.total + bonus },
     dropped: out.dropped,
     mon: buildMonState(
       applied.mon,
