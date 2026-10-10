@@ -2,8 +2,8 @@
 doc_type: architecture
 purpose: "Read this when changing where the pet's window is, how big it is, or how it behaves across displays and on Linux."
 audience: agent
-last_verified: 2026-09-13
-last_verified_commit: 44486b0
+last_verified: 2026-10-10
+last_verified_commit: d158dbe
 related_files:
   - apps/desktop/src/main/windows/PetWindow.ts
   - apps/desktop/src/main/PetHost.ts
@@ -12,6 +12,7 @@ related_files:
   - apps/desktop/src/main/tray/Tray.ts
   - packages/shared/src/behavior/reducer.ts
   - apps/desktop/test/display.test.ts
+  - apps/desktop/test/PetWindow.test.ts
   - docs/architecture/input-and-gestures.md
   - docs/decisions/0017-force-x11-backend-on-linux.md
   - docs/decisions/0018-compact-window-and-fail-closed-click-through.md
@@ -106,7 +107,7 @@ Window flags, all set in the `PetWindow` constructor unless noted:
 |---|---|---|
 | `transparent` | `true` | |
 | `frame` | `false` | |
-| `alwaysOnTop` | `true` | re-set via `setAlwaysOnTop(true, 'screen-saver')`; re-asserted every 5 s on win32 and Linux, and (with `moveTop()`) after every mode switch and on `show()` — see "Z-order re-assertion" below |
+| `alwaysOnTop` | `true` | checked every 5 s on win32 and Linux, after mode switches and on `show()`; Linux restores only a lost above state and never calls `moveTop()` — see "Z-order re-assertion" below |
 | `skipTaskbar` | `true` | |
 | `resizable` / `movable` | `false` | bounds are only ever changed programmatically |
 | `minimizable` / `maximizable` / `fullscreenable` | `false` | |
@@ -151,6 +152,13 @@ desktop app) after a drag. `PetWindow.reassertTopmost()` (`setAlwaysOnTop(true, 
 every 5 s on win32 while visible — `moveTop()` matters because a non-focusable topmost window
 (`focusable: false`) can still lose its place in the topmost z-order to another topmost window;
 re-asserting the flag alone does not always restore ordering, `moveTop()` does.
+
+Linux instead checks `isAlwaysOnTop()` and only restores a lost `_NET_WM_STATE_ABOVE`.
+On X11, even adding an already-present above state can raise the window; `moveTop()` also requests
+an explicit restack. Avoiding both requests lets the compositor retain its ordering of dock
+previews while the panel is open. Linux keeps the five-second recovery timer but leaves an
+already-topmost pet in place, including after show and mode changes. Windows/macOS keep their
+existing behavior. `apps/desktop/test/PetWindow.test.ts` covers both paths and timer teardown.
 
 ## World bounds, ground line, anchor memory
 
@@ -206,9 +214,8 @@ as an opaque black square.
 `PetWindow` by `PetHost`'s constructor on Linux) and `type: 'toolbar'` only on Linux, since some
 X11 window managers otherwise break always-on-top for unfocusable windows.
 
-`PetWindow.reassertTopmost()` runs every 5 s on Linux (as well as Windows) since some X11 window
-managers drop `_NET_WM_STATE_ABOVE` after focus changes; this is triggered by the always-on-top
-re-assertion timer (not just mode switches as on Windows).
+`PetWindow.reassertTopmost()` checks every 5 s on Linux (as well as Windows) since some X11 window
+managers drop `_NET_WM_STATE_ABOVE` after focus changes; Linux restores only a missing above state.
 
 ## Test coverage
 
@@ -217,7 +224,8 @@ re-assertion timer (not just mode switches as on Windows).
 | `apps/desktop/src/main/display.ts` (world bounds, `compactBounds`/`battleBounds`/`motionBounds`, `needsHop`, `canHopFollow`, `nextArenaMode` mode-transition table, `clampRectToArea`, display lookup, anchor memory, `toIntPoint`/`toIntRect`, fractional-work-area rounding) | Unit-tested, `apps/desktop/test/display.test.ts` |
 | Banner wrap/shrink/truncate and HUD-clamp helpers (`apps/desktop/src/renderer/pet/bannerFit.ts`) | Unit-tested, `apps/desktop/test/bannerFit.test.ts` |
 | Reducer `world:bounds` clamp and `world:recenter` recovery | Unit-tested, `packages/shared/test/behavior.test.ts` |
-| `PetWindow`, `PetHost`, `HoverCardWindow` (actual window flags, always-on-top/z-order behavior, transparency, crash-log handlers, battle arena mode switch, motion-mode drag/fall/landing) | No automated test — Electron-coupled; verified manually on Windows (see [ADR 0018](../decisions/0018-compact-window-and-fail-closed-click-through.md)); the mode-transition decision itself is a pure, tested function (`nextArenaMode`/`canHopFollow`, see "Motion mode" above) |
-| Linux window flags, `enable-transparent-visuals`, the 300 ms boot delay, XWayland behavior | No automated test; not covered by the manual Windows verification either |
+| `PetWindow` topmost recovery | Electron-mocked unit tests in `apps/desktop/test/PetWindow.test.ts`: Linux avoids redundant raises, recovers lost above state, preserves Windows/macOS behavior, skips hidden/destroyed windows and clears the timer |
+| Native Linux input | `scripts/linux-e2e/probe.mjs` exercises real pointer input under X11 and XWayland. The non-focusable pet is override-redirect, so EWMH client-list tests cannot verify its stacking; actual GNOME dock previews still require a desktop smoke test |
+| Other Electron window behavior (transparency, crash-log handlers, arena geometry) | Manual Windows verification ([ADR 0018](../decisions/0018-compact-window-and-fail-closed-click-through.md)); pure geometry and mode-transition decisions are unit-tested as listed above |
 
 Click-through and gesture coverage is listed in `docs/architecture/input-and-gestures.md`.
