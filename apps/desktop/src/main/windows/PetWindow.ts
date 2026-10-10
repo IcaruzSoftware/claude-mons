@@ -154,8 +154,8 @@ export class PetWindow {
     if (process.platform === 'win32' || process.platform === 'linux') {
       // Other topmost windows can cover us; re-asserting is cheap. moveTop() also helps on
       // Windows, where a non-focusable topmost window can still end up behind another topmost
-      // window depending on z-order history (see reassertTopmost()). X11 window managers can
-      // likewise drop _NET_WM_STATE_ABOVE after focus changes, so Linux re-asserts too.
+      // window depending on z-order history (see reassertTopmost()). Linux only restores a lost
+      // _NET_WM_STATE_ABOVE, avoiding repeated restack requests during dock previews.
       this.topmostTimer = setInterval(() => {
         if (!this.win.isDestroyed() && this.win.isVisible()) this.reassertTopmost();
       }, 5000);
@@ -403,7 +403,9 @@ export class PetWindow {
    *  and the actual z-order position is cheap and fixes it. */
   private reassertTopmost(): void {
     if (this.win.isDestroyed()) return;
+    // X11 ABOVE additions can raise an already-topmost window and disrupt dock previews.
+    if (IS_LINUX && this.win.isAlwaysOnTop()) return;
     this.win.setAlwaysOnTop(true, 'screen-saver');
-    this.win.moveTop();
+    if (!IS_LINUX) this.win.moveTop();
   }
 }
